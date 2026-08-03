@@ -1,0 +1,294 @@
+name: Release NekoSuneAI
+
+# Tag-push-triggered: build Windows/Linux installers (with the full voice/TTS
+# stack via NekoSuneAI.spec, see the 1.1.9 changelog for why paths.py/
+# launcher.py had to become PyInstaller-frozen-safe first), publish the Linux
+# packages into the shared NekoSuneProjects/packages apt/yum/alpine repos,
+# cut a GitHub Release with changelog-derived notes, then announce on Discord.
+#
+# GitHub-hosted runners only (windows-latest/ubuntu-latest) - no self-hosted
+# runner detection.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+env:
+  PYTHON_VERSION: "3.10.11"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build deps
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-voice.txt -r requirements-gui.txt pyinstaller
+
+      - name: Build PyInstaller bundle
+        shell: pwsh
+        run: |
+          pyinstaller --noconfirm --clean NekoSuneAI.spec
+          Copy-Item .env.example dist\NekoSuneAI\.env.example
+          Copy-Item VERSION dist\NekoSuneAI\VERSION
+          Copy-Item -Recurse data dist\NekoSuneAI\data
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION).Trim()
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=$version packaging\windows\nekosuneai.iss
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NekoSuneAI-windows
+          path: dist-installer/*.exe
+          if-no-files-found: error
+
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends binutils ruby ruby-dev build-essential
+          sudo gem install --no-document fpm
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-voice.txt -r requirements-gui.txt pyinstaller
+
+      - name: Build PyInstaller bundle
+        run: |
+          pyinstaller --noconfirm --clean NekoSuneAI.spec
+          cp .env.example dist/NekoSuneAI/.env.example
+          cp VERSION dist/NekoSuneAI/VERSION
+          cp -r data dist/NekoSuneAI/data
+
+      - name: Build .deb/.rpm/.apk
+        run: |
+          version="$(cat VERSION)"
+          chmod +x packaging/linux/build-packages.sh
+          packaging/linux/build-packages.sh "$version"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NekoSuneAI-linux
+          path: dist-packages/*
+          if-no-files-found: error
+
+  publish-to-packages-repo:
+    name: Publish Linux packages to shared repo
+    needs: [build-linux]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Skip if no cross-repo token
+        id: check
+        run: |
+          if [ -z "${{ secrets.PACKAGES_REPO_PAT }}" ]; then
+            echo "No PACKAGES_REPO_PAT secret set - skipping publish to NekoSuneProjects/packages."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download Linux packages
+        if: steps.check.outputs.skip == 'false'
+        uses: actions/download-artifact@v4
+        with:
+          name: NekoSuneAI-linux
+          path: dist-packages
+
+      - name: Upload as a release on packages repo + fire dispatch
+        if: steps.check.outputs.skip == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.PACKAGES_REPO_PAT }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          tag="nekosuneai-v${version}"
+          gh release create "$tag" dist-packages/* \
+            --repo NekoSuneProjects/packages \
+            --title "NekoSuneAI v${version} (Linux packages)" \
+            --notes "Raw .deb/.rpm/.apk for NekoSuneAI v${version}, consumed by packages' publish workflow." \
+            --latest=false
+          gh api repos/NekoSuneProjects/packages/dispatches \
+            -f event_type=publish-package \
+            -f "client_payload[project]=nekosuneai" \
+            -f "client_payload[version]=${version}" \
+            -f "client_payload[release_tag]=${tag}"
+
+  release:
+    name: Publish release
+    needs: [build-windows, build-linux]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      # Scans the Windows installer with VirusTotal and links the report in
+      # the release notes. Skips cleanly if VT_API_KEY isn't set - a free key
+      # from https://www.virustotal.com/gui/my-apikey.
+      - name: Scan installer with VirusTotal
+        id: vtscan
+        run: |
+          : > vt-notes.md
+          if [ -z "${VT_API_KEY:-}" ]; then
+            echo "No VT_API_KEY secret set - skipping VirusTotal scan."
+            exit 0
+          fi
+          echo "## VirusTotal" >> vt-notes.md
+          shopt -s nullglob
+          files=(artifacts/NekoSuneAI-windows/*.exe)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "No Windows installer found to scan." >> vt-notes.md
+            exit 0
+          fi
+          for f in "${files[@]}"; do
+            name=$(basename "$f")
+            echo "Scanning $name..."
+            size=$(stat -c%s "$f")
+            if [ "$size" -gt 33554432 ]; then
+              upload_url=$(curl -sS -H "x-apikey: $VT_API_KEY" https://www.virustotal.com/api/v3/files/upload_url | jq -r '.data')
+            else
+              upload_url="https://www.virustotal.com/api/v3/files"
+            fi
+            resp=$(curl -sS -X POST "$upload_url" -H "x-apikey: $VT_API_KEY" -F "file=@$f")
+            analysis_id=$(echo "$resp" | jq -r '.data.id // empty')
+            if [ -z "$analysis_id" ]; then
+              echo "- **$name**: could not submit to VirusTotal" >> vt-notes.md
+              continue
+            fi
+            status="queued"
+            for i in $(seq 1 20); do
+              sleep 15
+              status_resp=$(curl -sS -H "x-apikey: $VT_API_KEY" "https://www.virustotal.com/api/v3/analyses/$analysis_id")
+              status=$(echo "$status_resp" | jq -r '.data.attributes.status // "unknown"')
+              [ "$status" = "completed" ] && break
+            done
+            if [ "$status" != "completed" ]; then
+              echo "- **$name**: scan still in progress — [check status](https://www.virustotal.com/gui/file-analysis/$analysis_id)" >> vt-notes.md
+              continue
+            fi
+            malicious=$(echo "$status_resp" | jq -r '.data.attributes.stats.malicious // 0')
+            suspicious=$(echo "$status_resp" | jq -r '.data.attributes.stats.suspicious // 0')
+            harmless=$(echo "$status_resp" | jq -r '.data.attributes.stats.harmless // 0')
+            undetected=$(echo "$status_resp" | jq -r '.data.attributes.stats.undetected // 0')
+            total=$((malicious + suspicious + harmless + undetected))
+            flagged=$((malicious + suspicious))
+            echo "- **$name**: $flagged/$total engines flagged something — [full report](https://www.virustotal.com/gui/file-analysis/$analysis_id)" >> vt-notes.md
+          done
+        env:
+          VT_API_KEY: ${{ secrets.VT_API_KEY }}
+        continue-on-error: true
+
+      - name: Build release notes from CHANGELOG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v ver="$VERSION" '
+            $0 ~ ("^## \\[" ver "\\]") { grab=1; next }
+            grab && /^## \[/ { exit }
+            grab { print }
+          ' CHANGELOG.md > NOTES.md
+          if [ ! -s NOTES.md ]; then printf "Release %s of NekoSuneAI.\n" "$VERSION" > NOTES.md; fi
+          {
+            printf "\n---\n## Downloads\n"
+            printf -- "- **Windows:** \`NekoSuneAI-Setup-%s.exe\` (installer)\n" "$VERSION"
+            printf -- "- **Linux:** \`.deb\` / \`.rpm\` / \`.apk\` — also published to the shared\n"
+            printf -- "  [NekoSuneProjects/packages](https://nekosuneprojects.github.io/packages/) apt/yum/alpine repos.\n"
+            printf -- "\n> The Windows installer is unsigned, so SmartScreen may warn on first run — click *More info -> Run anyway*.\n"
+            if [ -s vt-notes.md ]; then printf "\n"; cat vt-notes.md; fi
+          } >> NOTES.md
+          echo "----- release notes -----"; cat NOTES.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/NekoSuneAI-windows/*
+            artifacts/NekoSuneAI-linux/*
+          body_path: NOTES.md
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Posts a Discord announcement. Webhook URL lives in the
+      # DISCORD_WEBHOOK_URL repo secret (already set) - skips cleanly if
+      # that secret isn't set.
+      - name: Notify Discord
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -z "${DISCORD_WEBHOOK_URL:-}" ]; then
+            echo "No DISCORD_WEBHOOK_URL secret set - skipping Discord notification."
+            exit 0
+          fi
+
+          VERSION="${GITHUB_REF_NAME#v}"
+          RELEASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${GITHUB_REF_NAME}"
+          ICON_URL="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/main/assets/branding/nekosuneai-icon-transparent.png"
+
+          DESC=$(cat NOTES.md)
+          if [ "${#DESC}" -gt 3500 ]; then
+            DESC="${DESC:0:3500}"$'\n\n…continued — [see the full release notes]('"$RELEASE_URL"').'
+          fi
+
+          DOWNLOADS=""
+          while IFS=$'\t' read -r name url; do
+            case "$name" in
+              *.exe)  label="Windows Installer (.exe)" ;;
+              *.deb)  label="Linux (.deb)" ;;
+              *.rpm)  label="Linux (.rpm)" ;;
+              *.apk)  label="Linux (.apk)" ;;
+              *)      continue ;;
+            esac
+            DOWNLOADS="${DOWNLOADS}[${label}](${url})"$'\n'
+          done < <(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[] | [.name, .url] | @tsv')
+
+          if [ -z "$DOWNLOADS" ]; then DOWNLOADS="_No build assets were attached to this release._"; fi
+          DOWNLOADS="${DOWNLOADS}[apt/yum/apk repo](https://nekosuneprojects.github.io/packages/)"$'\n'
+
+          PAYLOAD=$(jq -n \
+            --arg username "NekoSuneAI Release" \
+            --arg avatar "$ICON_URL" \
+            --arg title "NekoSuneAI v${VERSION}" \
+            --arg url "$RELEASE_URL" \
+            --arg desc "$DESC" \
+            --arg downloads "$DOWNLOADS" \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{
+              username: $username,
+              avatar_url: $avatar,
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $desc,
+                color: 2530065,
+                fields: [{ name: "Downloads", value: $downloads, inline: false }],
+                footer: { text: "NekoSuneAI", icon_url: $avatar },
+                timestamp: $ts
+              }]
+            }')
+
+          curl -sS -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK_URL"

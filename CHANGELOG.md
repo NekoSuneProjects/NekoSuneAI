@@ -5,6 +5,24 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.0] - Unreleased
+
+### Added
+- **Packaged installers**: tagging a release (`git tag v1.2.0 && git push --tags`) now
+  builds a Windows installer (`NekoSuneAI-Setup-<version>.exe`, Inno Setup,
+  `packaging/windows/nekosuneai.iss`) and Linux `.deb`/`.rpm`/`.apk` packages
+  (`packaging/linux/build-packages.sh`, via `fpm`), both bundling the full voice/TTS
+  stack — no more manual `git pull` + `install.ps1`/`install.sh` required to get a
+  release. Attached to a GitHub Release with changelog-derived notes, an optional
+  VirusTotal scan of the Windows installer, and a Discord announcement
+  (`.github/workflows/release.yml`).
+- **Hosted apt/yum/apk repositories**: the built Linux packages are also published to
+  [NekoSuneProjects/packages](https://nekosuneprojects.github.io/packages/), a shared,
+  GPG/abuild-signed repo covering every NekoSuneProjects app (not just this one) — once
+  set up, `apt install`/`dnf install`/`apk add nekosuneai` will work by name instead of
+  needing a downloaded package file. See that repo's `docs/PACKAGES.md` for the add-repo
+  commands.
+
 ## [1.1.9] - Unreleased
 
 ### Fixed
@@ -217,6 +235,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.2.0]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.0
 [1.1.9]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.9
 [1.1.8]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.8
 [1.1.7]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.7
