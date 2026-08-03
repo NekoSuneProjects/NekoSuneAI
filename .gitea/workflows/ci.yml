@@ -1,0 +1,89 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# NekoSuneAI — Gitea / Forgejo Actions  (also valid GitHub Actions)
+#
+# This file lives at .gitea/workflows/ci.yml for Gitea/Forgejo. To use it on a
+# self-hosted GitHub (or github.com), copy it to .github/workflows/ci.yml — the
+# syntax is identical.
+#
+# RUNNERS (act_runner / forgejo-runner, registered with these labels):
+#   • a Linux runner with the `docker` label (the default `ubuntu-latest`
+#     act_runner image works).
+#   • OPTIONAL: a self-hosted Windows runner labelled `windows` with Python 3.10
+#     for the .exe build. Without it, that job just stays queued; the others run.
+#
+# NOTE: act_runner fetches reusable actions (actions/checkout, docker/*) from
+# GitHub by default. If your instance is air-gapped, mirror them or set the
+# runner's DEFAULT_ACTIONS_URL accordingly.
+# ─────────────────────────────────────────────────────────────────────────────
+name: NekoSuneAI CI
+
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  PYTHON_VERSION: "3.10.11"
+
+jobs:
+  validate:
+    runs-on: docker
+    container: python:3.10.11-slim
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install base deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      - name: Byte-compile + import smoke test
+        run: |
+          python -m compileall -q nekosuneai app.py
+          python -c "import nekosuneai.updater, nekosuneai.config; print('import OK')"
+
+  desktop-linux:
+    runs-on: docker
+    container: python:3.10.11-slim
+    needs: validate
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build PyInstaller bundle
+        run: |
+          apt-get update && apt-get install -y --no-install-recommends binutils && rm -rf /var/lib/apt/lists/*
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+          pyinstaller --noconfirm --clean --name NekoSuneAI \
+            --add-data "nekosuneai/static:nekosuneai/static" \
+            --collect-submodules nekosuneai \
+            app.py
+          cp .env.example dist/NekoSuneAI/.env.example || true
+          cp VERSION dist/NekoSuneAI/VERSION || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NekoSuneAI-linux-${{ github.sha }}
+          path: dist/NekoSuneAI
+
+  desktop-windows:
+    runs-on: windows
+    needs: validate
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Windows .exe
+        shell: pwsh
+        run: |
+          py -3.10 -m pip install --upgrade pip
+          py -3.10 -m pip install -r requirements.txt -r requirements-gui.txt pyinstaller
+          py -3.10 -m PyInstaller --noconfirm --clean --name NekoSuneAI --windowed `
+            --add-data "nekosuneai/static;nekosuneai/static" `
+            --collect-submodules nekosuneai `
+            --collect-all webview `
+            app.py
+          copy .env.example dist\NekoSuneAI\.env.example
+          copy VERSION dist\NekoSuneAI\VERSION
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NekoSuneAI-windows-${{ github.sha }}
+          path: dist/NekoSuneAI

@@ -1,0 +1,1234 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NekoSuneAI Studio</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  darkMode: 'class',
+  theme: {
+    extend: {
+      colors: {
+        nova: {
+          bg:       '#0f0f14',
+          nav:      '#0a0a10',
+          surface:  '#15151e',
+          surface2: '#1c1c28',
+          surface3: '#222232',
+          border:   '#252538',
+          border2:  '#2e2e44',
+          text:     '#e8e8f2',
+          muted:    '#7070a0',
+          muted2:   '#9898c0',
+          input:    '#0c0c18',
+          accent:   '#8b5cf6',
+          accentH:  '#7c3aed',
+          accentD:  '#6d28d9',
+          accentBg: '#1a0e30',
+          accentB:  '#3d2070',
+        }
+      }
+    }
+  }
+}
+</script>
+<style>
+  html, body { margin:0; padding:0; background:#0f0f14; color:#e8e8f2; font-family:'Segoe UI','Inter',system-ui,sans-serif; overflow:hidden; height:100%; }
+  ::-webkit-scrollbar { width:5px; }
+  ::-webkit-scrollbar-track { background:transparent; }
+  ::-webkit-scrollbar-thumb { background:#222232; border-radius:3px; }
+  ::-webkit-scrollbar-thumb:hover { background:#8b5cf6; }
+  .nav-item { transition: all 0.15s ease; }
+  .nav-item:hover { background:#15151e; color:#e8e8f2; }
+  .nav-item.active { background:#1a0e30; color:#c4b5fd; border-left-color:#8b5cf6; }
+  .page { display:none; }
+  .page.active { display:flex; }
+  .toggle-dot { transition: transform 0.2s ease, background 0.2s ease; }
+  .toggle-bg { transition: background 0.2s ease; }
+  .card { background:#15151e; border:1px solid #252538; border-radius:10px; }
+  .card-alt { background:#1c1c28; border:1px solid #2e2e44; border-radius:10px; }
+  .btn-primary { background:#8b5cf6; color:#fff; }
+  .btn-primary:hover { background:#7c3aed; }
+  .btn-primary:disabled { background:#1c1c28; color:#7070a0; cursor:not-allowed; }
+  .btn-secondary { background:#1c1c28; color:#9898c0; border:1px solid #2e2e44; }
+  .btn-secondary:hover { background:#222232; color:#e8e8f2; border-color:#3d2070; }
+  .btn-secondary:disabled { background:#15151e; color:#7070a0; border-color:#252538; cursor:not-allowed; }
+  .btn-danger { background:rgba(248,113,113,0.08); color:#f87171; border:1px solid rgba(127,29,29,0.5); }
+  .btn-danger:hover { background:rgba(248,113,113,0.15); }
+  .btn-success { background:rgba(34,197,94,0.08); color:#22c55e; border:1px solid rgba(20,83,45,0.5); }
+  .btn-success:hover { background:rgba(34,197,94,0.15); }
+  .chat-bubble-user { background:rgba(251,191,36,0.06); border-left:3px solid #7c5a1a; }
+  .chat-bubble-assistant { background:rgba(147,197,253,0.06); border-left:3px solid #1e4a6e; }
+  .chat-bubble-system { background:rgba(107,114,128,0.06); border-left:3px solid #1e2d4a; }
+  input, textarea, select {
+    background:#0c0c18; border:1px solid #2e2e44; border-radius:6px; padding:8px 12px;
+    color:#e8e8f2; font-size:13px; outline:none; transition: border-color 0.15s;
+  }
+  input:focus, textarea:focus, select:focus { border-color:#8b5cf6; }
+  input:disabled, select:disabled { background:#15151e; color:#7070a0; }
+  .fade-in { animation: fadeIn 0.2s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
+  .notification { animation: slideIn 0.3s ease, fadeOut 0.3s ease 3.7s forwards; }
+  @keyframes slideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
+  @keyframes fadeOut { from{opacity:1} to{opacity:0} }
+
+  /* ── Loading screen ── */
+  #loading-screen {
+    position:fixed; inset:0; z-index:9999;
+    background:#0f0f14;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    transition: opacity 0.5s ease;
+  }
+  #loading-screen.fade-out { opacity:0; pointer-events:none; }
+  .loader-ring {
+    width:56px; height:56px; border-radius:50%;
+    border:3px solid #252538;
+    border-top-color:#8b5cf6;
+    animation: spin 0.9s linear infinite;
+  }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  .loader-msg {
+    animation: msgFade 0.4s ease;
+  }
+  @keyframes msgFade { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:translateY(0)} }
+  .loader-dots::after {
+    content:'';
+    animation: dots 1.5s steps(4,end) infinite;
+  }
+  @keyframes dots {
+    0%   { content:''; }
+    25%  { content:'.'; }
+    50%  { content:'..'; }
+    75%  { content:'...'; }
+    100% { content:''; }
+  }
+</style>
+</head>
+<body class="flex flex-col h-screen">
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- LOADING SCREEN -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div id="loading-screen">
+  <img src="logo.png" alt="NekoSuneAI" class="w-28 h-28 mb-4 drop-shadow-lg" draggable="false">
+  <div class="mb-6 text-center">
+    <div class="text-3xl font-extrabold text-white tracking-tight">NekoSune<span class="text-violet-400">AI</span></div>
+    <div class="text-[11px] text-nova-muted tracking-widest mt-1">AI COMPANION STUDIO</div>
+  </div>
+  <div class="loader-ring mb-8"></div>
+  <div id="loader-msg" class="loader-msg text-[13px] text-nova-muted2 text-center max-w-xs px-4"></div>
+  <div class="text-[11px] text-nova-muted mt-6 loader-dots">Loading</div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- LAYOUT -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<div class="flex flex-1 overflow-hidden">
+
+  <!-- ── Sidebar ── -->
+  <nav id="sidebar" class="flex flex-col w-52 min-w-[208px] bg-nova-nav border-r border-nova-border flex-shrink-0">
+    <div class="px-5 py-4 border-b border-nova-border flex items-center gap-3">
+      <img src="logo.png" alt="" class="w-9 h-9 rounded-lg drop-shadow" draggable="false">
+      <div>
+        <div class="text-[17px] font-bold text-nova-text" id="nav-logo">NekoSuneAI</div>
+        <div class="text-[10px] text-nova-muted tracking-wide">AI Companion Studio</div>
+      </div>
+    </div>
+    <div class="flex-1 py-2 overflow-y-auto">
+      <button onclick="showPage('dashboard')"  data-page="dashboard"  class="nav-item active w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#9636;</span> Dashboard</button>
+      <button onclick="showPage('chat')"        data-page="chat"        class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#128172;</span> Chat</button>
+      <button onclick="showPage('sing')"        data-page="sing"        class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#127908;</span> Sing &amp; Memory</button>
+      <button onclick="showPage('game')"        data-page="game"        class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#127918;</span> Game</button>
+      <button onclick="showPage('watch')"       data-page="watch"       class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#128065;</span> Watch &amp; React</button>
+      <button onclick="showPage('profiles')"    data-page="profiles"    class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#128100;</span> Profiles</button>
+      <button onclick="showPage('settings')"    data-page="settings"    class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#9881;</span> Settings</button>
+    </div>
+    <div class="px-4 py-3 border-t border-nova-border">
+      <div class="text-[10px] text-nova-muted" id="nav-status">Ready</div>
+    </div>
+  </nav>
+
+  <!-- ── Main content ── -->
+  <div class="flex flex-col flex-1 overflow-hidden">
+
+    <!-- Page header -->
+    <div class="flex items-center gap-3 px-6 py-3 bg-nova-surface border-b border-nova-border min-h-[54px]">
+      <h1 id="page-title" class="text-lg font-bold">Dashboard</h1>
+      <span id="page-sub" class="text-[11px] text-nova-muted">Session controls and status</span>
+    </div>
+
+    <!-- Pages container -->
+    <div class="flex-1 overflow-hidden relative">
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- PAGE: Dashboard -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <div id="page-dashboard" class="page active flex-col h-full overflow-hidden">
+
+        <!-- Top strip: stats + session + controls -->
+        <div class="flex-shrink-0 p-4 pb-0 space-y-3">
+
+          <!-- Row 1: stat cards + session button -->
+          <div class="flex gap-3 items-stretch">
+            <div class="card p-3 flex-1 min-w-0">
+              <div id="d-stat-session" class="text-lg font-bold text-nova-muted2 truncate">Standby</div>
+              <div class="text-[10px] text-nova-muted font-medium tracking-wider uppercase">Session</div>
+            </div>
+            <div class="card p-3 flex-1 min-w-0">
+              <div id="d-stat-model" class="text-lg font-bold text-nova-text truncate">--</div>
+              <div class="text-[10px] text-nova-muted font-medium tracking-wider uppercase">Model</div>
+            </div>
+            <div class="card p-3 flex-1 min-w-0">
+              <div id="d-stat-mode" class="text-lg font-bold text-nova-text truncate">Text</div>
+              <div class="text-[10px] text-nova-muted font-medium tracking-wider uppercase">Input Mode</div>
+            </div>
+            <button id="d-btn-session" onclick="doStartSession()" class="btn-primary px-6 rounded-lg font-bold text-[13px] tracking-wide transition-all whitespace-nowrap">
+              Start Session
+            </button>
+          </div>
+
+          <!-- Row 2: compact controls bar -->
+          <div class="card flex items-center divide-x divide-nova-border overflow-hidden">
+            <!-- Voice -->
+            <button onclick="doToggle('voice')" class="flex items-center gap-2 px-4 py-2.5 hover:bg-nova-surface2 transition-colors flex-1 min-w-0">
+              <div id="d-dot-voice" class="w-2 h-2 rounded-full bg-nova-muted flex-shrink-0"></div>
+              <span class="text-[12px] font-medium text-nova-text truncate">Voice</span>
+              <span id="d-val-voice" class="text-[11px] font-semibold text-nova-muted ml-auto">OFF</span>
+            </button>
+            <!-- Hands-Free -->
+            <button onclick="doToggle('handsfree')" class="flex items-center gap-2 px-4 py-2.5 hover:bg-nova-surface2 transition-colors flex-1 min-w-0">
+              <div id="d-dot-hf" class="w-2 h-2 rounded-full bg-nova-muted flex-shrink-0"></div>
+              <span class="text-[12px] font-medium text-nova-text truncate">Hands-Free</span>
+              <span id="d-val-hf" class="text-[11px] font-semibold text-nova-muted ml-auto">OFF</span>
+            </button>
+            <!-- Mic -->
+            <button onclick="doToggle('mic')" class="flex items-center gap-2 px-4 py-2.5 hover:bg-nova-surface2 transition-colors flex-1 min-w-0">
+              <div id="d-dot-mic" class="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></div>
+              <span class="text-[12px] font-medium text-nova-text truncate">Mic</span>
+              <span id="d-val-mic" class="text-[11px] font-semibold text-emerald-400 ml-auto">LIVE</span>
+            </button>
+            <!-- Web -->
+            <button onclick="doToggle('web_search')" class="flex items-center gap-2 px-4 py-2.5 hover:bg-nova-surface2 transition-colors flex-1 min-w-0">
+              <div id="d-dot-web" class="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></div>
+              <span class="text-[12px] font-medium text-nova-text truncate">Web</span>
+              <span id="d-val-web" class="text-[11px] font-semibold text-emerald-400 ml-auto">ON</span>
+            </button>
+            <!-- Media -->
+            <button onclick="doToggle('media')" class="flex items-center gap-2 px-4 py-2.5 hover:bg-nova-surface2 transition-colors flex-1 min-w-0">
+              <div id="d-dot-media" class="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></div>
+              <span class="text-[12px] font-medium text-nova-text truncate">Media</span>
+              <span id="d-val-media" class="text-[11px] font-semibold text-emerald-400 ml-auto">ON</span>
+            </button>
+            <!-- Quick actions -->
+            <div class="flex items-center gap-1.5 px-3 py-2 flex-shrink-0">
+              <button id="d-btn-listen" onclick="doListen()" class="btn-secondary text-[11px] px-2.5 py-1.5 rounded-md font-medium" disabled>Listen</button>
+              <button id="d-btn-stop" onclick="doStop()" class="hidden bg-red-600 hover:bg-red-500 text-white text-[11px] px-2.5 py-1.5 rounded-md font-medium">Stop</button>
+              <button onclick="doRecalibrate()" class="btn-secondary text-[11px] px-2.5 py-1.5 rounded-md font-medium">Calibrate</button>
+              <button onclick="doPerformance()" class="btn-secondary text-[11px] px-2.5 py-1.5 rounded-md font-medium">Perf</button>
+            </div>
+          </div>
+
+          <!-- Companion info bar -->
+          <div class="flex items-center gap-3 px-1">
+            <div id="d-companion" class="text-[12px] font-semibold text-nova-text flex-shrink-0">NekoSuneAI</div>
+            <div id="d-description" class="text-[11px] text-nova-muted truncate">--</div>
+            <div class="ml-auto flex-shrink-0">
+              <button onclick="doClearHistory()" class="text-[11px] text-nova-muted hover:text-red-400 transition-colors">Clear history</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- PAGE: Chat -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <div id="page-chat" class="page flex-col h-full">
+        <div id="chat-log" class="flex-1 overflow-y-auto p-4 space-y-2"></div>
+        <div class="flex gap-2 p-4 border-t border-nova-border bg-nova-surface">
+          <input id="chat-input" type="text" placeholder="Type a message..." class="flex-1" onkeydown="if(event.key==='Enter')doSend()" />
+          <button id="chat-send-btn" onclick="doSend()" class="btn-primary px-5 py-2 rounded-lg text-[13px] font-semibold">Send</button>
+          <button id="chat-stop-btn" onclick="doStop()" class="hidden bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-[13px] font-semibold" title="Stop generation (Esc)">Stop</button>
+          <button id="chat-listen-btn" onclick="doListenFromChat()" class="btn-secondary px-4 py-2 rounded-lg text-[13px] font-semibold" title="Voice input (F8)">Mic</button>
+          <button id="chat-image-btn" onclick="$('chat-image-file').click()" class="btn-secondary px-4 py-2 rounded-lg text-[13px] font-semibold" title="Show NekoSuneAI an image to react to">🖼️</button>
+          <input id="chat-image-file" type="file" accept="image/*" class="hidden" onchange="doReviewImage(this)" />
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- PAGE: Sing & Memory -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <div id="page-sing" class="page flex-col h-full overflow-y-auto p-6 gap-5">
+        <div class="card p-5">
+          <div class="text-[13px] font-bold mb-3">Sing a Song</div>
+          <div class="text-[11px] text-nova-muted mb-2">Type "Artist - Title" — NekoSuneAI fetches the lyrics, sings them in her voice, and auto-finds a YouTube instrumental to sing over (or give your own file/YouTube URL below). Vocals + backing are merged into one file, saved in audio/songs/ for instant replay. Works with XTTS or gTTS.</div>
+          <div class="flex gap-2 mb-2">
+            <input id="sing-lyrics" type="text" placeholder="&quot;Artist - Title&quot; (fetches timed lyrics) or paste lyrics..." class="flex-1" />
+            <button onclick="doSing()" class="btn-primary px-4 py-2 rounded-lg text-[12px] font-semibold">Sing</button>
+          </div>
+          <input id="sing-ref" type="text" placeholder="Optional: your own backing track — file path (.wav/.mp3) or a YouTube URL — leave blank to auto-find an instrumental" class="w-full" />
+        </div>
+
+        <div class="card p-5 flex-1">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-[13px] font-bold">Memory (what NekoSuneAI is learning)</div>
+            <button onclick="loadMemories()" class="btn-secondary px-3 py-1 rounded text-[11px]">Refresh</button>
+          </div>
+          <div id="memory-list" class="space-y-1.5 text-[12px]"><span class="text-nova-muted">No memories yet.</span></div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- PAGE: Game -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <div id="page-game" class="page flex-col h-full overflow-y-auto p-6 gap-5">
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-[13px] font-bold">Game Agent (VRChat)</div>
+            <span id="game-badge" class="text-[11px] font-semibold text-nova-muted">Stopped</span>
+          </div>
+          <div class="text-[12px] text-nova-muted mb-3">NekoSuneAI plays autonomously over VRChat's official OSC and narrates its thoughts in chat (and on voice). Enable OSC in VRChat's Action Menu — see .env for setup.</div>
+          <div id="game-settings" class="grid grid-cols-2 gap-x-3 gap-y-2 mb-3"></div>
+          <div class="flex gap-2 mb-3">
+            <button onclick="doSaveGameSettings()" class="btn-secondary px-4 py-2 rounded-lg text-[12px] font-semibold">Save Settings</button>
+            <span id="game-settings-saved" class="text-[11px] text-emerald-400 self-center"></span>
+          </div>
+          <div class="flex gap-2 mb-2">
+            <input id="game-goal" type="text" placeholder="Goal (e.g. explore the world, dance)..." class="flex-1" />
+            <button onclick="doSetGameGoal()" class="btn-secondary px-4 py-2 rounded-lg text-[12px] font-semibold">Set Goal</button>
+          </div>
+          <div class="flex gap-2">
+            <button id="game-start-btn" onclick="doStartGame()" class="btn-primary px-4 py-2 rounded-lg text-[12px] font-semibold">Start</button>
+            <button id="game-stop-btn" onclick="doStopGame()" class="btn-secondary px-4 py-2 rounded-lg text-[12px] font-semibold">Stop</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- PAGE: Watch & React -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <div id="page-watch" class="page flex-col h-full overflow-y-auto p-6 gap-5">
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-[13px] font-bold">👁️ Watch &amp; React (screen)</div>
+            <span id="wr-badge" class="text-[11px] font-semibold text-nova-muted">Off</span>
+          </div>
+          <div class="text-[12px] text-nova-muted mb-3">NekoSuneAI periodically looks at your screen (game, video, anything) and reacts in-character. Needs a Vision model (Settings → AI Provider). Reactions post to chat and voice (if on).</div>
+          <div class="flex gap-2 items-end mb-3">
+            <label class="flex flex-col gap-1 text-[11px] text-nova-muted"><span>Glance every (seconds)</span><input id="wr-interval" type="number" min="5" class="w-36" /></label>
+            <label class="flex items-center gap-2 text-[12px] text-nova-text"><input id="wr-speak" type="checkbox" class="w-4 h-4 rounded accent-violet-500" /> <span>Speak</span></label>
+          </div>
+          <div class="flex gap-2">
+            <button id="wr-start-btn" onclick="doStartWatch()" class="btn-primary px-4 py-2 rounded-lg text-[12px] font-semibold">Start Watching</button>
+            <button id="wr-stop-btn" onclick="doStopWatch()" class="btn-secondary px-4 py-2 rounded-lg text-[12px] font-semibold">Stop</button>
+            <button onclick="doSaveWatch()" class="btn-secondary px-4 py-2 rounded-lg text-[12px] font-semibold">Save</button>
+            <span id="wr-saved" class="text-[11px] text-emerald-400 self-center"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- PAGE: Profiles -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <div id="page-profiles" class="page flex-col h-full overflow-y-auto p-6 gap-5">
+        <div class="card p-5">
+          <div class="text-[13px] font-bold mb-3">Create Profile</div>
+          <div class="flex gap-2">
+            <input id="prof-name" type="text" placeholder="Profile name..." class="flex-1" />
+            <button onclick="doCreateProfile()" class="btn-primary px-4 py-2 rounded-lg text-[12px] font-semibold">Create</button>
+            <button onclick="doImportProfile()" class="btn-secondary px-4 py-2 rounded-lg text-[12px] font-semibold" title="Import a profile exported from another NekoSuneAI (e.g. your PC)">Import</button>
+          </div>
+          <input id="prof-import-file" type="file" accept=".json,application/json" class="hidden" onchange="onProfileFileChosen(event)" />
+          <div class="text-[11px] text-nova-muted mt-2">Export a profile below to move it between machines (e.g. your PC &rarr; Pi), then Import it here.</div>
+        </div>
+        <div class="card p-5 flex-1">
+          <div class="text-[13px] font-bold mb-3">Profiles</div>
+          <div id="prof-list" class="space-y-2 text-[13px]"><span class="text-nova-muted">Loading...</span></div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <!-- PAGE: Settings -->
+      <!-- ═══════════════════════════════════════════════════════════════ -->
+      <div id="page-settings" class="page flex-col h-full overflow-y-auto p-6 gap-5">
+
+        <!-- Editable configuration (models / voice / media / singing) -->
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-[13px] font-bold">Configuration</div>
+            <div class="flex gap-2">
+              <button onclick="loadAppSettings()" class="btn-secondary px-3 py-1 rounded text-[11px]">Detect models / Reload</button>
+              <button onclick="doRestartApp()" class="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1 rounded text-[11px] font-semibold">Restart NekoSuneAI</button>
+            </div>
+          </div>
+          <div class="text-[11px] text-nova-muted mb-3">Edit live — saved to NekoSuneAI and overrides .env. Model boxes auto-suggest detected models (Ollama / OpenAI / LiteLLM).</div>
+          <div id="app-settings" class="space-y-4"></div>
+        </div>
+
+        <!-- Voice & Input -->
+        <div class="card p-5">
+          <div class="text-[13px] font-bold mb-4">Voice & Input</div>
+          <div class="space-y-3">
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" id="set-voice" onchange="doToggle('voice')" class="w-4 h-4 rounded accent-violet-500" />
+              <span class="text-[13px]">Voice replies (TTS spoken output)</span>
+            </label>
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" id="set-hf" onchange="doToggle('handsfree')" class="w-4 h-4 rounded accent-violet-500" />
+              <span class="text-[13px]">Hands-free mode (auto-listen after reply)</span>
+            </label>
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" id="set-mic-mute" onchange="doToggle('mic')" class="w-4 h-4 rounded accent-violet-500" />
+              <span class="text-[13px]">Mic muted (block new captures)</span>
+            </label>
+          </div>
+        </div>
+
+        <!-- Audio Devices -->
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-4">
+            <div class="text-[13px] font-bold">Audio Devices</div>
+            <button onclick="doRefreshAudio()" class="btn-secondary px-3 py-1 rounded text-[11px]">Refresh</button>
+          </div>
+          <div class="space-y-3">
+            <div>
+              <div class="text-[11px] text-nova-muted mb-1">Microphone</div>
+              <select id="set-mic-select" class="w-full"><option value="">System default</option></select>
+            </div>
+            <div>
+              <div class="text-[11px] text-nova-muted mb-1">Speaker / Output</div>
+              <select id="set-spk-select" class="w-full"><option value="">System default</option></select>
+            </div>
+            <button onclick="doApplyAudio()" class="btn-primary px-4 py-2 rounded-lg text-[12px] font-semibold">Apply Audio Devices</button>
+          </div>
+        </div>
+
+        <!-- Web Search -->
+        <div class="card p-5">
+          <div class="text-[13px] font-bold mb-4">Web Search</div>
+          <div class="space-y-3">
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" id="set-web" onchange="doToggle('web_search')" class="w-4 h-4 rounded accent-violet-500" />
+              <span class="text-[13px]">Enable web browsing</span>
+            </label>
+            <label class="flex items-center gap-3 cursor-pointer">
+              <input type="checkbox" id="set-autosearch" onchange="doToggleAutoSearch()" class="w-4 h-4 rounded accent-violet-500" />
+              <span class="text-[13px]">Auto-search (LLM decides when)</span>
+            </label>
+            <div class="flex gap-6 text-[12px] text-nova-muted mt-1">
+              <span>Provider: <span id="set-web-provider" class="text-nova-text">--</span></span>
+              <span>URL: <span id="set-web-url" class="text-nova-text">--</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- LLM -->
+        <div class="card p-5">
+          <div class="text-[13px] font-bold mb-3">LLM / Model</div>
+          <div class="grid grid-cols-2 gap-y-2 gap-x-6 text-[12px]">
+            <div class="text-nova-muted">Provider</div><div id="set-llm-provider" class="text-nova-text">--</div>
+            <div class="text-nova-muted">Model</div><div id="set-llm-model" class="text-nova-text">--</div>
+            <div class="text-nova-muted">Perf profile</div><div id="set-llm-perf" class="text-nova-text">--</div>
+            <div class="text-nova-muted">Hardware</div><div id="set-llm-hw" class="text-nova-text">--</div>
+          </div>
+        </div>
+
+        <!-- TTS / STT -->
+        <div class="card p-5">
+          <div class="text-[13px] font-bold mb-3">TTS / STT</div>
+          <div class="grid grid-cols-2 gap-y-2 gap-x-6 text-[12px]">
+            <div class="text-nova-muted">TTS</div><div id="set-tts" class="text-nova-text">--</div>
+            <div class="text-nova-muted">STT</div><div id="set-stt" class="text-nova-text">--</div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /pages container -->
+  </div><!-- /main content -->
+</div><!-- /layout row -->
+
+<!-- Status bar -->
+<div class="flex items-center px-4 h-7 bg-nova-surface border-t border-nova-border text-[11px] text-nova-muted2 gap-6 flex-shrink-0">
+  <span id="sb-status" class="flex-1 truncate">NekoSuneAI ready.</span>
+  <span id="sb-session">Session: Off</span>
+  <span id="sb-voice">Voice: Off</span>
+  <span id="sb-mode">Mode: Text</span>
+</div>
+
+<!-- Notification area -->
+<div id="notif-area" class="fixed top-4 right-4 z-50 space-y-2 pointer-events-none"></div>
+
+<!-- Modal overlay -->
+<div id="modal-overlay" class="fixed inset-0 bg-black/60 z-40 hidden flex items-center justify-center">
+  <div class="card p-6 w-[480px] max-h-[80vh] overflow-y-auto" id="modal-content"></div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<!-- JAVASCRIPT -->
+<!-- ════════════════════════════════════════════════════════════════════════ -->
+<script>
+const $ = id => document.getElementById(id);
+const api = () => window.pywebview ? window.pywebview.api : null;
+
+let STATE = {};
+let currentPage = 'dashboard';
+let _appReady = false;  // true once initialize() has returned
+const LOADER_START = Date.now();
+const LOADER_MIN_MS = 3000; // minimum time the loading screen is shown
+
+// ── Loading screen messages ─────────────────────────────────────────────
+
+const LOADING_MSGS = [
+  "Reticulating splines...",
+  "Teaching the AI some manners...",
+  "Convincing the hamsters to run faster...",
+  "Downloading more RAM...",
+  "Bribing the electrons to move quicker...",
+  "Asking ChatGPT for permission... just kidding",
+  "Warming up the neural networks...",
+  "Polishing the chatbot's ego...",
+  "Loading witty comebacks...",
+  "Calibrating sarcasm levels...",
+  "Untangling the internet tubes...",
+  "Negotiating with the firewall...",
+  "Feeding the machine learning hamster...",
+  "Compiling your companion's personality...",
+  "Generating artificial intelligence... naturally",
+  "Spinning up the quantum flux capacitor...",
+  "Waking up your AI companion...",
+  "Defragmenting the sass module...",
+  "Initializing existential dread... done!",
+  "Locating the any key...",
+  "Consulting the magic 8-ball...",
+  "Running on vibes and Python...",
+  "Tuning the voice to maximum charm...",
+  "Proving P != NP... nah, just loading",
+  "Almost there... probably...",
+  "Making sure the AI likes you...",
+  "Asking Siri for directions to Ollama...",
+  "Booting up the friendship engine...",
+  "One does not simply load instantly...",
+  "Whispering sweet nothings to the GPU...",
+];
+
+let _loaderInterval = null;
+(function startLoaderMessages() {
+  const el = $('loader-msg');
+  if (!el) return;
+  // Pick a random starting message
+  let idx = Math.floor(Math.random() * LOADING_MSGS.length);
+  el.textContent = LOADING_MSGS[idx];
+  _loaderInterval = setInterval(() => {
+    idx = (idx + 1) % LOADING_MSGS.length;
+    el.style.animation = 'none';
+    void el.offsetHeight; // reflow
+    el.style.animation = '';
+    el.textContent = LOADING_MSGS[idx];
+  }, 2400);
+})();
+
+function dismissLoader() {
+  const elapsed = Date.now() - LOADER_START;
+  const remaining = Math.max(0, LOADER_MIN_MS - elapsed);
+  setTimeout(() => {
+    if (_loaderInterval) { clearInterval(_loaderInterval); _loaderInterval = null; }
+    const screen = $('loading-screen');
+    if (!screen) return;
+    screen.classList.add('fade-out');
+    setTimeout(() => screen.remove(), 600);
+  }, remaining);
+}
+
+// ── Page navigation ──────────────────────────────────────────────────────
+
+const PAGE_META = {
+  dashboard: ['Dashboard', 'Session controls and status'],
+  chat:      ['Chat',      'Conversation with your companion'],
+  sing:      ['Sing & Memory', 'Singing and long-term memory'],
+  game:      ['Game',      'Autonomous VRChat play'],
+  watch:     ['Watch & React', 'NekoSuneAI reacts to your screen'],
+  profiles:  ['Profiles',  'Manage companion profiles'],
+  settings:  ['Settings',  'Audio devices and configuration'],
+};
+
+function showPage(key) {
+  currentPage = key;
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const el = $('page-' + key);
+  if (el) el.classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(b => {
+    b.classList.toggle('active', b.dataset.page === key);
+  });
+  const [title, sub] = PAGE_META[key] || [key, ''];
+  $('page-title').textContent = title;
+  $('page-sub').textContent = sub;
+
+  // Refresh data when switching (only after backend is ready)
+  if (!_appReady) return;
+  if (key === 'sing')       loadMemories();
+  if (key === 'game')       loadGame();
+  if (key === 'watch')      loadWatchReact();
+  if (key === 'profiles')   loadProfiles();
+  if (key === 'settings')   { syncSettings(); loadAppSettings(); }
+  if (key === 'dashboard')  syncDashboard();
+}
+
+// ── State sync ───────────────────────────────────────────────────────────
+
+function syncDashboard() {
+  const s = STATE;
+  // Stat cards
+  const sessionEl = $('d-stat-session');
+  if (s.busy) {
+    sessionEl.textContent = 'Busy';
+    sessionEl.className = 'text-lg font-bold text-amber-400 truncate';
+  } else if (s.session_started) {
+    sessionEl.textContent = 'Active';
+    sessionEl.className = 'text-lg font-bold text-emerald-400 truncate';
+  } else {
+    sessionEl.textContent = 'Standby';
+    sessionEl.className = 'text-lg font-bold text-nova-muted2 truncate';
+  }
+  $('d-stat-model').textContent = s.model || '--';
+  $('d-stat-mode').textContent = s.hands_free ? 'Voice' : 'Text';
+  $('d-companion').textContent = s.companion_name || 'NekoSuneAI';
+  $('d-description').textContent = s.description || '';
+
+  // Session button
+  const btn = $('d-btn-session');
+  if (s.session_started) {
+    btn.textContent = 'Running';
+    btn.className = 'btn-success px-6 rounded-lg font-bold text-[13px] tracking-wide transition-all cursor-default whitespace-nowrap';
+    btn.disabled = true;
+  } else {
+    btn.textContent = 'Start Session';
+    btn.className = 'btn-primary px-6 rounded-lg font-bold text-[13px] tracking-wide transition-all whitespace-nowrap';
+    btn.disabled = s.busy;
+  }
+
+  // Toggle dots & values
+  setToggleUI('voice', s.voice_enabled, 'ON', 'OFF');
+  setToggleUI('hf',    s.hands_free,    'ON', 'OFF');
+  setToggleMic(s.mic_muted);
+  setToggleUI('web',   s.web_search,    'ON', 'OFF');
+  setToggleUI('media', s.media_enabled !== false, 'ON', 'OFF');
+
+  // Listen + Stop buttons
+  $('d-btn-listen').disabled = !s.session_started || s.busy || s.mic_muted;
+  const dStop = $('d-btn-stop');
+  if (dStop) {
+    if (s.busy) { dStop.classList.remove('hidden'); }
+    else        { dStop.classList.add('hidden'); }
+  }
+
+  // Status bar
+  $('sb-session').textContent = 'Session: ' + (s.session_started ? 'On' : 'Off');
+  $('sb-voice').textContent   = 'Voice: '   + (s.voice_enabled ? 'On' : 'Off');
+  $('sb-mode').textContent    = 'Mode: '    + (s.hands_free ? 'Voice' : 'Text');
+
+  // Chat page controls
+  const chatInput = $('chat-input');
+  const chatSend  = $('chat-send-btn');
+  const chatStop  = $('chat-stop-btn');
+  const chatListen = $('chat-listen-btn');
+  if (chatInput) chatInput.disabled = !s.session_started || s.busy;
+  if (chatSend)  chatSend.disabled  = !s.session_started || s.busy;
+  if (chatListen) chatListen.disabled = !s.session_started || s.busy || s.mic_muted;
+  if (chatStop) {
+    if (s.busy) { chatStop.classList.remove('hidden'); }
+    else        { chatStop.classList.add('hidden'); }
+  }
+
+}
+
+function setToggleUI(key, on, onLabel, offLabel) {
+  const dot = $('d-dot-' + key);
+  const val = $('d-val-' + key);
+  if (dot) {
+    dot.className = 'w-2 h-2 rounded-full flex-shrink-0 ' + (on ? 'bg-emerald-500' : 'bg-nova-muted');
+  }
+  if (val) {
+    val.textContent = on ? onLabel : offLabel;
+    val.className = 'text-[11px] font-semibold ml-auto ' + (on ? 'text-emerald-400' : 'text-nova-muted');
+  }
+}
+
+function setToggleMic(muted) {
+  const dot = $('d-dot-mic');
+  const val = $('d-val-mic');
+  if (dot) {
+    dot.className = 'w-2 h-2 rounded-full flex-shrink-0 ' + (muted ? 'bg-red-400' : 'bg-emerald-500');
+  }
+  if (val) {
+    val.textContent = muted ? 'MUTED' : 'LIVE';
+    val.className = 'text-[11px] font-semibold ml-auto ' + (muted ? 'text-red-400' : 'text-emerald-400');
+  }
+}
+
+let _syncingSettings = false;
+function syncSettings() {
+  _syncingSettings = true;
+  const s = STATE;
+  $('set-voice').checked    = !!s.voice_enabled;
+  $('set-hf').checked       = !!s.hands_free;
+  $('set-mic-mute').checked = !!s.mic_muted;
+  $('set-web').checked      = !!s.web_search;
+  $('set-autosearch').checked = !!s.web_auto_search;
+  _syncingSettings = false;
+  $('set-web-provider').textContent = s.web_search_provider || '--';
+  $('set-web-url').textContent      = s.web_search_url || '--';
+  $('set-llm-provider').textContent = s.llm_provider || '--';
+  $('set-llm-model').textContent    = s.model || '--';
+  $('set-llm-perf').textContent     = s.performance_profile || '--';
+  $('set-llm-hw').textContent       = s.system_summary || '--';
+  $('set-tts').textContent          = s.tts_provider || '--';
+  $('set-stt').textContent          = (s.stt_provider || '--') + ' / ' + (s.stt_model || '--');
+}
+
+// ── Editable configuration (Settings panel) ──────────────────────────────
+
+let _appSections = null;
+let _appModels = { chat: [], vision: [], embedding: [] };
+
+async function loadAppSettings() {
+  const wrap = $('app-settings');
+  if (!wrap) return;
+  try { _appModels = await api().get_models(); } catch(e) { _appModels = { chat: [], vision: [], embedding: [] }; }
+  let data;
+  try { data = await api().get_app_settings(); } catch(e) { console.error(e); return; }
+  _appSections = data.sections || {};
+  wrap.innerHTML = '';
+  ['chat', 'vision', 'embedding'].forEach(cat => {
+    const dl = document.createElement('datalist');
+    dl.id = 'dl-' + cat;
+    (_appModels[cat] || []).forEach(m => { const o = document.createElement('option'); o.value = m; dl.appendChild(o); });
+    wrap.appendChild(dl);
+  });
+  Object.entries(_appSections).forEach(([name, meta]) => wrap.appendChild(_renderAppSection(name, meta)));
+}
+
+function _renderAppSection(name, meta) {
+  const card = document.createElement('div');
+  card.className = 'border border-nova-border rounded-lg p-4';
+  const grid = (meta.fields || []).map(f => {
+    const id = 'aset__' + name + '__' + f.key;
+    const v = f.value != null ? String(f.value) : '';
+    if (f.type === 'bool') {
+      return `<label class="flex items-center gap-2 text-[12px] col-span-2"><input id="${id}" type="checkbox" class="w-4 h-4 rounded accent-violet-500" ${f.value ? 'checked' : ''}/> <span>${escHtml(f.label)}</span></label>`;
+    }
+    if (f.type === 'select') {
+      const opts = (f.options || []).map(o => `<option ${String(f.value) === String(o) ? 'selected' : ''}>${escHtml(o)}</option>`).join('');
+      return `<label class="flex flex-col gap-1 text-[11px] text-nova-muted"><span>${escHtml(f.label)}</span><select id="${id}" class="w-full">${opts}</select></label>`;
+    }
+    if (f.type === 'model') {
+      return `<label class="flex flex-col gap-1 text-[11px] text-nova-muted"><span>${escHtml(f.label)}</span><input id="${id}" list="dl-${f.category || 'chat'}" class="w-full" value="${escHtml(v)}" /></label>`;
+    }
+    const itype = f.type === 'password' ? 'password' : ((f.type === 'float' || f.type === 'int') ? 'number' : 'text');
+    const step = f.type === 'float' ? ' step="0.05"' : '';
+    return `<label class="flex flex-col gap-1 text-[11px] text-nova-muted"><span>${escHtml(f.label)}</span><input id="${id}" type="${itype}"${step} class="w-full" value="${escHtml(v)}" /></label>`;
+  }).join('');
+  card.innerHTML = `<div class="flex items-center justify-between mb-2"><div class="text-[12px] font-bold">${escHtml(meta.label)}</div><button class="btn-primary px-3 py-1 rounded text-[11px]" onclick="doSaveAppSection('${name}')">Save</button></div><div class="grid grid-cols-2 gap-x-3 gap-y-2">${grid}</div>`;
+  return card;
+}
+
+function collectAppSection(name) {
+  const out = {};
+  const meta = _appSections && _appSections[name];
+  if (!meta) return out;
+  (meta.fields || []).forEach(f => {
+    const el = $('aset__' + name + '__' + f.key);
+    if (!el) return;
+    out[f.key] = f.type === 'bool' ? el.checked : el.value;
+  });
+  return out;
+}
+
+async function doRestartApp() {
+  if (!confirm('Restart NekoSuneAI now? This closes and reopens the app to apply changes.')) return;
+  try { await api().restart_app(); showNotification('Restarting NekoSuneAI...'); } catch(e) { console.error(e); }
+}
+
+async function doSaveAppSection(name) {
+  try {
+    const r = await api().save_app_settings(name, collectAppSection(name));
+    if (r && !r.ok && r.msg) { showNotification(r.msg); return; }
+    showNotification('Saved.');
+    if (name === 'llm') await loadAppSettings();   // refresh detected models
+  } catch(e) { console.error(e); }
+}
+
+// ── Push handlers (called from Python) ───────────────────────────────────
+
+window.__onStateUpdate = function(state) {
+  STATE = state;
+  syncDashboard();
+  if (currentPage === 'settings') syncSettings();
+};
+
+window.__onChatMessage = function(msg) {
+  appendChat(msg.author, msg.text, msg.role);
+};
+
+window.__onStatusUpdate = function(msg) {
+  $('sb-status').textContent = msg;
+  $('nav-status').textContent = msg;
+  $('d-stat-status').textContent = msg;
+};
+
+window.__onNotification = function(msg) {
+  showNotification(msg);
+};
+
+// ── Memory ───────────────────────────────────────────────────────────────
+
+async function loadMemories() {
+  try {
+    const mems = await api().get_memories();
+    const list = $('memory-list');
+    if (!mems || !mems.length) { list.innerHTML = '<span class="text-nova-muted">No memories yet.</span>'; return; }
+    list.innerHTML = '';
+    mems.forEach(m => {
+      const row = document.createElement('div');
+      row.className = 'flex items-center gap-2 justify-between';
+      const label = (m.speaker ? m.speaker + ': ' : '') + (m.content || '');
+      row.innerHTML = `<span class="flex-1 truncate" title="${escHtml(label)}"><span class="text-nova-muted">[${escHtml(m.source||'chat')}]</span> ${escHtml(label)}</span>
+        <span class="text-[10px] text-nova-muted">${(m.score||0).toFixed(1)}</span>
+        <button class="btn-secondary px-2 py-0.5 rounded text-[11px]" title="Good memory">+</button>
+        <button class="btn-secondary px-2 py-0.5 rounded text-[11px]" title="Bad memory">-</button>
+        <button class="btn-secondary px-2 py-0.5 rounded text-[11px]" title="Forget">x</button>`;
+      const btns = row.querySelectorAll('button');
+      btns[0].onclick = () => doReinforce(m.id, 1);
+      btns[1].onclick = () => doReinforce(m.id, -1);
+      btns[2].onclick = () => doForget(m.id);
+      list.appendChild(row);
+    });
+  } catch(e) { console.error(e); }
+}
+
+async function doReinforce(id, delta) { try { await api().reinforce_memory(id, delta); loadMemories(); } catch(e) { console.error(e); } }
+async function doForget(id) { try { await api().forget_memory(id); loadMemories(); } catch(e) { console.error(e); } }
+
+async function doSing() {
+  const lyrics = $('sing-lyrics').value;
+  const ref = $('sing-ref').value || '';
+  try { const r = await api().sing(lyrics, ref); if (r && !r.ok && r.msg) showNotification(r.msg); } catch(e) { console.error(e); }
+}
+
+// ── Game (VRChat) ────────────────────────────────────────────────────────
+
+let _gameSchema = null;
+const GAME_DRIVER = 'vrchat';
+
+function renderGameSettings() {
+  const wrap = $('game-settings');
+  if (!wrap) return;
+  if (!_gameSchema || !_gameSchema[GAME_DRIVER]) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = '';
+  (_gameSchema[GAME_DRIVER].fields || []).forEach(f => {
+    const id = 'gset__' + f.key;
+    const cell = document.createElement('label');
+    if (f.type === 'bool') {
+      cell.className = 'flex items-center gap-2 text-[12px] text-nova-text col-span-2';
+      cell.innerHTML = `<input id="${id}" type="checkbox" class="w-4 h-4 rounded accent-violet-500" ${f.value ? 'checked' : ''} /> <span>${escHtml(f.label)}</span>`;
+    } else if (f.type === 'select') {
+      const opts = (f.options || []).map(o => `<option value="${escHtml(o)}" ${String(f.value) === String(o) ? 'selected' : ''}>${escHtml(o)}</option>`).join('');
+      cell.className = 'flex flex-col gap-1 text-[11px] text-nova-muted';
+      cell.innerHTML = `<span>${escHtml(f.label)}</span><select id="${id}" class="w-full">${opts}</select>`;
+    } else {
+      const itype = f.type === 'password' ? 'password' : ((f.type === 'int' || f.type === 'float') ? 'number' : 'text');
+      const step = f.type === 'float' ? ' step="0.5"' : '';
+      cell.className = 'flex flex-col gap-1 text-[11px] text-nova-muted';
+      cell.innerHTML = `<span>${escHtml(f.label)}</span><input id="${id}" type="${itype}"${step} class="w-full" value="${escHtml(f.value != null ? String(f.value) : '')}" />`;
+    }
+    wrap.appendChild(cell);
+  });
+}
+
+function collectGameSettings() {
+  const out = {};
+  if (!_gameSchema || !_gameSchema[GAME_DRIVER]) return out;
+  (_gameSchema[GAME_DRIVER].fields || []).forEach(f => {
+    const el = $('gset__' + f.key);
+    if (!el) return;
+    out[f.key] = f.type === 'bool' ? el.checked : el.value;
+  });
+  return out;
+}
+
+async function doSaveGameSettings() {
+  try {
+    const r = await api().save_game_settings(GAME_DRIVER, collectGameSettings());
+    const note = $('game-settings-saved');
+    if (r && r.ok) { if (note) { note.textContent = 'Saved'; setTimeout(() => note.textContent = '', 2000); } }
+    else if (r && r.msg) showNotification(r.msg);
+  } catch(e) { console.error(e); }
+}
+
+async function loadGame() {
+  try {
+    const s = await api().get_game_status();
+    try { const gs = await api().get_game_settings(); _gameSchema = gs.drivers; } catch(e) { console.error(e); }
+    renderGameSettings();
+    const badge = $('game-badge');
+    badge.textContent = s.running ? 'Running' : 'Stopped';
+    badge.className = 'text-[11px] font-semibold ' + (s.running ? 'text-emerald-400' : 'text-nova-muted');
+    if (s.goal && !$('game-goal').value) $('game-goal').value = s.goal;
+  } catch(e) { console.error(e); }
+}
+
+async function doStartGame() {
+  try { const r = await api().start_game($('game-goal').value || '', GAME_DRIVER); if (r && !r.ok && r.msg) showNotification(r.msg); loadGame(); } catch(e) { console.error(e); }
+}
+async function doStopGame() { try { await api().stop_game(); loadGame(); } catch(e) { console.error(e); } }
+async function doSetGameGoal() {
+  try { const r = await api().set_game_goal($('game-goal').value || ''); if (r && !r.ok && r.msg) showNotification(r.msg); } catch(e) { console.error(e); }
+}
+
+// ── Watch & React (NekoSuneAI looks at the screen and reacts) ────────────────
+
+async function loadWatchReact() {
+  try {
+    const s = await api().get_watch_react_status() || {};
+    const badge = $('wr-badge');
+    if (badge) {
+      badge.textContent = s.running ? 'Watching' : 'Off';
+      badge.className = 'text-[11px] font-semibold ' + (s.running ? 'text-emerald-400' : 'text-nova-muted');
+    }
+    if ($('wr-interval')) $('wr-interval').value = s.interval_seconds ?? 20;
+    if ($('wr-speak'))    $('wr-speak').checked = s.speak !== false;
+  } catch(e) { console.error(e); }
+}
+async function doStartWatch() {
+  try { const r = await api().start_watch_react(); if (r && !r.ok && r.msg) showNotification(r.msg); loadWatchReact(); }
+  catch(e) { console.error(e); }
+}
+async function doStopWatch() {
+  try { await api().stop_watch_react(); loadWatchReact(); } catch(e) { console.error(e); }
+}
+async function doSaveWatch() {
+  const values = {
+    interval_seconds: parseInt($('wr-interval').value || '20', 10),
+    speak: $('wr-speak').checked,
+  };
+  try {
+    await api().save_watch_react_settings(values);
+    const s = $('wr-saved');
+    if (s) { s.textContent = 'Saved'; setTimeout(() => { s.textContent = ''; }, 2000); }
+  } catch(e) { console.error(e); }
+}
+
+// ── Chat ─────────────────────────────────────────────────────────────────
+
+function _buildBubble(author, text, role) {
+  const div = document.createElement('div');
+  const bubbleClass = role === 'user' ? 'chat-bubble-user' : role === 'assistant' ? 'chat-bubble-assistant' : 'chat-bubble-system';
+  const authorColor = role === 'user' ? 'text-amber-400' : role === 'assistant' ? 'text-blue-300' : 'text-gray-400';
+  div.className = `${bubbleClass} rounded-lg px-4 py-3 fade-in`;
+  div.innerHTML = `<div class="${authorColor} text-[11px] font-semibold tracking-wide mb-1">${escHtml(author)}</div><div class="text-[13px] leading-relaxed text-nova-text whitespace-pre-wrap">${escHtml(text)}</div>`;
+  return div;
+}
+
+function appendChat(author, text, role) {
+  const log = $('chat-log');
+  if (!log) return;
+  log.appendChild(_buildBubble(author, text, role));
+  log.scrollTop = log.scrollHeight;
+}
+
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+async function doSend() {
+  const inp = $('chat-input');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  inp.disabled = true;
+  $('chat-send-btn').disabled = true;
+  try {
+    await api().send_message(text);
+  } catch(e) { console.error(e); }
+}
+
+async function doStop() {
+  try { await api().stop_generation(); } catch(e) { console.error(e); }
+}
+
+async function doReviewImage(input) {
+  const file = input.files && input.files[0];
+  input.value = '';  // allow re-picking the same file
+  if (!file) return;
+  if (file.size > 12 * 1024 * 1024) { showNotification('Image too large (max 12 MB).'); return; }
+  const note = (prompt('Ask NekoSuneAI something about this image (optional):') || '').trim();
+  const btn = $('chat-image-btn');
+  if (btn) btn.disabled = true;
+  try {
+    const dataUrl = await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onload = () => resolve(fr.result);
+      fr.onerror = reject;
+      fr.readAsDataURL(file);
+    });
+    const r = await api().review_image(dataUrl, note);
+    if (r && !r.ok && r.msg) showNotification(r.msg);
+  } catch(e) { console.error(e); showNotification('Could not review the image.'); }
+  finally { if (btn) btn.disabled = false; }
+}
+
+
+async function doListenFromChat() {
+  const btn = $('chat-listen-btn');
+  const btn2 = $('dash-listen-btn');
+  if (btn) btn.disabled = true;
+  if (btn2) btn2.disabled = true;
+  try { await api().start_listen(); } catch(e) { console.error(e); }
+}
+
+// ── Dashboard actions ────────────────────────────────────────────────────
+
+async function doStartSession() {
+  if (!_appReady) return;
+  $('d-btn-session').disabled = true;
+  try { await api().start_session(); } catch(e) { console.error(e); }
+}
+
+async function doToggle(key) {
+  if (_syncingSettings || !_appReady) return;
+  try {
+    if (key === 'voice')      await api().toggle_voice();
+    if (key === 'handsfree')  await api().toggle_handsfree();
+    if (key === 'mic')        await api().toggle_mic();
+    if (key === 'web_search') await api().toggle_web_search();
+    if (key === 'media')      await api().toggle_media();
+  } catch(e) { console.error(e); }
+}
+
+async function doToggleAutoSearch() {
+  if (_syncingSettings || !_appReady) return;
+  try { await api().toggle_auto_search(); } catch(e) { console.error(e); }
+}
+
+async function doListen() {
+  $('d-btn-listen').disabled = true;
+  try { await api().start_listen(); } catch(e) { console.error(e); }
+}
+
+async function doRecalibrate() {
+  if (!_appReady) return;
+  try { await api().recalibrate_mic(); } catch(e) { console.error(e); }
+}
+
+async function doClearHistory() {
+  if (!confirm('Clear all conversation history?')) return;
+  try {
+    await api().clear_history();
+    $('chat-log').innerHTML = '';
+  } catch(e) { console.error(e); }
+}
+
+async function doPerformance() {
+  try {
+    const lines = await api().get_performance_info();
+    showModal('Performance Info', '<pre class="text-[12px] text-nova-text whitespace-pre-wrap">' + escHtml(lines.join('\n')) + '</pre>');
+  } catch(e) { console.error(e); }
+}
+
+// ── Profiles ─────────────────────────────────────────────────────────────
+
+async function loadProfiles() {
+  try {
+    const profs = await api().get_profiles();
+    const el = $('prof-list');
+    if (!profs || !profs.length) { el.innerHTML = '<span class="text-nova-muted">No profiles.</span>'; return; }
+    el.innerHTML = profs.map(p => {
+      const active = p.is_active;
+      return `<div class="flex items-center justify-between py-3 px-4 rounded-lg ${active ? 'bg-nova-accentBg border border-nova-accentB' : 'bg-nova-surface2 border border-nova-border'}">
+        <div>
+          <div class="font-medium ${active ? 'text-violet-300' : 'text-nova-text'}">${escHtml(p.profile_name)} ${active ? '<span class="text-[10px] text-violet-400 ml-2">ACTIVE</span>' : ''}</div>
+          <div class="text-[11px] text-nova-muted">${escHtml(p.companion_name || '')} &middot; ${escHtml(p.description || '').substring(0,60)}</div>
+        </div>
+        <div class="flex gap-2">
+          ${!active ? `<button onclick="doSwitchProfile('${p.profile_id}')" class="btn-primary px-3 py-1 rounded text-[11px]">Activate</button>` : ''}
+          <button onclick="doExportProfile('${p.profile_id}')" class="btn-secondary px-3 py-1 rounded text-[11px]">Export</button>
+          <button onclick="doCloneProfile('${p.profile_id}','${escAttr(p.profile_name)}')" class="btn-secondary px-3 py-1 rounded text-[11px]">Clone</button>
+          ${!active ? `<button onclick="doDeleteProfile('${p.profile_id}')" class="btn-danger px-3 py-1 rounded text-[11px]">Delete</button>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+  } catch(e) { console.error(e); }
+}
+
+function escAttr(s) { return s.replace(/'/g, "\\'").replace(/"/g, '&quot;'); }
+
+async function doCreateProfile() {
+  const name = $('prof-name').value.trim();
+  if (!name) return;
+  try { await api().create_new_profile(name); $('prof-name').value=''; loadProfiles(); } catch(e) { console.error(e); }
+}
+async function doSwitchProfile(id) { try { await api().switch_profile(id); loadProfiles(); } catch(e) { console.error(e); } }
+async function doCloneProfile(id, name) {
+  const newName = prompt('Name for the cloned profile:', name + ' (Copy)');
+  if (!newName) return;
+  try { await api().clone_profile(id, newName); loadProfiles(); } catch(e) { console.error(e); }
+}
+async function doDeleteProfile(id) {
+  if (!confirm('Delete this profile?')) return;
+  try { await api().delete_profile_item(id); loadProfiles(); } catch(e) { console.error(e); }
+}
+
+async function doExportProfile(id) {
+  try {
+    const r = await api().export_profile(id);
+    if (!r || !r.ok) { showNotification((r && r.msg) || 'Export failed.'); return; }
+    // Download client-side so the file lands on the device you're browsing from.
+    const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = r.filename || 'profile.nova-profile.json';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  } catch(e) { console.error(e); showNotification('Export failed.'); }
+}
+
+function doImportProfile() {
+  const inp = $('prof-import-file');
+  if (inp) { inp.value = ''; inp.click(); }
+}
+
+async function onProfileFileChosen(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    let data;
+    try { data = JSON.parse(text); } catch(_) { showNotification('That file is not valid JSON.'); return; }
+    const r = await api().import_profile(data, '');
+    if (!r || !r.ok) { showNotification((r && r.msg) || 'Import failed.'); return; }
+    showNotification('Imported profile: ' + (r.profile_name || r.profile_id));
+    loadProfiles();
+  } catch(e) { console.error(e); showNotification('Import failed.'); }
+}
+
+// ── Settings: audio ──────────────────────────────────────────────────────
+
+async function doRefreshAudio() {
+  if (!_appReady) return;
+  try {
+    const d = await api().get_audio_devices();
+    const micSel = $('set-mic-select');
+    const spkSel = $('set-spk-select');
+    micSel.innerHTML = '<option value="">System default</option>' + (d.mics||[]).map(m => `<option value="${m.index}" ${m.index===d.current_mic?'selected':''}>${escHtml(m.name)}</option>`).join('');
+    spkSel.innerHTML = '<option value="">System default</option>' + (d.speakers||[]).map(s => `<option value="${s.index}" ${s.index===d.current_speaker?'selected':''}>${escHtml(s.name)}</option>`).join('');
+  } catch(e) { console.error(e); }
+}
+
+async function doApplyAudio() {
+  if (!_appReady) return;
+  const mic = $('set-mic-select').value || null;
+  const spk = $('set-spk-select').value || null;
+  try { const r = await api().apply_audio_devices(mic, spk); if (r.msg) showNotification(r.msg); } catch(e) { console.error(e); }
+}
+
+// ── Modal ────────────────────────────────────────────────────────────────
+
+function showModal(title, bodyHtml) {
+  $('modal-content').innerHTML = `<div class="text-sm font-bold mb-4">${escHtml(title)}</div>${bodyHtml}<div class="mt-4 text-right"><button onclick="hideModal()" class="btn-secondary px-4 py-1.5 rounded-lg text-[12px]">Close</button></div>`;
+  $('modal-overlay').classList.remove('hidden');
+}
+function hideModal() { $('modal-overlay').classList.add('hidden'); }
+$('modal-overlay').addEventListener('click', e => { if (e.target === $('modal-overlay')) hideModal(); });
+
+// ── Notifications ────────────────────────────────────────────────────────
+
+function showNotification(msg, isAlert) {
+  const el = document.createElement('div');
+  const border = isAlert ? ' border border-amber-500/50' : '';
+  el.className = 'notification card px-4 py-3 text-[12px] text-nova-text pointer-events-auto shadow-lg' + border;
+  if (isAlert) {
+    el.innerHTML = '<span class="text-amber-400 font-semibold mr-1">\u23F0</span>' + escHtml(msg);
+  } else {
+    el.textContent = msg;
+  }
+  $('notif-area').appendChild(el);
+  setTimeout(() => el.remove(), isAlert ? 6000 : 4000);
+}
+
+// ── Init ─────────────────────────────────────────────────────────────────
+
+function _apiReady() {
+  return !!(window.pywebview && window.pywebview.api && typeof window.pywebview.api.initialize === 'function');
+}
+
+async function init() {
+  // Wait for the pywebview API bridge AND its methods to attach. pywebview sets
+  // window.pywebview first and wires up the js_api methods slightly later (it
+  // also fires a 'pywebviewready' event), so polling only for window.pywebview
+  // races and "initialize is not a function".
+  let readyFired = false;
+  window.addEventListener('pywebviewready', () => { readyFired = true; });
+  let tries = 0;
+  while (!_apiReady() && tries < 400) {            // up to ~20s
+    await new Promise(r => setTimeout(r, 50));
+    tries++;
+  }
+  if (!_apiReady()) {
+    dismissLoader();
+    document.body.innerHTML = '<div class="p-8 text-red-400">Failed to connect to backend (API bridge not ready' +
+      (readyFired ? ', methods missing' : '') + '). Please restart NekoSuneAI.</div>';
+    return;
+  }
+
+  // Heavy backend init (config, DB, profiles) — runs while the loading screen is shown
+  let initError = null;
+  try { STATE = await api().initialize(); } catch(e) { initError = e; console.error('Backend init failed:', e); }
+  if (!STATE || !STATE.initialized) {
+    initError = initError || 'backend did not finish initializing';
+    appendChat('System', 'Startup error: ' + initError + '. Check the terminal for details, then restart NekoSuneAI.', 'system');
+  }
+  syncDashboard();
+
+  // Load chat history
+  try {
+    const hist = await api().get_recent_history();
+    if (hist && hist.length) {
+      hist.forEach(m => appendChat(m.author, m.text, m.role));
+    }
+  } catch(e) { console.error(e); }
+
+  // Update sidebar logo with companion name
+  const logo = $('nav-logo');
+  if (logo && STATE.companion_name) logo.textContent = STATE.companion_name;
+
+  // Initial messages
+  appendChat('System', (STATE.companion_name || 'NekoSuneAI') + ' is online. Press Start Session to begin.', 'system');
+  appendChat('System', 'Voice replies are off by default. Toggle them from Dashboard or Settings.', 'system');
+
+  // Keyboard shortcuts: F8 = listen, Escape = stop
+  document.addEventListener('keydown', e => {
+    if (e.key === 'F8') { e.preventDefault(); doListen(); }
+    if (e.key === 'Escape' && STATE.busy) { e.preventDefault(); doStop(); }
+  });
+
+  // App is now fully initialized — unlock UI and dismiss loading screen
+  _appReady = true;
+  syncDashboard();
+  syncSettings();
+  dismissLoader();
+}
+
+// Start when DOM ready
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
+</script>
+</body>
+</html>

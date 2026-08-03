@@ -1,0 +1,57 @@
+# ── Environment & secrets ─────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+
+# ── Setup state ───────────────────────────────────────────────────────────
+.setup-complete
+
+# ── Virtual environments ─────────────────────────────────────────────────
+.venv/
+.venv-xtts/
+venv/
+env/
+node_modules/
+
+# ── Python bytecode ──────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ── Linting / testing / type-checking caches ─────────────────────────────
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ── IDE & editor files ───────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Runtime data (SQLite DB, legacy JSON, generated audio) ───────────────
+data/nekosuneai.db
+data/history.jsonl
+data/profile.json
+data/profiles.json
+data/update_state.json
+audio/
+
+# ── Build / dist artifacts ───────────────────────────────────────────────
+dist/
+build/
+*.egg-info/
+vendor/
+
+# ── OS junk ──────────────────────────────────────────────────────────────
+*.log
+*.tmp
+data/nekosuneai.db-wal
+data/nekosuneai.db-shm
