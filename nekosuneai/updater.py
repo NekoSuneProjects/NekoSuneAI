@@ -126,7 +126,12 @@ def normalize_repo_slug(value: str) -> str:
 
 
 def discover_repo_slug() -> str:
-    configured = os.getenv("NOVA_GITHUB_REPO", "").strip()
+    # NEKOSUNEAI_GITHUB_REPO is the current name; NOVA_GITHUB_REPO is read as a
+    # fallback so existing .env files from before the rename still work.
+    configured = (
+        os.getenv("NEKOSUNEAI_GITHUB_REPO", "").strip()
+        or os.getenv("NOVA_GITHUB_REPO", "").strip()
+    )
     if configured:
         return normalize_repo_slug(configured)
 
@@ -174,7 +179,12 @@ def parse_repo_slug_from_remote(remote_url: str) -> str | None:
 
 
 def get_branch_name() -> str:
-    configured = os.getenv("NOVA_GITHUB_BRANCH", "").strip()
+    # NEKOSUNEAI_GITHUB_BRANCH is the current name; NOVA_GITHUB_BRANCH is read
+    # as a fallback so existing .env files from before the rename still work.
+    configured = (
+        os.getenv("NEKOSUNEAI_GITHUB_BRANCH", "").strip()
+        or os.getenv("NOVA_GITHUB_BRANCH", "").strip()
+    )
     return configured or DEFAULT_GITHUB_BRANCH
 
 

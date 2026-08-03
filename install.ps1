@@ -446,7 +446,7 @@ function Run-Setup {
     Configure-LLMEnv -LLMConfig $LLMConfig
 
     # Tell setup.py which dependency profile to install (voice/full).
-    $env:NOVA_INSTALL_PROFILE = if ($script:InstallProfile) { $script:InstallProfile } else { "full" }
+    $env:NEKOSUNEAI_INSTALL_PROFILE = if ($script:InstallProfile) { $script:InstallProfile } else { "full" }
 
     Push-Location $INSTALL_DIR
     try {
@@ -543,10 +543,12 @@ function Create-Launchers {
     $mode = if ($script:RunMode) { $script:RunMode } else { "gui" }
     Write-Step "7/7" "Creating launcher (mode: $mode)..."
 
-    # A run-nova.bat that always starts NekoSuneAI in the chosen mode. The mode
-    # lives in .nova-run-mode so it can be flipped later without re-installing.
-    Set-Content -Path "$INSTALL_DIR\.nova-run-mode" -Value $mode -Encoding ASCII
-    $batPath = "$INSTALL_DIR\run-nova.bat"
+    # A run-nekosuneai.bat that always starts NekoSuneAI in the chosen mode. The
+    # mode lives in .nekosuneai-run-mode so it can be flipped later without
+    # re-installing.
+    Remove-Item -Path "$INSTALL_DIR\run-nova.bat", "$INSTALL_DIR\.nova-run-mode" -ErrorAction SilentlyContinue
+    Set-Content -Path "$INSTALL_DIR\.nekosuneai-run-mode" -Value $mode -Encoding ASCII
+    $batPath = "$INSTALL_DIR\run-nekosuneai.bat"
     $icoPath = "$INSTALL_DIR\data\logo.ico"
     if ($mode -eq "cli") {
         $batBody = @"
@@ -584,7 +586,7 @@ cd /d "%~dp0"
     }
 
     if (-not (Ask-YesNo "Create a desktop shortcut for NekoSuneAI?")) {
-        Write-Ok "No desktop shortcut created. Start with: run-nova.bat or NekoSuneAI.lnk"
+        Write-Ok "No desktop shortcut created. Start with: run-nekosuneai.bat or NekoSuneAI.lnk"
         return
     }
     try {
@@ -593,7 +595,7 @@ cd /d "%~dp0"
         $shortcut = $shell.CreateShortcut($shortcutPath)
         if ($mode -eq "cli") {
             # CLI mode: launch via the .bat so a console window opens for the chat loop.
-            $shortcut.TargetPath = "$INSTALL_DIR\run-nova.bat"
+            $shortcut.TargetPath = "$INSTALL_DIR\run-nekosuneai.bat"
             $shortcut.Arguments = ""
         } else {
             # GUI mode: launch the window directly with pythonw (no console).
@@ -649,11 +651,11 @@ function Show-Finish {
     Write-Host "    To launch NekoSuneAI anytime:" -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "      cd $INSTALL_DIR" -ForegroundColor Cyan
-    Write-Host "      .\run-nova.bat" -ForegroundColor Cyan -NoNewline
+    Write-Host "      .\run-nekosuneai.bat" -ForegroundColor Cyan -NoNewline
     Write-Host "          # starts in $mode mode" -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "    Or use the desktop shortcut if you created one." -ForegroundColor DarkGray
-    Write-Host "    Switch modes later by editing .nova-run-mode (gui / cli)." -ForegroundColor DarkGray
+    Write-Host "    Switch modes later by editing .nekosuneai-run-mode (gui / cli)." -ForegroundColor DarkGray
     Write-Host ""
     Write-Host "    Change LLM provider anytime by editing " -ForegroundColor DarkGray -NoNewline
     Write-Host ".env" -ForegroundColor White -NoNewline

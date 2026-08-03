@@ -44,7 +44,7 @@ desktop:linux:
   stage: desktop
   image: "python:${PYTHON_VERSION}-slim"
   variables:
-    NOVA_VERSION: "$CI_COMMIT_TAG"
+    NEKOSUNEAI_VERSION: "$CI_COMMIT_TAG"
   script:
     - apt-get update && apt-get install -y --no-install-recommends binutils && rm -rf /var/lib/apt/lists/*
     - python -m pip install --upgrade pip

@@ -14,8 +14,8 @@ NekoSuneAI is configured through environment variables in the `.env` file. Copy 
 | `AUTO_UPDATE_INSTALL` | `true` | Automatically install updates (non-git installs only) |
 | `AUTO_UPDATE_CACHE_SECONDS` | `21600` | Cache update check results for this many seconds |
 | `HF_HUB_DISABLE_SYMLINKS_WARNING` | `1` | Suppress Hugging Face Windows symlink warnings |
-| `NOVA_GITHUB_REPO` | `NekoSuneProjects/NekoSuneAI` | GitHub repo for update checks (owner/repo slug; a full URL is also accepted) |
-| `NOVA_GITHUB_BRANCH` | `main` | GitHub branch for update checks |
+| `NEKOSUNEAI_GITHUB_REPO` | `NekoSuneProjects/NekoSuneAI` | GitHub repo for update checks (owner/repo slug; a full URL is also accepted). `NOVA_GITHUB_REPO` still works as a fallback. |
+| `NEKOSUNEAI_GITHUB_BRANCH` | `main` | GitHub branch for update checks. `NOVA_GITHUB_BRANCH` still works as a fallback. |
 
 ---
 

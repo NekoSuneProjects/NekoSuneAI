@@ -12,22 +12,24 @@ tailwind.config = {
     extend: {
       colors: {
         nova: {
-          bg:       '#0f0f14',
-          nav:      '#0a0a10',
-          surface:  '#15151e',
-          surface2: '#1c1c28',
-          surface3: '#222232',
-          border:   '#252538',
-          border2:  '#2e2e44',
-          text:     '#e8e8f2',
-          muted:    '#7070a0',
-          muted2:   '#9898c0',
-          input:    '#0c0c18',
-          accent:   '#8b5cf6',
-          accentH:  '#7c3aed',
-          accentD:  '#6d28d9',
-          accentBg: '#1a0e30',
-          accentB:  '#3d2070',
+          bg:       '#0a0f0d',
+          nav:      '#070b09',
+          surface:  '#0f1713',
+          surface2: '#16211b',
+          surface3: '#1c2b22',
+          border:   '#1e3327',
+          border2:  '#28472f',
+          text:     '#e8f5ec',
+          muted:    '#5f9174',
+          muted2:   '#8fcba6',
+          input:    '#08130d',
+          accent:   '#22c55e',
+          accentH:  '#16a34a',
+          accentD:  '#15803d',
+          accentBg: '#0b2418',
+          accentB:  '#1f6e3f',
+          vr:       '#4ade80',
+          vrGlow:   '#39ff8f',
         }
       }
     }
@@ -35,57 +37,87 @@ tailwind.config = {
 }
 </script>
 <style>
-  html, body { margin:0; padding:0; background:#0f0f14; color:#e8e8f2; font-family:'Segoe UI','Inter',system-ui,sans-serif; overflow:hidden; height:100%; }
+  html, body { margin:0; padding:0; background:#0a0f0d; color:#e8f5ec; font-family:'Segoe UI','Inter',system-ui,sans-serif; overflow:hidden; height:100%; }
   ::-webkit-scrollbar { width:5px; }
   ::-webkit-scrollbar-track { background:transparent; }
-  ::-webkit-scrollbar-thumb { background:#222232; border-radius:3px; }
-  ::-webkit-scrollbar-thumb:hover { background:#8b5cf6; }
+  ::-webkit-scrollbar-thumb { background:#1c2b22; border-radius:3px; }
+  ::-webkit-scrollbar-thumb:hover { background:#22c55e; }
   .nav-item { transition: all 0.15s ease; }
-  .nav-item:hover { background:#15151e; color:#e8e8f2; }
-  .nav-item.active { background:#1a0e30; color:#c4b5fd; border-left-color:#8b5cf6; }
+  .nav-item:hover { background:#0f1713; color:#e8f5ec; }
+  .nav-item.active { background:#0b2418; color:#86efac; border-left-color:#22c55e; box-shadow: inset 0 0 18px rgba(34,197,94,0.12); }
   .page { display:none; }
   .page.active { display:flex; }
   .toggle-dot { transition: transform 0.2s ease, background 0.2s ease; }
   .toggle-bg { transition: background 0.2s ease; }
-  .card { background:#15151e; border:1px solid #252538; border-radius:10px; }
-  .card-alt { background:#1c1c28; border:1px solid #2e2e44; border-radius:10px; }
-  .btn-primary { background:#8b5cf6; color:#fff; }
-  .btn-primary:hover { background:#7c3aed; }
-  .btn-primary:disabled { background:#1c1c28; color:#7070a0; cursor:not-allowed; }
-  .btn-secondary { background:#1c1c28; color:#9898c0; border:1px solid #2e2e44; }
-  .btn-secondary:hover { background:#222232; color:#e8e8f2; border-color:#3d2070; }
-  .btn-secondary:disabled { background:#15151e; color:#7070a0; border-color:#252538; cursor:not-allowed; }
+  .card {
+    background: linear-gradient(180deg, rgba(22,33,27,0.9), rgba(15,23,19,0.9));
+    border:1px solid #1e3327; border-radius:12px;
+    box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset, 0 8px 24px -12px rgba(0,0,0,0.6);
+    backdrop-filter: blur(6px);
+  }
+  .card-alt { background:#16211b; border:1px solid #28472f; border-radius:12px; }
+  .btn-primary { background:#22c55e; color:#052e16; font-weight:600; box-shadow: 0 0 0 rgba(34,197,94,0); transition: all 0.15s ease; }
+  .btn-primary:hover { background:#4ade80; box-shadow: 0 0 18px rgba(34,197,94,0.45); }
+  .btn-primary:disabled { background:#16211b; color:#5f9174; cursor:not-allowed; box-shadow:none; }
+  .btn-secondary { background:#16211b; color:#8fcba6; border:1px solid #28472f; transition: all 0.15s ease; }
+  .btn-secondary:hover { background:#1c2b22; color:#e8f5ec; border-color:#1f6e3f; box-shadow: 0 0 12px rgba(34,197,94,0.15); }
+  .btn-secondary:disabled { background:#0f1713; color:#5f9174; border-color:#1e3327; cursor:not-allowed; box-shadow:none; }
   .btn-danger { background:rgba(248,113,113,0.08); color:#f87171; border:1px solid rgba(127,29,29,0.5); }
   .btn-danger:hover { background:rgba(248,113,113,0.15); }
   .btn-success { background:rgba(34,197,94,0.08); color:#22c55e; border:1px solid rgba(20,83,45,0.5); }
   .btn-success:hover { background:rgba(34,197,94,0.15); }
   .chat-bubble-user { background:rgba(251,191,36,0.06); border-left:3px solid #7c5a1a; }
-  .chat-bubble-assistant { background:rgba(147,197,253,0.06); border-left:3px solid #1e4a6e; }
-  .chat-bubble-system { background:rgba(107,114,128,0.06); border-left:3px solid #1e2d4a; }
+  .chat-bubble-assistant { background:rgba(74,222,128,0.07); border-left:3px solid #1f6e3f; }
+  .chat-bubble-system { background:rgba(107,114,128,0.06); border-left:3px solid #2a473a; }
   input, textarea, select {
-    background:#0c0c18; border:1px solid #2e2e44; border-radius:6px; padding:8px 12px;
-    color:#e8e8f2; font-size:13px; outline:none; transition: border-color 0.15s;
+    background:#08130d; border:1px solid #28472f; border-radius:6px; padding:8px 12px;
+    color:#e8f5ec; font-size:13px; outline:none; transition: border-color 0.15s, box-shadow 0.15s;
   }
-  input:focus, textarea:focus, select:focus { border-color:#8b5cf6; }
-  input:disabled, select:disabled { background:#15151e; color:#7070a0; }
+  input:focus, textarea:focus, select:focus { border-color:#22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.15); }
+  input:disabled, select:disabled { background:#0f1713; color:#5f9174; }
   .fade-in { animation: fadeIn 0.2s ease; }
   @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
   .notification { animation: slideIn 0.3s ease, fadeOut 0.3s ease 3.7s forwards; }
   @keyframes slideIn { from{transform:translateX(100%);opacity:0} to{transform:translateX(0);opacity:1} }
   @keyframes fadeOut { from{opacity:1} to{opacity:0} }
 
+  /* ── VRChat accent: nav badges + Game page banner ── */
+  .vr-badge {
+    display:inline-flex; align-items:center; justify-content:center;
+    font-size:9px; line-height:1; padding:2px 5px; margin-left:6px;
+    border-radius:999px; letter-spacing:0.04em; font-weight:700;
+    color:#052e16; background:linear-gradient(135deg,#4ade80,#16a34a);
+    box-shadow: 0 0 8px rgba(74,222,128,0.55);
+    animation: vrPulse 2.4s ease-in-out infinite;
+  }
+  @keyframes vrPulse {
+    0%, 100% { box-shadow: 0 0 6px rgba(74,222,128,0.4); }
+    50%      { box-shadow: 0 0 14px rgba(74,222,128,0.85); }
+  }
+  .vr-banner {
+    display:flex; align-items:center; gap:10px;
+    padding:10px 14px; margin-bottom:14px; border-radius:10px;
+    background: linear-gradient(90deg, rgba(34,197,94,0.14), rgba(34,197,94,0.02));
+    border:1px solid rgba(74,222,128,0.4);
+    box-shadow: 0 0 22px rgba(34,197,94,0.18), inset 0 0 12px rgba(74,222,128,0.06);
+  }
+  .vr-banner .vr-title {
+    font-size:12px; font-weight:800; letter-spacing:0.12em; text-transform:uppercase;
+    color:#86efac; text-shadow: 0 0 12px rgba(74,222,128,0.6);
+  }
+
   /* ── Loading screen ── */
   #loading-screen {
     position:fixed; inset:0; z-index:9999;
-    background:#0f0f14;
+    background:#0a0f0d;
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     transition: opacity 0.5s ease;
   }
   #loading-screen.fade-out { opacity:0; pointer-events:none; }
   .loader-ring {
     width:56px; height:56px; border-radius:50%;
-    border:3px solid #252538;
-    border-top-color:#8b5cf6;
+    border:3px solid #1e3327;
+    border-top-color:#22c55e;
     animation: spin 0.9s linear infinite;
   }
   @keyframes spin { to { transform:rotate(360deg); } }
@@ -114,7 +146,7 @@ tailwind.config = {
 <div id="loading-screen">
   <img src="logo.png" alt="NekoSuneAI" class="w-28 h-28 mb-4 drop-shadow-lg" draggable="false">
   <div class="mb-6 text-center">
-    <div class="text-3xl font-extrabold text-white tracking-tight">NekoSune<span class="text-violet-400">AI</span></div>
+    <div class="text-3xl font-extrabold text-white tracking-tight">NekoSune<span class="text-emerald-400">AI</span></div>
     <div class="text-[11px] text-nova-muted tracking-widest mt-1">AI COMPANION STUDIO</div>
   </div>
   <div class="loader-ring mb-8"></div>
@@ -140,8 +172,8 @@ tailwind.config = {
       <button onclick="showPage('dashboard')"  data-page="dashboard"  class="nav-item active w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#9636;</span> Dashboard</button>
       <button onclick="showPage('chat')"        data-page="chat"        class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#128172;</span> Chat</button>
       <button onclick="showPage('sing')"        data-page="sing"        class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#127908;</span> Sing &amp; Memory</button>
-      <button onclick="showPage('game')"        data-page="game"        class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#127918;</span> Game</button>
-      <button onclick="showPage('watch')"       data-page="watch"       class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#128065;</span> Watch &amp; React</button>
+      <button onclick="showPage('game')"        data-page="game"        class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#127918;</span> Game <span class="vr-badge">&#129405; VR</span></button>
+      <button onclick="showPage('watch')"       data-page="watch"       class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#128065;</span> Watch &amp; React <span class="vr-badge">VR</span></button>
       <button onclick="showPage('profiles')"    data-page="profiles"    class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#128100;</span> Profiles</button>
       <button onclick="showPage('settings')"    data-page="settings"    class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#9881;</span> Settings</button>
     </div>
@@ -281,6 +313,10 @@ tailwind.config = {
       <!-- PAGE: Game -->
       <!-- ═══════════════════════════════════════════════════════════════ -->
       <div id="page-game" class="page flex-col h-full overflow-y-auto p-6 gap-5">
+        <div class="vr-banner">
+          <span class="text-xl">&#129405;</span>
+          <span class="vr-title">Game Agent &middot; VRChat</span>
+        </div>
         <div class="card p-5">
           <div class="flex items-center justify-between mb-3">
             <div class="text-[13px] font-bold">Game Agent (VRChat)</div>
@@ -327,7 +363,7 @@ tailwind.config = {
           <div class="text-[12px] text-nova-muted mb-3">NekoSuneAI periodically looks at your screen (game, video, anything) and reacts in-character. Needs a Vision model (Settings → AI Provider). Reactions post to chat and voice (if on).</div>
           <div class="flex gap-2 items-end mb-3">
             <label class="flex flex-col gap-1 text-[11px] text-nova-muted"><span>Glance every (seconds)</span><input id="wr-interval" type="number" min="5" class="w-36" /></label>
-            <label class="flex items-center gap-2 text-[12px] text-nova-text"><input id="wr-speak" type="checkbox" class="w-4 h-4 rounded accent-violet-500" /> <span>Speak</span></label>
+            <label class="flex items-center gap-2 text-[12px] text-nova-text"><input id="wr-speak" type="checkbox" class="w-4 h-4 rounded accent-emerald-500" /> <span>Speak</span></label>
           </div>
           <div class="flex gap-2">
             <button id="wr-start-btn" onclick="doStartWatch()" class="btn-primary px-4 py-2 rounded-lg text-[12px] font-semibold">Start Watching</button>
@@ -381,15 +417,15 @@ tailwind.config = {
           <div class="text-[13px] font-bold mb-4">Voice & Input</div>
           <div class="space-y-3">
             <label class="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" id="set-voice" onchange="doToggle('voice')" class="w-4 h-4 rounded accent-violet-500" />
+              <input type="checkbox" id="set-voice" onchange="doToggle('voice')" class="w-4 h-4 rounded accent-emerald-500" />
               <span class="text-[13px]">Voice replies (TTS spoken output)</span>
             </label>
             <label class="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" id="set-hf" onchange="doToggle('handsfree')" class="w-4 h-4 rounded accent-violet-500" />
+              <input type="checkbox" id="set-hf" onchange="doToggle('handsfree')" class="w-4 h-4 rounded accent-emerald-500" />
               <span class="text-[13px]">Hands-free mode (auto-listen after reply)</span>
             </label>
             <label class="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" id="set-mic-mute" onchange="doToggle('mic')" class="w-4 h-4 rounded accent-violet-500" />
+              <input type="checkbox" id="set-mic-mute" onchange="doToggle('mic')" class="w-4 h-4 rounded accent-emerald-500" />
               <span class="text-[13px]">Mic muted (block new captures)</span>
             </label>
           </div>
@@ -419,11 +455,11 @@ tailwind.config = {
           <div class="text-[13px] font-bold mb-4">Web Search</div>
           <div class="space-y-3">
             <label class="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" id="set-web" onchange="doToggle('web_search')" class="w-4 h-4 rounded accent-violet-500" />
+              <input type="checkbox" id="set-web" onchange="doToggle('web_search')" class="w-4 h-4 rounded accent-emerald-500" />
               <span class="text-[13px]">Enable web browsing</span>
             </label>
             <label class="flex items-center gap-3 cursor-pointer">
-              <input type="checkbox" id="set-autosearch" onchange="doToggleAutoSearch()" class="w-4 h-4 rounded accent-violet-500" />
+              <input type="checkbox" id="set-autosearch" onchange="doToggleAutoSearch()" class="w-4 h-4 rounded accent-emerald-500" />
               <span class="text-[13px]">Auto-search (LLM decides when)</span>
             </label>
             <div class="flex gap-6 text-[12px] text-nova-muted mt-1">
@@ -725,7 +761,7 @@ function _renderAppSection(name, meta) {
     const id = 'aset__' + name + '__' + f.key;
     const v = f.value != null ? String(f.value) : '';
     if (f.type === 'bool') {
-      return `<label class="flex items-center gap-2 text-[12px] col-span-2"><input id="${id}" type="checkbox" class="w-4 h-4 rounded accent-violet-500" ${f.value ? 'checked' : ''}/> <span>${escHtml(f.label)}</span></label>`;
+      return `<label class="flex items-center gap-2 text-[12px] col-span-2"><input id="${id}" type="checkbox" class="w-4 h-4 rounded accent-emerald-500" ${f.value ? 'checked' : ''}/> <span>${escHtml(f.label)}</span></label>`;
     }
     if (f.type === 'select') {
       const opts = (f.options || []).map(o => `<option ${String(f.value) === String(o) ? 'selected' : ''}>${escHtml(o)}</option>`).join('');
@@ -840,7 +876,7 @@ function renderGameSettings() {
     const cell = document.createElement('label');
     if (f.type === 'bool') {
       cell.className = 'flex items-center gap-2 text-[12px] text-nova-text col-span-2';
-      cell.innerHTML = `<input id="${id}" type="checkbox" class="w-4 h-4 rounded accent-violet-500" ${f.value ? 'checked' : ''} /> <span>${escHtml(f.label)}</span>`;
+      cell.innerHTML = `<input id="${id}" type="checkbox" class="w-4 h-4 rounded accent-emerald-500" ${f.value ? 'checked' : ''} /> <span>${escHtml(f.label)}</span>`;
     } else if (f.type === 'select') {
       const opts = (f.options || []).map(o => `<option value="${escHtml(o)}" ${String(f.value) === String(o) ? 'selected' : ''}>${escHtml(o)}</option>`).join('');
       cell.className = 'flex flex-col gap-1 text-[11px] text-nova-muted';
@@ -1058,7 +1094,7 @@ async function loadProfiles() {
       const active = p.is_active;
       return `<div class="flex items-center justify-between py-3 px-4 rounded-lg ${active ? 'bg-nova-accentBg border border-nova-accentB' : 'bg-nova-surface2 border border-nova-border'}">
         <div>
-          <div class="font-medium ${active ? 'text-violet-300' : 'text-nova-text'}">${escHtml(p.profile_name)} ${active ? '<span class="text-[10px] text-violet-400 ml-2">ACTIVE</span>' : ''}</div>
+          <div class="font-medium ${active ? 'text-emerald-300' : 'text-nova-text'}">${escHtml(p.profile_name)} ${active ? '<span class="text-[10px] text-emerald-400 ml-2">ACTIVE</span>' : ''}</div>
           <div class="text-[11px] text-nova-muted">${escHtml(p.companion_name || '')} &middot; ${escHtml(p.description || '').substring(0,60)}</div>
         </div>
         <div class="flex gap-2">
@@ -1099,7 +1135,7 @@ async function doExportProfile(id) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = r.filename || 'profile.nova-profile.json';
+    a.download = r.filename || 'profile.nekosuneai-profile.json';
     document.body.appendChild(a);
     a.click();
     a.remove();

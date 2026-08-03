@@ -8,7 +8,7 @@
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://python.org)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.1-violet)](VERSION)
+[![Version](https://img.shields.io/badge/version-1.1.2-brightgreen)](VERSION)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078D6?logo=windows&logoColor=white)](https://microsoft.com)
 
 NekoSuneAI is a voice-powered desktop companion built with Python. It listens through your mic, thinks with local or cloud LLMs, and speaks back with a cloned voice — all wrapped in a slick dark-themed UI.
@@ -220,8 +220,8 @@ Want a sarcastic best friend? A patient tutor? A no-nonsense project manager? Ju
 
 Move a profile between machines (e.g. your **PC → Raspberry Pi**) from the **Profiles** page:
 
-- **Export** — click **Export** on any profile to download a `*.nova-profile.json` file (saved to the device you're browsing from).
-- **Import** — click **Import**, pick a `*.nova-profile.json` file, and it's added as a **new** profile (importing never overwrites an existing one).
+- **Export** — click **Export** on any profile to download a `*.nekosuneai-profile.json` file (saved to the device you're browsing from).
+- **Import** — click **Import**, pick a `*.nekosuneai-profile.json` file, and it's added as a **new** profile (importing never overwrites an existing one).
 - **Delete** — remove any non-active profile with **Delete** (you always keep at least one).
 
 > 💡 The export file carries the whole profile — identity, sliders, memory notes, voice, and all feature data — so the imported copy behaves exactly like the original.
@@ -581,7 +581,7 @@ right dependency set for it:
 | **CLI** | `requirements.txt` + `requirements-voice.txt` | Terminal chat loop, works great headless (Pi / server). |
 | **GUI** | the above **+ `requirements-gui.txt`** | The native desktop window (needs a display). |
 
-Prefer to pick the raw dependency set yourself? Use `NOVA_INSTALL_PROFILE`
+Prefer to pick the raw dependency set yourself? Use `NEKOSUNEAI_INSTALL_PROFILE`
 (`minimal` / `voice` / `gui` / `full`) with `setup.py --setup`, or install manually:
 
 ```bash

@@ -381,6 +381,14 @@ class Api:
         try:
             result = self._pipeline(text, from_voice=False)
             return {"ok": True, "msg": result}
+        except Exception as exc:
+            # Safety net: _pipeline handles the known failure points itself, but
+            # anything that slips through here would otherwise vanish silently
+            # into the JS console (pywebview swallows it, the frontend only
+            # console.errors) with no sign anything went wrong in the chat UI.
+            error_msg = f"[Companion error] {exc}"
+            self._push_chat("System", error_msg, "system")
+            return {"ok": False, "msg": error_msg}
         finally:
             self._release()
 
@@ -433,8 +441,8 @@ class Api:
             self._release()
             # Re-arm hands-free listening no matter how the turn ended — normal
             # reply, early-handled request, timeout, or a backend error. Without
-            # this, any failure mid-turn silently ends the conversation and Nova
-            # stops responding to speech after the first prompt.
+            # this, any failure mid-turn silently ends the conversation and
+            # NekoSuneAI stops responding to speech after the first prompt.
             if (
                 self.hands_free_enabled
                 and not self.mic_muted
@@ -501,7 +509,13 @@ class Api:
             return sticky_reply
 
         # Media (music) — only when the feature is enabled.
-        media_action = handle_media_request(user_text, self.profile, self.config) if self.media_enabled else None
+        try:
+            media_action = handle_media_request(user_text, self.profile, self.config) if self.media_enabled else None
+        except Exception as exc:
+            error_msg = f"[Media error] {exc}"
+            self._push_chat("System", error_msg, "system")
+            self._push_status("Ready.")
+            return error_msg
         if media_action and media_action.handled:
             self.profile = save_profile_by_id(self.active_profile_id, self.profile)
             append_history("user", user_text)
@@ -569,6 +583,11 @@ class Api:
                     extra_system=self._game_awareness() + self._recall(user_text) + self._sticky_system(),
                 )
             )
+        except Exception as exc:
+            error_msg = f"[Companion error] {exc}"
+            self._push_chat("System", error_msg, "system")
+            self._push_status("Ready.")
+            return error_msg
         finally:
             stop_thinking_sound(thinking_timer)
         reply = result.reply
@@ -1412,9 +1431,9 @@ class Api:
             safe = _safe_profile_id(name)
             return {
                 "ok": True,
-                "filename": f"{safe}.nova-profile.json",
+                "filename": f"{safe}.nekosuneai-profile.json",
                 "data": {
-                    "nova_profile_export": True,
+                    "nekosuneai_profile_export": True,
                     "version": 1,
                     "profile": profile,
                 },

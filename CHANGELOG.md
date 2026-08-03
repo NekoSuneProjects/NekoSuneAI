@@ -5,6 +5,26 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.2] - Unreleased
+
+### Fixed
+- The desktop GUI's chat pipeline had no error handling around the LLM call
+  or the media/music call — any failure (bad endpoint response, missing
+  `ffplay`, etc.) vanished into the browser devtools console with nothing
+  shown in the UI. Both paths now push a visible `[Companion error]` /
+  `[Media error]` message into the chat log instead.
+
+### Changed
+- **Retheme**: swapped the desktop GUI from violet/purple to a dark green
+  palette (backgrounds, borders, buttons, focus rings, chat bubbles), with
+  glassy card backgrounds, subtle glow shadows, and a pulsing "VR" badge on
+  the Game / Watch & React nav items plus a glowing banner on the Game page.
+- Finished the NovaAI → NekoSuneAI rename: leftover `run-nova.bat`/
+  `run-nova.sh`/`.nova-run-mode` launcher artifacts, the `.nova-profile.json`
+  export format, and internal env vars (`NOVA_GITHUB_REPO`/`BRANCH`,
+  `NOVA_INSTALL_PROFILE`, `NOVA_SKIP_AUTO_UPDATE`) are now
+  `NEKOSUNEAI_*`-named — old env var names still work as a fallback.
+
 ## [1.1.1] - Unreleased
 
 ### Fixed
@@ -77,6 +97,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.1.2]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.2
 [1.1.1]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.1
 [1.1.0]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.0
 [1.0.0]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.0.0

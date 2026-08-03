@@ -141,13 +141,18 @@ def ensure_venv() -> None:
 def resolve_install_profile() -> str:
     """Which dependency set to install.
 
-    Controlled by NOVA_INSTALL_PROFILE (set by install.sh's profile prompt):
+    Controlled by NEKOSUNEAI_INSTALL_PROFILE (set by install.sh's profile
+    prompt; NOVA_INSTALL_PROFILE is read as a fallback for pre-rename setups):
         minimal -> base only (CLI text chat)
         voice   -> base + voice/ML extras
         gui     -> base + native desktop GUI extra
         full    -> base + voice + gui  (default; preserves Windows behavior)
     """
-    profile = os.getenv("NOVA_INSTALL_PROFILE", "full").strip().lower()
+    profile = (
+        os.getenv("NEKOSUNEAI_INSTALL_PROFILE", "").strip().lower()
+        or os.getenv("NOVA_INSTALL_PROFILE", "").strip().lower()
+        or "full"
+    )
     if profile in {"minimal", "voice", "gui", "full"}:
         return profile
     return "full"

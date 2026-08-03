@@ -51,14 +51,14 @@ def ensure_setup() -> None:
 
 def restart_current_process() -> None:
     environment = os.environ.copy()
-    environment["NOVA_SKIP_AUTO_UPDATE"] = "1"
+    environment["NEKOSUNEAI_SKIP_AUTO_UPDATE"] = "1"
     command = [sys.executable, str(ROOT_DIR / "app.py"), *sys.argv[1:]]
     subprocess.Popen(command, cwd=str(ROOT_DIR), env=environment)
     raise SystemExit(0)
 
 
 def maybe_apply_startup_update() -> None:
-    if os.getenv("NOVA_SKIP_AUTO_UPDATE") == "1":
+    if os.getenv("NEKOSUNEAI_SKIP_AUTO_UPDATE") == "1":
         return
 
     load_dotenv()
