@@ -32,6 +32,13 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
+          # CPU-only torch/torchaudio wheels, installed BEFORE the rest of
+          # requirements-voice.txt so its own (unpinned-index) torch/torchaudio
+          # entry is already satisfied and pip won't pull the default PyPI
+          # build - which, on Linux, drags in several GB of bundled CUDA
+          # runtime (nvidia-*-cu12) packages even though this installer is
+          # meant to be CPU-only (GPU users add CUDA torch after installing).
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.2,<2.9" "torchaudio>=2.2,<2.9"
           pip install -r requirements.txt -r requirements-voice.txt -r requirements-gui.txt pyinstaller
 
       - name: Build PyInstaller bundle
@@ -73,6 +80,11 @@ jobs:
           sudo apt-get install -y --no-install-recommends binutils ruby ruby-dev build-essential
           sudo gem install --no-document fpm
           python -m pip install --upgrade pip
+          # See the matching comment in build-windows: forces CPU-only torch/
+          # torchaudio wheels before the general install, since plain PyPI
+          # torch on Linux pulls several GB of bundled CUDA runtime packages
+          # (nvidia-*-cu12) that this installer doesn't need.
+          pip install --index-url https://download.pytorch.org/whl/cpu "torch>=2.2,<2.9" "torchaudio>=2.2,<2.9"
           pip install -r requirements.txt -r requirements-voice.txt -r requirements-gui.txt pyinstaller
 
       - name: Build PyInstaller bundle
