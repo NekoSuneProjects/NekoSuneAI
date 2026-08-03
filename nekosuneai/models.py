@@ -20,6 +20,10 @@ class SessionState:
     input_mode: str
     pending_web_context: str | None = None
     pending_web_query: str | None = None
+    # A wake-phrase-triggered instruction ("...always speak to me in 0s and 1s")
+    # that stays applied to every reply until the user cancels it — unlike the
+    # pending_web_* pair above, this does NOT self-clear after one turn.
+    sticky_instruction: str | None = None
     speech_recognizer: sr.Recognizer | None = None
     speech_recognizer_signature: tuple[Any, ...] | None = None
     mic_calibrated: bool = False

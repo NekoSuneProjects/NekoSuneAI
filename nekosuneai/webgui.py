@@ -29,8 +29,9 @@ from .config import Config
 from .engine import GenerationRequest, generate_reply
 from .memory import MemoryStore
 from .media import handle_media_request
-from .media_player import stop_media_playback
+from .media_player import start_thinking_sound, stop_thinking_sound
 from .models import SessionState
+from .sticky import is_reset_command, try_clear_sticky_instruction, try_set_sticky_instruction
 from .storage import (
     _safe_profile_id,
     append_history,
@@ -115,6 +116,11 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "xtts_speed", "label": "Speed", "type": "float"},
             {"key": "tts_language", "label": "Language", "type": "text"},
             {"key": "tts_auto_language", "label": "Auto language per reply (speak each line in its own language)", "type": "bool"},
+            {"key": "rvc_chat_enabled", "label": "Convert chat voice through RVC", "type": "bool"},
+            {"key": "rvc_chat_model_path", "label": "RVC model .pth (chat voice)", "type": "text"},
+            {"key": "rvc_chat_pitch", "label": "Pitch (semitones, +/-)", "type": "float"},
+            {"key": "rvc_chat_index_rate", "label": "Index rate", "type": "float"},
+            {"key": "rvc_chat_protect", "label": "Protect (consonant clarity)", "type": "float"},
         ],
     },
     "stt": {
@@ -129,10 +135,12 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "media": {
         "label": "Media",
         "fields": [
-            {"key": "media_region", "label": "Region", "type": "text"},
             {"key": "music_provider_default", "label": "Music provider", "type": "select",
-             "options": ["soundcloud", "radio", "deezer", "spotify"]},
+             "options": ["soundcloud", "deezer", "spotify"]},
             {"key": "soundcloud_stream_endpoint", "label": "Stream endpoint", "type": "text"},
+            {"key": "thinking_sound_enabled", "label": "Play a sound during long waits", "type": "bool"},
+            {"key": "thinking_sound_path", "label": "Thinking sound file (.wav/.mp3)", "type": "text"},
+            {"key": "thinking_sound_delay_seconds", "label": "Delay before it plays (sec)", "type": "float"},
         ],
     },
     "singing": {
@@ -144,6 +152,15 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "rvc_model_path", "label": "RVC model .pth (rvc)", "type": "text"},
             {"key": "singing_api_url", "label": "Singing API URL (cloud)", "type": "text"},
             {"key": "singing_api_key", "label": "Singing API key (cloud)", "type": "password"},
+        ],
+    },
+    "vrchat_friends": {
+        "label": "VRChat Friends (opt-in, unofficial API — ToS risk, use a throwaway account)",
+        "fields": [
+            {"key": "vrchat_friends_enabled", "label": "Enable", "type": "bool"},
+            {"key": "vrchat_username", "label": "VRChat username", "type": "text"},
+            {"key": "vrchat_password", "label": "VRChat password", "type": "password"},
+            {"key": "vrchat_totp_secret", "label": "TOTP 2FA secret (authenticator app only)", "type": "password"},
         ],
     },
 }
@@ -186,7 +203,7 @@ class Api:
         self.session_started = False
         self.hands_free_enabled = False
         self.mic_muted = False
-        self.media_enabled = True   # music/radio playback feature toggle
+        self.media_enabled = True   # music playback feature toggle
         self.busy = False
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -198,6 +215,8 @@ class Api:
         # Watch & React — periodically glance at the screen and react in-character.
         self._watch_enabled = False
         self._watch_thread: threading.Thread | None = None
+        # VRChat friends system — opt-in, separate from the OSC game driver.
+        self._vrchat_friends: Any = None
 
     def initialize(self) -> dict[str, Any]:
         """Heavy init — called from JS once the loading screen is visible."""
@@ -365,68 +384,6 @@ class Api:
         finally:
             self._release()
 
-    def review_image(self, image_b64: str, note: str = "") -> dict[str, Any]:
-        """Look at an uploaded image, read it, and give an in-character opinion.
-
-        NekoSuneAI 'sees' the image via a vision model (local Ollama vision model, or
-        an OpenAI-compatible multimodal chat model), then the persona reacts to
-        what's there — so it can look at art, memes, screenshots, or a picture of
-        itself and actually comment on it.
-        """
-        if (err := self._not_ready()):
-            return err
-        from . import vision
-
-        image_bytes = vision.strip_data_uri(image_b64)
-        if not image_bytes:
-            return {"ok": False, "msg": "Could not read that image."}
-        if not vision.vision_available(self.config):
-            return {"ok": False, "msg": (
-                "No vision model configured. Set a Vision model (Settings → AI Provider, "
-                "e.g. an Ollama model like 'llava' or 'qwen2.5vl'), or use an OpenAI-compatible "
-                "multimodal chat model."
-            )}
-        if not self._acquire():
-            return {"ok": False, "msg": "System is busy."}
-        try:
-            user_name = self.profile.get("user_name", "You")
-            companion = self.profile.get("companion_name", "NekoSuneAI")
-            label = f"🖼️ Shared an image{(' — ' + note.strip()) if note.strip() else ''}"
-            self._push_chat(user_name, label, "user")
-            self._push_status("Looking at the image...")
-            description = vision.describe_image(self.config, image_bytes)
-            if not description:
-                self._push_status("Ready.")
-                return {"ok": False, "msg": "I couldn't make out that image (vision model unavailable)."}
-
-            self._push_status("Reacting...")
-            framing = (
-                "You were just shown an image. Below is exactly what is in it (from your own "
-                "eyes). Give your honest, in-character opinion or reaction — comment on what you "
-                "see and read, like you're reacting on stream. Don't say you can't see images."
-            )
-            ask = note.strip() or "What do you think of this?"
-            result = generate_reply(
-                GenerationRequest(
-                    user_text=f"{ask}\n\n[What you see in the image]: {description}",
-                    profile=self.profile,
-                    config=self.config,
-                    source="chat",
-                    extra_system=[framing],
-                )
-            )
-            reply = result.reply
-            append_history("user", f"[shared an image] {note.strip()} (seen: {description})")
-            append_history("assistant", reply)
-            self._push_chat(companion, reply, "assistant")
-            self._remember_exchange(user_name, f"image: {description}", reply, source="chat")
-            if self.state.voice_enabled and not self._stopped():
-                self._push_status("Speaking...")
-                self._speak(reply, result.emotion)
-            self._push_status("Ready.")
-            return {"ok": True, "description": description, "reply": reply}
-        finally:
-            self._release()
 
     def stop_generation(self) -> dict[str, Any]:
         """Interrupt the current pipeline (LLM / TTS / playback)."""
@@ -516,7 +473,34 @@ class Api:
         self._push_chat(user_name, user_text, "user")
         self._push_status("Thinking...")
 
-        # Media (music/radio) — only when the feature is enabled.
+        # Sticky wake-instructions + reset/clear — checked before anything else
+        # so they always short-circuit with a quick acknowledgement rather than
+        # a full LLM turn.
+        sticky_reply: str | None = None
+        if is_reset_command(user_text):
+            self.state.sticky_instruction = None
+            if self.memory and self.config.rag_enabled:
+                try:
+                    self.memory.wipe(self.active_profile_id)
+                except Exception:
+                    pass
+            sticky_reply = "Memory reset — back to a blank slate."
+        elif try_clear_sticky_instruction(user_text):
+            self.state.sticky_instruction = None
+            sticky_reply = "Cleared — back to normal."
+        elif try_set_sticky_instruction(user_text, self.profile, self.state):
+            sticky_reply = "Got it — I'll stick to that until you say stop."
+
+        if sticky_reply is not None:
+            append_history("user", user_text)
+            append_history("assistant", sticky_reply)
+            self._push_chat(companion, sticky_reply, "assistant")
+            if self.state.voice_enabled and not self._stopped():
+                self._speak(sticky_reply, "neutral")
+            self._push_status("Ready.")
+            return sticky_reply
+
+        # Media (music) — only when the feature is enabled.
         media_action = handle_media_request(user_text, self.profile, self.config) if self.media_enabled else None
         if media_action and media_action.handled:
             self.profile = save_profile_by_id(self.active_profile_id, self.profile)
@@ -573,16 +557,20 @@ class Api:
             return "Stopped."
 
         self._push_status("Generating reply...")
-        result = generate_reply(
-            GenerationRequest(
-                user_text=user_text,
-                profile=self.profile,
-                config=self.config,
-                source="chat",
-                web_context=web_context,
-                extra_system=self._game_awareness() + self._recall(user_text),
+        thinking_timer = start_thinking_sound(self.config)
+        try:
+            result = generate_reply(
+                GenerationRequest(
+                    user_text=user_text,
+                    profile=self.profile,
+                    config=self.config,
+                    source="chat",
+                    web_context=web_context,
+                    extra_system=self._game_awareness() + self._recall(user_text) + self._sticky_system(),
+                )
             )
-        )
+        finally:
+            stop_thinking_sound(thinking_timer)
         reply = result.reply
 
         if self._stopped():
@@ -625,6 +613,11 @@ class Api:
         with self._lock:
             self.busy = False
         self._push_state()
+
+    def _sticky_system(self) -> list[str]:
+        if not self.state.sticky_instruction:
+            return []
+        return [f"Standing rule from the user, follow it until they cancel it: {self.state.sticky_instruction}"]
 
     # ── memory (RAG) ────────────────────────────────────────────────────────────
 
@@ -864,6 +857,11 @@ class Api:
         def _do_restart() -> None:
             time.sleep(0.4)
             self._watch_enabled = False
+            if self._vrchat_friends is not None:
+                try:
+                    self._vrchat_friends.stop()
+                except Exception:
+                    pass
             # Stop the game agent cleanly so ports free up before relaunch.
             try:
                 if self.game_agent:
@@ -1278,6 +1276,53 @@ class Api:
                     self._release()
             except Exception:
                 pass
+
+    # ── VRChat friends system (opt-in, credential-gated) ─────────────────────────
+
+    def _vrchat_friends_event(self, message: str) -> None:
+        """on_event callback for VRChatFriendsService — narrate like the game/watch
+        features do: push to chat, and speak it if voice is on and we're free."""
+        self._push_chat("System", message, "system")
+        if self.state.voice_enabled and not self.busy:
+            try:
+                self._speak(message, "neutral")
+            except Exception:
+                pass
+
+    def get_vrchat_friends_status(self) -> dict[str, Any]:
+        return {
+            "running": bool(self._vrchat_friends and self._vrchat_friends.is_running()),
+            "enabled": bool(self.config and self.config.vrchat_friends_enabled),
+            "has_credentials": bool(
+                self.config and self.config.vrchat_username and self.config.vrchat_password
+            ),
+        }
+
+    def start_vrchat_friends(self) -> dict[str, Any]:
+        if (err := self._not_ready()):
+            return err
+        from .games.vrchat_friends import VRChatFriendsService
+
+        if self._vrchat_friends is None:
+            self._vrchat_friends = VRChatFriendsService(self.config, self._vrchat_friends_event)
+        if self._vrchat_friends.is_running():
+            return {"ok": True, "msg": "Already running."}
+        try:
+            self._vrchat_friends.start()
+        except RuntimeError as exc:
+            return {"ok": False, "msg": str(exc)}
+        self._push_chat(
+            "System",
+            "VRChat friends system on — logging in and watching for friend activity.",
+            "system",
+        )
+        return {"ok": True, "msg": "Starting."}
+
+    def stop_vrchat_friends(self) -> dict[str, Any]:
+        if self._vrchat_friends is not None:
+            self._vrchat_friends.stop()
+        self._push_chat("System", "VRChat friends system off.", "system")
+        return {"ok": True}
 
     # ── singing ─────────────────────────────────────────────────────────────────
 

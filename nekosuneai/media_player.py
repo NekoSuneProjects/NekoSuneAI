@@ -4,6 +4,10 @@ import shutil
 import subprocess
 import threading
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .config import Config
 
 
 @dataclass
@@ -127,6 +131,10 @@ class MediaPlayer:
             self._volume = target
             return f"Volume adjusted to {self._volume}% without restarting playback."
 
+    def current_kind(self) -> str:
+        with self._lock:
+            return self._current.kind if self._process is not None else ""
+
     def status_text(self) -> str:
         with self._lock:
             if self._process is not None and self._current.title:
@@ -162,3 +170,35 @@ def set_media_volume(percent: int) -> str:
 
 def media_status_text() -> str:
     return _PLAYER.status_text()
+
+
+def current_media_kind() -> str:
+    return _PLAYER.current_kind()
+
+
+def start_thinking_sound(config: "Config") -> threading.Timer | None:
+    """Start a delayed one-shot "thinking" cue — plays only if *config* enables
+    it, a sound file is set, and nothing else is already playing (never
+    interrupts music the user started). Callers must always pass the returned
+    timer to stop_thinking_sound() in a ``finally`` block."""
+    if not config.thinking_sound_enabled or not config.thinking_sound_path:
+        return None
+    if current_media_kind():
+        return None
+    timer = threading.Timer(
+        config.thinking_sound_delay_seconds,
+        lambda: play_media_stream(config.thinking_sound_path, title="Thinking...", kind="thinking"),
+    )
+    timer.daemon = True
+    timer.start()
+    return timer
+
+
+def stop_thinking_sound(timer: threading.Timer | None) -> None:
+    if timer is None:
+        return
+    timer.cancel()
+    # Only stop playback if it's actually our cue — avoids clobbering music that
+    # started (e.g. a media request) while we were thinking.
+    if current_media_kind() == "thinking":
+        stop_media_playback()

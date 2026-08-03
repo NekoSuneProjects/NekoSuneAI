@@ -15,6 +15,7 @@ from typing import Any, Callable
 
 from ..config import Config
 from ..engine import GenerationRequest, detect_emotion, generate_reply
+from ..media_player import start_thinking_sound, stop_thinking_sound
 from .base import GameCommand, GameDriver
 
 # Verbs that need a subject (item/block) in their args.
@@ -340,20 +341,24 @@ class GameAgent:
             f"Goal: {self.goal}\n\nWorld state:\n{obs.text}\n\nYour next single action (JSON only):"
         )
 
-        result = generate_reply(
-            GenerationRequest(
-                user_text=user_prompt,
-                profile=self.profile_getter(),
-                config=self.config,
-                source="game",
-                system_override=system_prompt,
-                use_shared_history=False,
-                history=list(self._log),
-                # Game replies are short JSON; cap tokens so local models (Ollama)
-                # respond fast and don't time out each tick.
-                max_tokens=200,
+        thinking_timer = start_thinking_sound(self.config)
+        try:
+            result = generate_reply(
+                GenerationRequest(
+                    user_text=user_prompt,
+                    profile=self.profile_getter(),
+                    config=self.config,
+                    source="game",
+                    system_override=system_prompt,
+                    use_shared_history=False,
+                    history=list(self._log),
+                    # Game replies are short JSON; cap tokens so local models
+                    # (Ollama) respond fast and don't time out each tick.
+                    max_tokens=200,
+                )
             )
-        )
+        finally:
+            stop_thinking_sound(thinking_timer)
 
         if self._stop.is_set():
             return

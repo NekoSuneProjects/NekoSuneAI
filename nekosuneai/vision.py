@@ -1,10 +1,9 @@
-"""Image understanding — let NekoSuneAI *look at* an image and read it.
+"""Image understanding — let NekoSuneAI *look at* a still image and read it.
 
-A small multimodal seam used by the "review this image" feature (and reusable
-anywhere NekoSuneAI needs to see a still image rather than the live screen). It
-returns a factual description + any text read from the image; the persona's
-opinion/commentary is generated separately by the chat engine so NekoSuneAI stays
-in character.
+A small multimodal seam used by VRChat's per-tick screen awareness
+(``games/vrchat.py``) and by Watch & React (``webgui.py``). It returns a factual
+description + any text read from the image; the persona's opinion/commentary is
+generated separately by the chat engine so NekoSuneAI stays in character.
 
 Two backends, picked automatically:
   * **Ollama vision** when ``vision_model`` is set (e.g. ``llava``, ``moondream``,

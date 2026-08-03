@@ -75,7 +75,6 @@ NekoSuneAI is configured through environment variables in the `.env` file. Copy 
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MEDIA_REGION` | `GB` | Radio station region: `GB`, `US`, `AU`, `CA`, `DE`, `JP`, `FR` |
 | `MUSIC_PROVIDER_DEFAULT` | `soundcloud` | Default music platform: `soundcloud`, `spotify`, `deezer` |
 | `SOUNDCLOUD_STREAM_ENDPOINT` | `https://dl.nekosunevr.co.uk/api/stream` | SoundCloud stream resolver |
 

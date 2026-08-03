@@ -66,6 +66,11 @@ def normalize_gtts_language(language: str) -> str:
 
 
 def should_play_audio_after_synthesis(config: Config) -> bool:
+    # Chat RVC needs the fully-synthesized file to convert before anything is
+    # played, so it forces the non-streaming path (see _speak_text_inner) —
+    # meaning playback always happens afterward, same as gTTS/non-streaming XTTS.
+    if config.rvc_chat_enabled:
+        return True
     return not (
         config.tts_provider == "xtts"
         and config.xtts_stream_output
@@ -975,10 +980,20 @@ def speak_text(
             _restore_lang = config.tts_language
             config.tts_language = lang
     try:
-        return _speak_text_inner(cleaned_text, config, state, on_amplitude)
+        output_path = _speak_text_inner(cleaned_text, config, state, on_amplitude)
     finally:
         if _restore_lang is not None:
             config.tts_language = _restore_lang
+
+    if config.rvc_chat_enabled:
+        from .rvc import apply_rvc
+
+        try:
+            output_path = apply_rvc(output_path, config)
+        except RuntimeError as exc:
+            print(f"[RVC] Voice conversion skipped, using the plain TTS voice: {exc}")
+
+    return output_path
 
 
 def _speak_text_inner(
@@ -994,7 +1009,10 @@ def _speak_text_inner(
     output_path = AUDIO_DIR / "latest_reply.wav"
     model = ensure_xtts_model(config, state)
 
-    if config.xtts_stream_output:
+    # Chat RVC needs to convert the whole rendered file before anything plays,
+    # which live streaming can't do (it plays each chunk as it's generated) —
+    # fall back to full-file synthesis whenever chat RVC is on.
+    if config.xtts_stream_output and not config.rvc_chat_enabled:
         return stream_xtts_audio(
             cleaned_text, config, state, model, output_path, on_amplitude=on_amplitude
         )

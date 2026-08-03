@@ -38,3 +38,10 @@ sentence-transformers>=2.7,<3.3
 #                    FFMPEG_PATH=..., works too.)
 yt-dlp>=2024.1
 imageio-ffmpeg>=0.4
+
+# RVC voice conversion (optional, lazy-imported by nekosuneai/rvc.py and
+# nekosuneai/singing.py's RvcSingingEngine). Used for SINGING_BACKEND=rvc and/or
+# RVC_CHAT_ENABLED=true. Platform-sensitive (needs a matching torch build), so
+# it's left commented out here rather than force-installed — uncomment if you
+# have a trained .pth model and want either feature:
+rvc-python>=0.1

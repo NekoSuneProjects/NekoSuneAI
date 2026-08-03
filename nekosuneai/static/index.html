@@ -251,8 +251,6 @@ tailwind.config = {
           <button id="chat-send-btn" onclick="doSend()" class="btn-primary px-5 py-2 rounded-lg text-[13px] font-semibold">Send</button>
           <button id="chat-stop-btn" onclick="doStop()" class="hidden bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg text-[13px] font-semibold" title="Stop generation (Esc)">Stop</button>
           <button id="chat-listen-btn" onclick="doListenFromChat()" class="btn-secondary px-4 py-2 rounded-lg text-[13px] font-semibold" title="Voice input (F8)">Mic</button>
-          <button id="chat-image-btn" onclick="$('chat-image-file').click()" class="btn-secondary px-4 py-2 rounded-lg text-[13px] font-semibold" title="Show NekoSuneAI an image to react to">🖼️</button>
-          <input id="chat-image-file" type="file" accept="image/*" class="hidden" onchange="doReviewImage(this)" />
         </div>
       </div>
 
@@ -301,6 +299,18 @@ tailwind.config = {
           <div class="flex gap-2">
             <button id="game-start-btn" onclick="doStartGame()" class="btn-primary px-4 py-2 rounded-lg text-[12px] font-semibold">Start</button>
             <button id="game-stop-btn" onclick="doStopGame()" class="btn-secondary px-4 py-2 rounded-lg text-[12px] font-semibold">Stop</button>
+          </div>
+        </div>
+        <div class="card p-5">
+          <div class="flex items-center justify-between mb-3">
+            <div class="text-[13px] font-bold">VRChat Friends (opt-in)</div>
+            <span id="vrcf-badge" class="text-[11px] font-semibold text-nova-muted">Off</span>
+          </div>
+          <div class="text-[12px] text-nova-muted mb-3">Auto-accepts friend requests, watches friend online/offline via VRChat's unofficial web API, and sends a thank-you chatbox message. Needs credentials in Settings → VRChat Friends — this is against VRChat's ToS for bots, so use a throwaway account, not your main.</div>
+          <div id="vrcf-warning" class="hidden text-[11px] text-amber-400 mb-3">Set VRChat username/password (and TOTP secret if 2FA) in Settings → VRChat Friends, and enable it there, before starting.</div>
+          <div class="flex gap-2">
+            <button id="vrcf-start-btn" onclick="doStartVrchatFriends()" class="btn-primary px-4 py-2 rounded-lg text-[12px] font-semibold">Start</button>
+            <button id="vrcf-stop-btn" onclick="doStopVrchatFriends()" class="btn-secondary px-4 py-2 rounded-lg text-[12px] font-semibold">Stop</button>
           </div>
         </div>
       </div>
@@ -567,7 +577,7 @@ function showPage(key) {
   // Refresh data when switching (only after backend is ready)
   if (!_appReady) return;
   if (key === 'sing')       loadMemories();
-  if (key === 'game')       loadGame();
+  if (key === 'game')       { loadGame(); loadVrchatFriends(); }
   if (key === 'watch')      loadWatchReact();
   if (key === 'profiles')   loadProfiles();
   if (key === 'settings')   { syncSettings(); loadAppSettings(); }
@@ -885,6 +895,28 @@ async function doSetGameGoal() {
   try { const r = await api().set_game_goal($('game-goal').value || ''); if (r && !r.ok && r.msg) showNotification(r.msg); } catch(e) { console.error(e); }
 }
 
+// ── VRChat Friends (opt-in, unofficial API) ──────────────────────────────────
+
+async function loadVrchatFriends() {
+  try {
+    const s = await api().get_vrchat_friends_status() || {};
+    const badge = $('vrcf-badge');
+    if (badge) {
+      badge.textContent = s.running ? 'Running' : 'Off';
+      badge.className = 'text-[11px] font-semibold ' + (s.running ? 'text-emerald-400' : 'text-nova-muted');
+    }
+    const warning = $('vrcf-warning');
+    if (warning) warning.classList.toggle('hidden', !!(s.enabled && s.has_credentials));
+  } catch(e) { console.error(e); }
+}
+async function doStartVrchatFriends() {
+  try { const r = await api().start_vrchat_friends(); if (r && !r.ok && r.msg) showNotification(r.msg); loadVrchatFriends(); }
+  catch(e) { console.error(e); }
+}
+async function doStopVrchatFriends() {
+  try { await api().stop_vrchat_friends(); loadVrchatFriends(); } catch(e) { console.error(e); }
+}
+
 // ── Watch & React (NekoSuneAI looks at the screen and reacts) ────────────────
 
 async function loadWatchReact() {
@@ -957,28 +989,6 @@ async function doSend() {
 async function doStop() {
   try { await api().stop_generation(); } catch(e) { console.error(e); }
 }
-
-async function doReviewImage(input) {
-  const file = input.files && input.files[0];
-  input.value = '';  // allow re-picking the same file
-  if (!file) return;
-  if (file.size > 12 * 1024 * 1024) { showNotification('Image too large (max 12 MB).'); return; }
-  const note = (prompt('Ask NekoSuneAI something about this image (optional):') || '').trim();
-  const btn = $('chat-image-btn');
-  if (btn) btn.disabled = true;
-  try {
-    const dataUrl = await new Promise((resolve, reject) => {
-      const fr = new FileReader();
-      fr.onload = () => resolve(fr.result);
-      fr.onerror = reject;
-      fr.readAsDataURL(file);
-    });
-    const r = await api().review_image(dataUrl, note);
-    if (r && !r.ok && r.msg) showNotification(r.msg);
-  } catch(e) { console.error(e); showNotification('Could not review the image.'); }
-  finally { if (btn) btn.disabled = false; }
-}
-
 
 async function doListenFromChat() {
   const btn = $('chat-listen-btn');

@@ -25,13 +25,12 @@ Think Alexa, but with *attitude* and zero cloud lock-in. 🔥
 | 🎙️ | **Voice Input** | Local `faster-whisper` STT — no audio leaves your machine |
 | 🔊 | **Voice Output** | XTTS-v2 streamed synthesis with cloned voices (or Google TTS lite) |
 | 🧬 | **Memory / Learning** | RAG long-term memory — remembers facts across sessions and gets better |
-| 🎮 | **VRChat Integration** | Plays/hangs out in VRChat via the official OSC API — walk, look, chat, emote, greet people by name |
-| 🖼️ | **Image Review** | Show NekoSuneAI an image — it looks, reads any text, and reacts in-character (great for art, memes, or a pic of itself) |
+| 🎮 | **VRChat Integration** | Plays/hangs out in VRChat via the official OSC API — walk, look, chat, emote, greet people by name, and *see* the world through an optional vision model |
 | 👁️ | **Watch & React** | NekoSuneAI periodically glances at your screen (game/video) and reacts live in-character |
 | 🌐 | **Per-language Voice** | Auto-detects each reply's language and speaks it in that language (Japanese line → Japanese voice, etc.) |
 | 🎤 | **Singing** | Sings songs in its own voice over an auto-found YouTube instrumental |
 | 🌐 | **Web Search** | Manual or auto-triggered lookups via SearXNG / DuckDuckGo |
-| 🎵 | **Music & Radio** | SoundCloud search, internet radio, in-app playback |
+| 🎵 | **Music** | SoundCloud search, in-app playback |
 | 👤 | **Profiles** | Multiple companion personalities — create, clone, switch, import/export, delete |
 | ⚡ | **Auto-Tune** | Detects your hardware, adjusts models and GPU usage |
 | 🔄 | **Self-Update** | Checks GitHub for new versions on startup |
@@ -117,15 +116,17 @@ NekoSuneAI can join you in **VRChat** via the official **OSC API** (EAC-safe —
 - Walk/strafe/run/turn/look, jump, use the chatbox (with typing indicator), and trigger avatar emotes
 - **Receives** avatar params (Velocity/Grounded) to notice walls + ledges
 - Reads VRChat's own logs for the current world and **who's in the instance** — greets people by name
+- **Sees** the room when a Vision model is set (Settings → AI Provider, e.g. an Ollama model like `llava` / `qwen2.5vl` / `moondream`, or an OpenAI-compatible multimodal chat model) — describes what's nearby every think-tick so it can react to the world, not just log/OSC data
+- Long chatbox messages are automatically **paged** across multiple `/chatbox/input` sends instead of getting truncated
 - Configure the OSC host/ports and log directory in the **Game** panel or via `.env` (`VRCHAT_OSC_HOST`, `VRCHAT_OSC_PORT`, `VRCHAT_OSC_READ_PORT`, `VRCHAT_LOG_DIR`)
 
-### 🖼️ Image Review — NekoSuneAI looks and reacts
+#### 🤝 Friends System (opt-in, unofficial API)
 
-Show NekoSuneAI an image and it actually **sees** it: open the **Chat** tab, click 🖼️, pick an image, and (optionally) ask a question. NekoSuneAI describes what's there, **reads any text** in it, and gives an in-character opinion in chat + voice — react to art, memes, screenshots, or a picture of itself. Uses a local **Ollama vision model** (set a Vision model in Settings, e.g. `llava` / `qwen2.5vl` / `moondream`) or an **OpenAI-compatible multimodal** chat model.
+A separate, **opt-in** service (Game panel → VRChat Friends) that logs into VRChat's unofficial web API to auto-accept friend requests, watch friend online/offline status live, and send a thank-you chatbox message. This is against VRChat's ToS for bots and risks the account getting flagged — use a throwaway account, not your main. Needs `pip install vrchatapi pyotp websocket-client` and credentials in Settings → VRChat Friends (`VRCHAT_USERNAME`, `VRCHAT_PASSWORD`, `VRCHAT_TOTP_SECRET` for authenticator-app 2FA). Stays completely off unless `VRCHAT_FRIENDS_ENABLED=true` and credentials are set.
 
 ### 👁️ Watch & React
 
-NekoSuneAI can periodically glance at your screen (whatever game/video/app is open) and react live, in one short in-character line, using the same vision model as Image Review. Tune the glance interval and whether it speaks aloud from the panel.
+NekoSuneAI can periodically glance at your screen (whatever game/video/app is open) and react live, in one short in-character line, using the same vision model as VRChat's own screen awareness. Tune the glance interval and whether it speaks aloud from the panel.
 
 ### 🎤 Singing
 
@@ -176,8 +177,7 @@ For the keyboard warriors out there:
 
 | Command | What It Does |
 |---------|-------------|
-| `/play <query>` | Play a radio station or search music |
-| `/radio <station>` | Tune into a known station |
+| `/play <query>` | Search and play music on the preferred platform |
 | `/music <query>` | Search your default music platform |
 | `/pause` / `/resume` / `/stop` | Playback controls |
 
@@ -190,14 +190,13 @@ For the keyboard warriors out there:
 | `/profile use <id>` | Switch profiles |
 | `/name <new name>` | Rename the companion |
 | `/me <name>` | Set your name |
-| `/remember <fact>` | Store a memory note |
 | `/reset` | Clear conversation history |
 | `/performance` | Show hardware and tuning info |
 | `/exit` | Quit |
 
 </details>
 
-> 🗣️ **Natural language works too!** Say *"play Capital FM"* or *"search the web for..."* — NekoSuneAI handles it without a slash command.
+> 🗣️ **Natural language works too!** Say *"play synthwave on SoundCloud"* or *"search the web for..."* — NekoSuneAI handles it without a slash command. Say the companion's name plus a standing rule (*"NekoSuneAI, always speak to me in 0s and 1s"*) to make it stick until you say *"stop"*, and say *"reset"* or *"clear"* to cancel that **and** wipe long-term memory back to blank.
 
 ---
 
@@ -287,8 +286,10 @@ Copy `.env.example` to `.env` and tweak what you need:
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `MEDIA_REGION` | `GB` | Radio region (`GB`, `US`, `AU`, `CA`, etc.) |
 | `MUSIC_PROVIDER_DEFAULT` | `soundcloud` | Default music platform |
+| `THINKING_SOUND_ENABLED` | `false` | Play a short cue during noticeably long waits |
+| `THINKING_SOUND_PATH` | *(none)* | Local audio file to play for the cue |
+| `THINKING_SOUND_DELAY_SECONDS` | `2.5` | How long to wait before playing it |
 
 ### 🔊 Voice & TTS
 
@@ -300,6 +301,9 @@ Copy `.env.example` to `.env` and tweak what you need:
 | `XTTS_USE_GPU` | `true` | Use GPU for voice synthesis |
 | `XTTS_STREAM_OUTPUT` | `true` | Stream audio while generating |
 | `XTTS_SPEAKER` | `Ana Florence` | XTTS voice name |
+| `RVC_CHAT_ENABLED` | `false` | Convert normal chat replies through an RVC voice model (needs `pip install rvc-python`) |
+| `RVC_CHAT_MODEL_PATH` | *(none)* | Trained RVC model `.pth` for chat (separate from the singing RVC model) |
+| `RVC_CHAT_PITCH` | `0` | Pitch shift in semitones, +/- |
 
 ### 🎙️ Speech-to-Text
 
@@ -332,11 +336,14 @@ Copy `.env.example` to `.env` and tweak what you need:
 |---------|---------|-------------|
 | `GAME_ENABLED` | `false` | Enable the game agent |
 | `GAME_TICK_SECONDS` | `4` | Seconds between observe/act ticks |
-| `VISION_MODEL` | *(none)* | Optional multimodal model for Image Review / Watch & React (not required for VRChat OSC play) |
+| `VISION_MODEL` | *(none)* | Optional multimodal model for VRChat screen awareness / Watch & React (not required for VRChat OSC play) |
 | `VRCHAT_OSC_HOST` | `127.0.0.1` | VRChat OSC host |
 | `VRCHAT_OSC_PORT` | `9000` | VRChat OSC send port |
 | `VRCHAT_OSC_READ_PORT` | `9001` | VRChat OSC receive port (avatar params) |
 | `VRCHAT_LOG_DIR` | *(auto)* | Folder containing VRChat's output logs (auto-detected if blank) |
+| `VRCHAT_FRIENDS_ENABLED` | `false` | Opt-in unofficial-API friends system (ToS risk — see above) |
+| `VRCHAT_USERNAME` / `VRCHAT_PASSWORD` | *(none)* | VRChat account credentials for the friends system |
+| `VRCHAT_TOTP_SECRET` | *(none)* | Authenticator-app 2FA secret (email 2FA isn't supported here) |
 
 ### 🎤 Singing
 
@@ -378,14 +385,14 @@ NekoSuneAI/
     ├── engine.py             # 🧩 Shared reply seam + emotion detection
     ├── memory.py             # 🧬 RAG long-term memory store
     ├── singing.py            # 🎤 Singing engine (XTTS/gTTS + backing merge)
-    ├── games/                # 🎮 Game agent + VRChat OSC driver
-    ├── vision.py             # 🖼️ Image understanding (look at / read an image, Watch & React)
+    ├── games/                # 🎮 Game agent + VRChat OSC driver + friends system
+    ├── vision.py             # 👁️ Image understanding (VRChat screen awareness, Watch & React)
     ├── config.py             # ⚙️ Environment parsing + runtime config
     ├── database.py           # 🗄️ SQLite schema + CRUD operations
     ├── storage.py            # 💾 Profile/history API (SQLite-backed)
     ├── audio_input.py        # 🎙️ Mic capture + faster-whisper STT
     ├── tts.py                # 🔊 XTTS-v2 / gTTS synthesis + playback
-    ├── media.py              # 🎵 Radio + music platform integration
+    ├── media.py              # 🎵 Music platform integration
     ├── media_player.py       # ▶️ In-app audio playback (ffplay)
     ├── performance.py        # ⚡ Hardware detection + auto-tuning
     ├── updater.py            # 🔄 GitHub version check + self-update
@@ -406,7 +413,7 @@ NekoSuneAI/
 
 When you send a message (text or voice), NekoSuneAI runs through this pipeline:
 
-1. **Media check** — is it a play/radio/music request? Handle it directly.
+1. **Media check** — is it a play/music request? Handle it directly.
 2. **Web search** — if enabled, check for explicit `/web` queries, inferred lookups (*"what's the weather?"*), or auto-search triggers.
 3. **Memory recall** — if RAG is enabled, retrieve relevant long-term memories and inject them as context.
 4. **LLM request** — build a system prompt from the active profile, attach conversation history, web context, and recalled memories, send to the LLM.
@@ -510,19 +517,16 @@ NekoSuneAI can check for and install updates from GitHub:
 </details>
 
 <details>
-<summary>🎵 Media & Radio</summary>
+<summary>🎵 Media</summary>
 
 NekoSuneAI intercepts natural media requests:
 
-- *"play Capital FM"* → finds and streams the radio station
 - *"play synthwave on SoundCloud"* → searches and plays a track
 - *"pause"* / *"resume"* / *"stop"* → controls the current stream
 
-**Supported radio regions:** UK, US, Australia, Canada, Germany, Japan (with fallback to internet-radio.com search)
+**Music platforms:** SoundCloud (default, with direct-stream resolution), with Spotify and Deezer as browser search options. A YouTube search/download provider is planned (see `TODO.md`).
 
-**Music platforms:** SoundCloud (default), with Spotify and Deezer as search options
-
-In-app playback uses `ffplay` for radio streams and resolved audio URLs.
+In-app playback uses `ffplay` for resolved audio URLs.
 
 </details>
 
@@ -552,10 +556,11 @@ The codebase is modular by design — pick an area and dive in:
 | 🖥️ GUI backend | `nekosuneai/webgui.py` | Medium |
 | 🗄️ Data / profiles | `nekosuneai/storage.py` + `nekosuneai/database.py` | Medium |
 | 🌐 Web search | `nekosuneai/web_search.py` | Medium |
-| 🎵 Media / radio | `nekosuneai/media.py` | Medium |
+| 🎵 Media | `nekosuneai/media.py` | Medium |
 | 🧬 RAG memory | `nekosuneai/memory.py` | Medium |
-| 🖼️ Vision (image review / watch & react) | `nekosuneai/vision.py` | Medium |
+| 👁️ Vision (VRChat screen awareness / watch & react) | `nekosuneai/vision.py` | Medium |
 | 🎮 Game agent / VRChat driver | `nekosuneai/games/` | Hard |
+| 🤝 VRChat friends system | `nekosuneai/games/vrchat_friends.py` | Hard |
 | 🎤 Singing | `nekosuneai/singing.py` | Medium |
 
 PRs welcome! If you're not sure where to start, open an issue and we'll point you in the right direction. 🫡

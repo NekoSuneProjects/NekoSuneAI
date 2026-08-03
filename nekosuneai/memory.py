@@ -202,6 +202,10 @@ class MemoryStore:
     def forget(self, memory_id: int) -> None:
         database.delete_memory(memory_id)
 
+    def wipe(self, profile_id: str) -> int:
+        """Delete every stored memory for *profile_id*. Returns the count deleted."""
+        return database.delete_all_memories_for_profile(profile_id)
+
     def list_recent(self, profile_id: str, limit: int = 30) -> list[dict[str, Any]]:
         rows = database.fetch_memories_for_profile(profile_id)
         out = []

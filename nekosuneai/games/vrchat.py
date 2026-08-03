@@ -20,11 +20,52 @@ import threading
 import time
 from typing import Any
 
+from .. import vision
 from ..config import Config
+from ..tts import split_long_text_fragment
 from . import screen, vrchat_logs
 from .base import GameCommand, GameObservation
 
 _VERBS = ["walk", "back", "strafe", "turn", "run", "jump", "say", "emote", "look", "wait"]
+
+# Room reserved on every page for a " (N/M)" marker, so a paged message never
+# exceeds max_chars once the marker is appended. Generous enough for any
+# realistic page count without wasting much of the chatbox's ~144-char budget.
+_PAGE_MARKER_BUDGET = 9
+
+
+def page_chatbox_text(text: str, max_chars: int = 140) -> list[str]:
+    """Split *text* into VRChat chatbox-sized pages, numbering them when there's
+    more than one. Reuses the same word-boundary wrapping tts.py uses for TTS
+    chunking — same "don't cut mid-word" logic, different budget."""
+    normalized = " ".join(text.split())
+    if not normalized:
+        return []
+    if len(normalized) <= max_chars:
+        return [normalized]
+
+    chunks = split_long_text_fragment(normalized, max_chars - _PAGE_MARKER_BUDGET)
+    if len(chunks) <= 1:
+        return chunks
+    total = len(chunks)
+    return [f"{chunk} ({index}/{total})" for index, chunk in enumerate(chunks, start=1)]
+
+
+def send_chatbox_message(
+    client: Any, text: str, max_chars: int = 140, page_delay: float = 1.5
+) -> None:
+    """Send *text* to VRChat's chatbox via OSC, paging it across multiple
+    messages if it's longer than VRChat's chatbox limit. *client* is any object
+    with a pythonosc-style ``send_message(address, value)`` method — the
+    VRChatDriver's own client, or a standalone one (e.g. the friends system)."""
+    pages = page_chatbox_text(text, max_chars=max_chars)
+    for index, page in enumerate(pages):
+        client.send_message("/chatbox/typing", True)
+        time.sleep(0.2)
+        client.send_message("/chatbox/typing", False)
+        client.send_message("/chatbox/input", [page, True, False])
+        if index < len(pages) - 1:
+            time.sleep(page_delay)
 
 # VRChat's standard locomotion-detection avatar parameters (what the receiver
 # listens for). These are emitted by most avatars; absent ones just stay None.
@@ -173,11 +214,13 @@ class VRChatDriver:
         if motion:
             parts.append(motion)
 
-        # 3) Optional vision (screen caption) when a model is configured.
-        if self.config.vision_model:
+        # 3) Optional vision (screen caption) when a vision backend is available —
+        # same Ollama-then-OpenAI-vision dispatcher Watch & React uses, so VRChat
+        # gets the same fallback instead of being Ollama-only.
+        if vision.vision_available(self.config):
             png = screen.capture_png()
             if png is not None:
-                text = screen.caption(
+                text = vision.describe_image(
                     self.config, png,
                     "You are the eyes of an AI in VRChat. Describe the room/world, nearby "
                     "players or avatars, menus, and anything interesting to walk toward. Be concise.",
@@ -245,12 +288,8 @@ class VRChatDriver:
                 self._send("/input/Jump", 0)
                 return {"ok": True, "message": "jumped"}
             if verb == "say":
-                text = str(args.get("text", ""))[:140]
-                # Brief typing indicator, then post immediately (no notify sfx).
-                self._send("/chatbox/typing", True)
-                time.sleep(0.2)
-                self._send("/chatbox/typing", False)
-                self._send("/chatbox/input", [text, True, False])
+                text = str(args.get("text", ""))
+                send_chatbox_message(self._client, text)
                 return {"ok": True, "message": "sent to chatbox"}
             if verb == "emote":
                 name = str(args.get("param", "")).strip()

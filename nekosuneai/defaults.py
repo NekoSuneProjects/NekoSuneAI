@@ -95,8 +95,6 @@ DEFAULT_PROFILE: dict[str, Any] = {
         },
         "media": {
             "default_music_provider": "soundcloud",
-            "preferred_radio_region": "GB",
-            "last_radio_station_id": "",
             "last_music_query": "",
         },
         "voice": {

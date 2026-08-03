@@ -117,31 +117,10 @@ def normalize_web_search_provider(value: str) -> str:
     return "searxng"
 
 
-def normalize_media_region(value: str) -> str:
-    normalized = value.strip().upper()
-    if normalized in {"UK", "GB", "UNITED KINGDOM", "GREAT BRITAIN"}:
-        return "GB"
-    if normalized in {"US", "USA", "UNITED STATES", "UNITED STATES OF AMERICA"}:
-        return "US"
-    if normalized in {"AU", "AUSTRALIA"}:
-        return "AU"
-    if normalized in {"CA", "CANADA"}:
-        return "CA"
-    if normalized in {"JP", "JAPAN"}:
-        return "JP"
-    if normalized in {"DE", "GERMANY"}:
-        return "DE"
-    if normalized in {"FR", "FRANCE"}:
-        return "FR"
-    return normalized or "GB"
-
-
 def normalize_music_provider(value: str) -> str:
     normalized = value.strip().lower()
     if normalized in {"soundcloud", "sc"}:
         return "soundcloud"
-    if normalized in {"radio", "internet-radio", "internet_radio"}:
-        return "radio"
     if normalized in {"deezer"}:
         return "deezer"
     if normalized in {"spotify"}:
@@ -278,7 +257,6 @@ class Config:
     web_timeout_seconds: int
     web_region: str
     web_safesearch: str
-    media_region: str
     music_provider_default: str
     soundcloud_stream_endpoint: str
     voice_enabled: bool
@@ -318,12 +296,32 @@ class Config:
     rvc_model_path: str | None
     singing_api_url: str | None
     singing_api_key: str | None
+    # RVC voice conversion applied to normal spoken chat replies (distinct from
+    # the singing RVC model above — a chat voice and a singing voice are often
+    # different trained models).
+    rvc_chat_enabled: bool
+    rvc_chat_model_path: str | None
+    rvc_chat_pitch: float
+    rvc_chat_index_rate: float
+    rvc_chat_protect: float
+    # Thinking music — a short ambient cue played only during noticeably long
+    # waits (slow local LLM turn, game-agent tick), stopped the instant the
+    # reply/action is ready.
+    thinking_sound_enabled: bool
+    thinking_sound_path: str | None
+    thinking_sound_delay_seconds: float
     # Vision
     vision_model: str | None
     vrchat_osc_host: str
     vrchat_osc_port: int
     vrchat_osc_read_port: int
     vrchat_log_dir: str | None
+    # VRChat friends system — unofficial web API, opt-in, credential-gated. See
+    # games/vrchat_friends.py for the ToS-risk caveat.
+    vrchat_friends_enabled: bool
+    vrchat_username: str | None
+    vrchat_password: str | None
+    vrchat_totp_secret: str | None
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -463,9 +461,6 @@ class Config:
             parse_optional_str_env("WEB_SEARCH_URL")
             or parse_optional_str_env("SEARXNG_URL"),
         )
-        media_region = normalize_media_region(
-            os.getenv("MEDIA_REGION", "GB")
-        )
         music_provider_default = normalize_music_provider(
             os.getenv("MUSIC_PROVIDER_DEFAULT", "soundcloud")
         )
@@ -550,7 +545,6 @@ class Config:
             web_safesearch=normalize_web_safesearch(
                 os.getenv("WEB_SAFESEARCH", "moderate")
             ),
-            media_region=media_region,
             music_provider_default=music_provider_default,
             soundcloud_stream_endpoint=soundcloud_stream_endpoint,
             voice_enabled=parse_bool_env("VOICE_ENABLED", False),
@@ -615,9 +609,23 @@ class Config:
             rvc_model_path=parse_optional_str_env("RVC_MODEL_PATH"),
             singing_api_url=parse_optional_str_env("SINGING_API_URL"),
             singing_api_key=parse_optional_str_env("SINGING_API_KEY"),
+            rvc_chat_enabled=parse_bool_env("RVC_CHAT_ENABLED", False),
+            rvc_chat_model_path=parse_optional_str_env("RVC_CHAT_MODEL_PATH"),
+            rvc_chat_pitch=float(os.getenv("RVC_CHAT_PITCH", "0")),
+            rvc_chat_index_rate=float(os.getenv("RVC_CHAT_INDEX_RATE", "0.75")),
+            rvc_chat_protect=float(os.getenv("RVC_CHAT_PROTECT", "0.33")),
+            thinking_sound_enabled=parse_bool_env("THINKING_SOUND_ENABLED", False),
+            thinking_sound_path=parse_optional_str_env("THINKING_SOUND_PATH"),
+            thinking_sound_delay_seconds=max(
+                0.5, float(os.getenv("THINKING_SOUND_DELAY_SECONDS", "2.5"))
+            ),
             vision_model=parse_optional_str_env("VISION_MODEL"),
             vrchat_osc_host=os.getenv("VRCHAT_OSC_HOST", "127.0.0.1").strip() or "127.0.0.1",
             vrchat_osc_port=int(os.getenv("VRCHAT_OSC_PORT", "9000")),
             vrchat_osc_read_port=int(os.getenv("VRCHAT_OSC_READ_PORT", "9001")),
             vrchat_log_dir=parse_optional_str_env("VRCHAT_LOG_DIR"),
+            vrchat_friends_enabled=parse_bool_env("VRCHAT_FRIENDS_ENABLED", False),
+            vrchat_username=parse_optional_str_env("VRCHAT_USERNAME"),
+            vrchat_password=parse_optional_str_env("VRCHAT_PASSWORD"),
+            vrchat_totp_secret=parse_optional_str_env("VRCHAT_TOTP_SECRET"),
         )

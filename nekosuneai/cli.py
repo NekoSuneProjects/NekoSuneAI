@@ -14,8 +14,10 @@ from .audio_input import (
 from .chat import request_reply
 from .config import Config, normalize_tts_provider, parse_input_mode
 from .defaults import VOICE_COMMAND_ALIASES
+from .memory import MemoryStore
 from .models import CommandResult, SessionState, UserTurn
 from .media import handle_media_request
+from .sticky import is_reset_command, try_clear_sticky_instruction, try_set_sticky_instruction
 from .storage import (
     append_history,
     ensure_runtime_dirs,
@@ -94,9 +96,9 @@ def print_welcome(profile: dict[str, Any], config: Config, state: SessionState) 
     print(
         "Commands: /help, /mode <voice|text>, /listen, /ask, /recalibrate, /mics, "
         "/mic <index|default>, /tts [xtts|gtts], /speakers, /speaker <name>, /voice [on|off], "
-        "/web [on|off|auto on|auto off|clear|<query>], /play <query>, /radio <station>, /music <query>, /pause, /resume, /stop, "
+        "/web [on|off|auto on|auto off|clear|<query>], /play <query>, /music <query>, /pause, /resume, /stop, "
         "/performance, /profiles, /profile, /profile use <id>, "
-        "/name <new name>, /me <your name>, /remember <fact>, "
+        "/name <new name>, /me <your name>, "
         "/reset, /exit"
     )
     print()
@@ -131,8 +133,7 @@ def print_help() -> None:
     print("/web auto off           Disable auto web search")
     print("/web clear              Clear queued web context")
     print("/web <query>            Search now and use results on the next reply")
-    print("/play <query>           Play radio or open music on the preferred platform")
-    print("/radio <station>        Play a radio station using your preferred region")
+    print("/play <query>           Search and play music on the preferred platform")
     print("/music <query>          Search the default music platform")
     print("/pause                  Pause current media playback")
     print("/resume                 Resume paused media playback")
@@ -143,9 +144,12 @@ def print_help() -> None:
     print("/profile use <id>       Switch to a different saved profile")
     print("/name <new name>        Rename your companion")
     print("/me <your name>         Set your name")
-    print("/remember <fact>        Save something important for future chats")
     print("/reset                  Clear conversation history")
     print("/exit                   Quit the app")
+    print()
+    print("Say the companion's name + a standing rule (e.g. \"NekoSuneAI, always")
+    print("speak to me in 0s and 1s\") to make it stick until you say \"stop\".")
+    print("Say \"reset\" or \"clear\" to cancel that AND wipe long-term memory.")
     print()
 
 
@@ -453,13 +457,6 @@ def handle_command(
             print(action.response)
         return CommandResult(handled=True)
 
-    if lowered.startswith("/radio "):
-        action = handle_media_request(f"play radio {command[7:].strip()}", profile, config)
-        if action.handled:
-            save_profile(profile)
-            print(action.response)
-        return CommandResult(handled=True)
-
     if lowered.startswith("/music "):
         action = handle_media_request(f"play {command[7:].strip()}", profile, config)
         if action.handled:
@@ -535,18 +532,6 @@ def handle_command(
             print(f"Saved your name as {new_name}.")
         return CommandResult(handled=True)
 
-    if lowered.startswith("/remember "):
-        note = command[10:].strip()
-        if note:
-            notes = profile.setdefault("memory_notes", [])
-            if note not in notes:
-                notes.append(note)
-                save_profile(profile)
-                print("Saved that memory note.")
-            else:
-                print("That memory note is already saved.")
-        return CommandResult(handled=True)
-
     return CommandResult(handled=False)
 
 
@@ -608,6 +593,29 @@ def resolve_user_turn(
         return incoming_text, False
 
 
+def _say(reply: str, profile: dict[str, Any], state: SessionState, config: Config) -> None:
+    """Print + persist + optionally speak a reply. Shared by every reply path
+    (media, sticky/reset acknowledgements, and the normal LLM turn) so voice
+    output and history logging stay consistent across all of them."""
+    print()
+    print(console_safe_text(f"{profile['companion_name']}: {reply}"))
+    print()
+
+    if not state.voice_enabled:
+        return
+    audio_path = None
+    try:
+        audio_path = speak_text(reply, config, state)
+        if should_play_audio_after_synthesis(config):
+            play_audio_file(audio_path, config.speaker_device_index)
+    except Exception as exc:
+        latest_path = audio_path or "audio/latest_reply.(wav|mp3)"
+        print(
+            "[Voice] Voice generation or playback failed. "
+            f"The latest audio file is at {latest_path}: {exc}"
+        )
+
+
 def main() -> None:
     ensure_runtime_dirs()
     config = Config.from_env()
@@ -616,6 +624,7 @@ def main() -> None:
         voice_enabled=config.voice_enabled,
         input_mode=config.input_mode,
     )
+    memory_store = MemoryStore(config)
 
     print_welcome(profile, config, state)
 
@@ -643,6 +652,34 @@ def main() -> None:
             break
 
         if not user_text:
+            continue
+
+        if is_reset_command(user_text):
+            state.sticky_instruction = None
+            if config.rag_enabled:
+                try:
+                    memory_store.wipe(profile["profile_id"])
+                except Exception as exc:
+                    print(f"[Memory] Could not wipe memory: {exc}")
+            reply = "Memory reset — back to a blank slate."
+            append_history("user", user_text)
+            append_history("assistant", reply)
+            _say(reply, profile, state, config)
+            continue
+
+        if try_clear_sticky_instruction(user_text):
+            state.sticky_instruction = None
+            reply = "Cleared — back to normal."
+            append_history("user", user_text)
+            append_history("assistant", reply)
+            _say(reply, profile, state, config)
+            continue
+
+        if try_set_sticky_instruction(user_text, profile, state):
+            reply = "Got it — I'll stick to that until you say stop."
+            append_history("user", user_text)
+            append_history("assistant", reply)
+            _say(reply, profile, state, config)
             continue
 
         try:
@@ -692,8 +729,11 @@ def main() -> None:
                     finally:
                         state.pending_web_query = None
 
+        extra_system = [state.sticky_instruction] if state.sticky_instruction else None
         try:
-            reply = request_reply(user_text, profile, config, web_context=web_context)
+            reply = request_reply(
+                user_text, profile, config, web_context=web_context, extra_system=extra_system
+            )
         except RuntimeError as exc:
             print()
             print(f"[Companion error] {exc}")
@@ -702,20 +742,4 @@ def main() -> None:
 
         append_history("user", user_text)
         append_history("assistant", reply)
-
-        print()
-        print(console_safe_text(f"{profile['companion_name']}: {reply}"))
-        print()
-
-        if state.voice_enabled:
-            audio_path = None
-            try:
-                audio_path = speak_text(reply, config, state)
-                if should_play_audio_after_synthesis(config):
-                    play_audio_file(audio_path, config.speaker_device_index)
-            except Exception as exc:
-                latest_path = audio_path or "audio/latest_reply.(wav|mp3)"
-                print(
-                    "[Voice] Voice generation or playback failed. "
-                    f"The latest audio file is at {latest_path}: {exc}"
-                )
+        _say(reply, profile, state, config)

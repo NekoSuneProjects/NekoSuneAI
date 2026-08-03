@@ -22,8 +22,12 @@ Navigate to the **Profiles** page:
 /profile use <id>      # switch to a different profile
 /name <new name>       # rename the companion
 /me <your name>        # set your display name
-/remember <fact>       # add a memory note
 ```
+
+Long-term memory is automatic (every exchange is saved to RAG memory) — no command
+needed. Say the companion's name + a standing rule ("NekoSuneAI, always speak to
+me in 0s and 1s") to make it stick until you say "stop"; say "reset" or "clear" to
+cancel that and wipe long-term memory back to blank.
 
 ---
 
@@ -157,4 +161,4 @@ Scale of 0–100 for each trait:
 
 - **Start with a clone** — duplicate the default profile and tweak it instead of starting from scratch.
 - **Personality sliders matter** — the system prompt builds dynamically from these values. Small changes make noticeable differences.
-- **Memory notes persist** — anything you `/remember` is stored and included in every conversation.
+- **Memory is automatic** — every exchange is saved to long-term (RAG) memory and recalled when relevant; say "reset" or "clear" to wipe it.

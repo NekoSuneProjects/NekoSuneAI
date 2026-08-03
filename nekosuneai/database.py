@@ -292,6 +292,14 @@ def delete_memory(memory_id: int) -> None:
     conn.commit()
 
 
+def delete_all_memories_for_profile(profile_id: str) -> int:
+    """Wipe every stored memory for *profile_id* back to blank. Returns the count deleted."""
+    conn = get_connection()
+    cursor = conn.execute("DELETE FROM memories WHERE profile_id=?", (profile_id,))
+    conn.commit()
+    return cursor.rowcount
+
+
 def prune_low_memories(profile_id: str, min_score: float, keep_recent: int) -> int:
     """Delete memories below *min_score*, except the *keep_recent* newest rows."""
     conn = get_connection()
