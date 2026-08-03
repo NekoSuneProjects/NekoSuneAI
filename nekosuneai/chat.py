@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import shlex
@@ -354,6 +355,41 @@ def _extract_openai_text(message_content: Any) -> str:
     return ""
 
 
+def _parse_sse_stream_reply(raw_text: str) -> str:
+    """Reconstruct the full assistant reply from an OpenAI-style Server-Sent-
+    Events stream (a sequence of ``data: {...}`` lines).
+
+    Some OpenAI-compatible gateways stream chat-completion chunks even when
+    the request explicitly asks for ``stream: false`` — the response body is
+    then a series of SSE frames rather than one JSON object, which the normal
+    parser can't read. This is the fallback for that case.
+    """
+    parts: list[str] = []
+    for line in raw_text.splitlines():
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        payload = line[len("data:"):].strip()
+        if not payload or payload == "[DONE]":
+            continue
+        try:
+            chunk = json.loads(payload)
+        except ValueError:
+            continue
+        choices = chunk.get("choices") if isinstance(chunk, dict) else None
+        if not choices:
+            continue
+        delta = choices[0].get("delta") if isinstance(choices[0], dict) else None
+        if not isinstance(delta, dict):
+            continue
+        content = delta.get("content")
+        if isinstance(content, str):
+            parts.append(content)
+        elif isinstance(content, list):
+            parts.append(_extract_openai_text(content))
+    return "".join(parts).strip()
+
+
 def _request_ollama_reply(
     user_text: str,
     config: Config,
@@ -415,6 +451,7 @@ def _request_openai_compatible_reply(
         "messages": messages,
         "temperature": config.temperature,
         "max_tokens": max_tokens or config.llm_num_predict,
+        "stream": False,
     }
     headers = {"Content-Type": "application/json"}
     if config.llm_api_key:
@@ -465,6 +502,17 @@ def _request_openai_compatible_reply(
                 reply = fallback_reply
         return _strip_links_from_reply(reply)
     except (ValueError, KeyError, TypeError, IndexError) as exc:
+        # Some gateways stream chat-completion chunks even with stream=False
+        # set above — the body is then `data: {...}` SSE frames instead of one
+        # JSON object. Try reconstructing the reply from that shape before
+        # surfacing a raw-response error.
+        sse_reply = _parse_sse_stream_reply(response.text)
+        if sse_reply:
+            if web_context and _contains_placeholder_markup(sse_reply):
+                fallback_reply = _build_web_fallback_reply(user_text, web_context)
+                if fallback_reply:
+                    sse_reply = fallback_reply
+            return _strip_links_from_reply(sse_reply)
         raw_snippet = response.text.strip()[:300] if response.text else "(empty body)"
         raise RuntimeError(
             "The OpenAI-compatible endpoint returned an unexpected response "

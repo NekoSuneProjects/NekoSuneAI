@@ -5,6 +5,17 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.6] - Unreleased
+
+### Fixed
+- The OpenAI-compatible chat path never sent `stream: false` and had no way
+  to read a streamed response — a gateway that streams chat-completion
+  chunks (Server-Sent Events, `data: {...}` frames) regardless sent back a
+  body our client couldn't parse at all, surfacing as "unexpected response
+  format" with no usable reply. Requests now explicitly ask for
+  `stream: false`, and if a gateway streams anyway, the reply is
+  reconstructed from the SSE chunks instead of failing.
+
 ## [1.1.5] - Unreleased
 
 ### Fixed
@@ -152,6 +163,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.1.6]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.6
 [1.1.5]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.5
 [1.1.4]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.4
 [1.1.3]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.3
