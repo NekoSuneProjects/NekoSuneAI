@@ -5,6 +5,15 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.1] - Unreleased
+
+### Fixed
+- `requirements-voice.txt` no longer installs `rvc-python` directly — it pins
+  `numpy<=1.23.5`, which conflicts with this project's `numpy>=1.24` and broke
+  `pip install -r requirements-voice.txt` (and therefore full-profile setup)
+  outright. RVC (chat or singing) now needs a separately-managed install; see
+  `.env.example` for the manual command and caveats.
+
 ## [1.1.0] - Unreleased
 
 Leans further into VRChat as the core platform integration, and cleans up
@@ -68,5 +77,6 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.1.1]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.1
 [1.1.0]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.0
 [1.0.0]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.0.0

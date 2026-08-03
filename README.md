@@ -8,7 +8,7 @@
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://python.org)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.0-violet)](VERSION)
+[![Version](https://img.shields.io/badge/version-1.1.1-violet)](VERSION)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078D6?logo=windows&logoColor=white)](https://microsoft.com)
 
 NekoSuneAI is a voice-powered desktop companion built with Python. It listens through your mic, thinks with local or cloud LLMs, and speaks back with a cloned voice — all wrapped in a slick dark-themed UI.
@@ -301,7 +301,7 @@ Copy `.env.example` to `.env` and tweak what you need:
 | `XTTS_USE_GPU` | `true` | Use GPU for voice synthesis |
 | `XTTS_STREAM_OUTPUT` | `true` | Stream audio while generating |
 | `XTTS_SPEAKER` | `Ana Florence` | XTTS voice name |
-| `RVC_CHAT_ENABLED` | `false` | Convert normal chat replies through an RVC voice model (needs `pip install rvc-python`) |
+| `RVC_CHAT_ENABLED` | `false` | Convert normal chat replies through an RVC voice model — needs `rvc-python` installed separately (see `.env.example`; it conflicts with this project's `numpy` pin, so it's not in `requirements-voice.txt`) |
 | `RVC_CHAT_MODEL_PATH` | *(none)* | Trained RVC model `.pth` for chat (separate from the singing RVC model) |
 | `RVC_CHAT_PITCH` | `0` | Pitch shift in semitones, +/- |
 

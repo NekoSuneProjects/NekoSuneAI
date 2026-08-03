@@ -41,7 +41,14 @@ imageio-ffmpeg>=0.4
 
 # RVC voice conversion (optional, lazy-imported by nekosuneai/rvc.py and
 # nekosuneai/singing.py's RvcSingingEngine). Used for SINGING_BACKEND=rvc and/or
-# RVC_CHAT_ENABLED=true. Platform-sensitive (needs a matching torch build), so
-# it's left commented out here rather than force-installed — uncomment if you
-# have a trained .pth model and want either feature:
-rvc-python>=0.1
+# RVC_CHAT_ENABLED=true.
+#
+# NOT listed here as an installable requirement: rvc-python pins
+# numpy<=1.23.5, which directly conflicts with this project's numpy>=1.24
+# (required by torch/transformers/etc.) — `pip install -r requirements-voice.txt`
+# fails outright if it's included. It also pins several fragile/unmaintained
+# deps (fairseq==0.12.2, omegaconf==2.0.6 with broken metadata) that are prone
+# to breaking on newer Python/pip. If you still want either feature, install it
+# in its OWN virtualenv (not this project's) and point RVC_MODEL_PATH /
+# RVC_CHAT_MODEL_PATH at a model served from there, or accept the numpy
+# downgrade at your own risk with: pip install "rvc-python>=0.1" --no-deps
