@@ -7,6 +7,11 @@
 #
 # Or if you already downloaded it:
 #   chmod +x install.sh && ./install.sh
+#
+# If NekoSuneAI is already installed at $HOME/NekoSuneAI, this instead offers
+# a fast Update path (git pull / re-download + refresh pip packages, no
+# questions asked) instead of redoing the whole wizard. Choose "Reinstall"
+# from that prompt to run the full wizard anyway.
 # ──────────────────────────────────────────────────────────────────────────────
 
 set -euo pipefail
@@ -694,8 +699,124 @@ show_finish() {
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+# ── Fast update path (existing install) ─────────────────────────────────────
+
+get_existing_run_mode() {
+    local mode_file="$INSTALL_DIR/.nekosuneai-run-mode"
+    if [[ -f "$mode_file" ]]; then
+        local mode
+        mode=$(tr -d '[:space:]' < "$mode_file")
+        if [[ "$mode" == "gui" || "$mode" == "cli" ]]; then
+            echo "$mode"
+            return
+        fi
+    fi
+    echo "cli"
+}
+
+launch_existing() {
+    local mode venv_python
+    mode=$(get_existing_run_mode)
+    venv_python="$INSTALL_DIR/.venv/bin/python"
+    info "Starting NekoSuneAI in $mode mode..."
+    if [[ "$mode" == "gui" ]] && ! is_headless; then
+        (cd "$INSTALL_DIR" && "$venv_python" app.py --gui)
+    else
+        (cd "$INSTALL_DIR" && "$venv_python" app.py)
+    fi
+}
+
+# Returns 0 (success, caller should stop) unless there's no venv to update, in
+# which case it returns 1 so main() falls through to the full wizard instead.
+update_existing() {
+    step "*" "Updating existing install at $INSTALL_DIR..."
+
+    local venv_python="$INSTALL_DIR/.venv/bin/python"
+    if [[ ! -x "$venv_python" ]]; then
+        warn "No virtual environment found — falling back to full setup."
+        return 1
+    fi
+
+    if has_cmd git && [[ -d "$INSTALL_DIR/.git" ]]; then
+        info "Pulling latest changes..."
+        if ! git -C "$INSTALL_DIR" pull origin "$REPO_BRANCH" --ff-only; then
+            warn "git pull failed — you may have local changes."
+            warn "Resolve that manually (git status), or choose Full reinstall instead."
+            return 0
+        fi
+        ok "Code updated via git pull."
+    else
+        info "No git checkout here — re-downloading the latest ZIP..."
+        local zip_url="$REPO_URL/archive/refs/heads/$REPO_BRANCH.zip"
+        local zip_path="/tmp/nekosuneai-download.zip"
+        local extract_path="/tmp/nekosuneai-extract"
+        if has_cmd curl; then
+            curl -fsSL "$zip_url" -o "$zip_path"
+        elif has_cmd wget; then
+            wget -q "$zip_url" -O "$zip_path"
+        else
+            fail "Neither git, curl, nor wget found. Cannot update NekoSuneAI."
+            return 0
+        fi
+        rm -rf "$extract_path"
+        unzip -qo "$zip_path" -d "$extract_path"
+        cp -rf "$extract_path"/NekoSuneAI-*/* "$INSTALL_DIR/"
+        rm -f "$zip_path"
+        rm -rf "$extract_path"
+        ok "Code updated via ZIP download."
+    fi
+
+    # Re-derive the system-package set from the profile persisted by the last
+    # setup run, so ffmpeg/PortAudio/WebKitGTK stay in sync on update too.
+    local install_profile
+    install_profile=$(grep -m1 "^install_profile=" "$INSTALL_DIR/.setup-complete" 2>/dev/null | cut -d= -f2)
+    install_profile="${install_profile:-full}"
+    case "$install_profile" in
+        full)  NEED_VOICE=true;  NEED_GUI=true  ;;
+        voice) NEED_VOICE=true;  NEED_GUI=false ;;
+        gui)   NEED_VOICE=false; NEED_GUI=true  ;;
+        *)     NEED_VOICE=false; NEED_GUI=false ;;
+    esac
+    install_system_deps
+
+    info "Refreshing Python packages (this reuses your existing .env — no questions asked)..."
+    if ! (cd "$INSTALL_DIR" && "$venv_python" setup.py --setup --upgrade); then
+        warn "Package refresh had issues. See the output above."
+        warn "NekoSuneAI may still run — optional features (voice/GUI) might be affected."
+    else
+        ok "Packages refreshed."
+    fi
+
+    echo ""
+    ok "Update complete."
+    if ask_yes_no "Launch NekoSuneAI now?"; then
+        launch_existing
+    fi
+    return 0
+}
+
 main() {
     show_banner
+
+    if [[ -f "$INSTALL_DIR/.setup-complete" ]]; then
+        local existing_choice
+        existing_choice=$(ask_choice "NekoSuneAI is already installed at $INSTALL_DIR. What do you want to do?" \
+            "Update      — pull the latest code and refresh packages (recommended, fast)" \
+            "Reinstall   — redo the whole setup wizard from scratch" \
+            "Just launch — don't change anything")
+        case "$existing_choice" in
+            1)
+                if update_existing; then return; fi
+                # update_existing returns 1 only when there's no venv to update —
+                # fall through to the full wizard below in that case.
+                ;;
+            3)
+                launch_existing
+                return
+                ;;
+        esac
+        echo ""
+    fi
 
     # Step 1: Python
     local python_cmd

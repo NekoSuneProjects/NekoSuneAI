@@ -16,3 +16,7 @@ python-dotenv>=1.0,<2
 requests>=2.32,<3
 duckduckgo-search>=6,<8
 numpy>=1.24,<3
+
+# VRChat OSC integration (games/vrchat.py) — pure-Python, no heavy/compiled
+# deps, so it ships in the base install rather than requirements-voice.txt.
+python-osc>=1.9,<2

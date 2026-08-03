@@ -462,8 +462,11 @@ def rerun_setup() -> None:
     if not setup_py.exists():
         return
 
+    # --upgrade so pulling new code also refreshes already-installed packages
+    # (new/updated requirements don't just sit unmet until the next fresh
+    # install) instead of only installing whatever was previously missing.
     result = subprocess.run(
-        [sys.executable, str(setup_py), "--setup"],
+        [sys.executable, str(setup_py), "--setup", "--upgrade"],
         cwd=str(ROOT_DIR),
         check=False,
     )

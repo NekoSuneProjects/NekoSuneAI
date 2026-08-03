@@ -138,11 +138,29 @@ def ensure_venv() -> None:
         raise RuntimeError("Failed to create virtual environment.")
 
 
+def read_marker_values() -> dict[str, str]:
+    """Read simple KEY=VALUE pairs from the .setup-complete marker."""
+    if not SETUP_MARKER.exists():
+        return {}
+    values: dict[str, str] = {}
+    for line in SETUP_MARKER.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        values[key.strip()] = value.strip()
+    return values
+
+
 def resolve_install_profile() -> str:
     """Which dependency set to install.
 
     Controlled by NEKOSUNEAI_INSTALL_PROFILE (set by install.sh's profile
-    prompt; NOVA_INSTALL_PROFILE is read as a fallback for pre-rename setups):
+    prompt; NOVA_INSTALL_PROFILE is read as a fallback for pre-rename setups).
+    If neither is set, fall back to whatever profile the last successful setup
+    used (persisted in .setup-complete) so a later `--setup --upgrade` run on
+    an existing install doesn't silently downgrade to "full" and reinstall
+    profiles the user never asked for:
         minimal -> base only (CLI text chat)
         voice   -> base + voice/ML extras
         gui     -> base + native desktop GUI extra
@@ -151,6 +169,7 @@ def resolve_install_profile() -> str:
     profile = (
         os.getenv("NEKOSUNEAI_INSTALL_PROFILE", "").strip().lower()
         or os.getenv("NOVA_INSTALL_PROFILE", "").strip().lower()
+        or read_marker_values().get("install_profile", "").strip().lower()
         or "full"
     )
     if profile in {"minimal", "voice", "gui", "full"}:
@@ -158,30 +177,53 @@ def resolve_install_profile() -> str:
     return "full"
 
 
-def install_requirements() -> None:
-    """Upgrade pip and install the requested dependency profile into the venv."""
+def _pip_install_requirements(req_file: Path, upgrade: bool) -> None:
+    cmd = [str(VENV_PYTHON), "-m", "pip", "install", "-r", str(req_file), "-q"]
+    if upgrade:
+        cmd.insert(4, "--upgrade")
+    run(cmd)
+
+
+def install_requirements(upgrade: bool = False) -> None:
+    """Install the requested dependency profile into the venv.
+
+    Each requirement file is installed with its OWN pip invocation rather than
+    one combined `-r a -r b -r c` call. pip resolves a combined call as a
+    single atomic transaction — one conflicting package anywhere in the set
+    (e.g. a heavy optional dep in requirements-voice.txt) aborts the whole
+    install and leaves NOTHING installed, including the base requirements.
+    Splitting per file means the base install always succeeds on its own, and
+    a failure in an optional profile (voice/gui) only disables that feature
+    instead of breaking setup entirely.
+
+    *upgrade* passes --upgrade through to pip, so an already-satisfied
+    package gets bumped to the newest version allowed by the pin instead of
+    being left alone (used by the installer's "update" path).
+    """
     profile = resolve_install_profile()
     print("    Upgrading pip...")
     run([str(VENV_PYTHON), "-m", "pip", "install", "--upgrade", "pip", "-q"])
 
-    req_files = [REQUIREMENTS]
-    if profile in {"voice", "full"} and VOICE_REQUIREMENTS.exists():
-        req_files.append(VOICE_REQUIREMENTS)
-    if profile in {"gui", "full"} and GUI_REQUIREMENTS.exists():
-        req_files.append(GUI_REQUIREMENTS)
+    print("    Installing base packages...")
+    _pip_install_requirements(REQUIREMENTS, upgrade)
 
-    labels = {
-        "minimal": "base (CLI text chat)",
-        "voice": "base + voice/ML",
-        "gui": "base + desktop GUI",
-        "full": "everything (voice + desktop GUI)",
-    }
-    print(f"    Installing packages [{labels[profile]}]...")
-    cmd = [str(VENV_PYTHON), "-m", "pip", "install"]
-    for req in req_files:
-        cmd += ["-r", str(req)]
-    cmd.append("-q")
-    run(cmd)
+    if profile in {"voice", "full"} and VOICE_REQUIREMENTS.exists():
+        print("    Installing voice/ML packages...")
+        try:
+            _pip_install_requirements(VOICE_REQUIREMENTS, upgrade)
+        except subprocess.CalledProcessError as exc:
+            print(f"    Warning: voice/ML packages failed to install ({exc}).")
+            print("    Voice input/output and singing will be unavailable until "
+                  "you fix this and re-run setup.")
+
+    if profile in {"gui", "full"} and GUI_REQUIREMENTS.exists():
+        print("    Installing desktop GUI packages...")
+        try:
+            _pip_install_requirements(GUI_REQUIREMENTS, upgrade)
+        except subprocess.CalledProcessError as exc:
+            print(f"    Warning: desktop GUI packages failed to install ({exc}).")
+            print("    The native desktop window will be unavailable — use "
+                  "terminal mode (python app.py) until you fix this and re-run setup.")
 
 
 # ── Game bridge (optional) ─────────────────────────────────────────────────────
@@ -305,8 +347,14 @@ def preload_models() -> None:
 
 # ── Full setup ───────────────────────────────────────────────────────────────
 
-def full_setup() -> None:
-    """Run the complete setup pipeline."""
+def full_setup(upgrade: bool = False) -> None:
+    """Run the complete setup pipeline.
+
+    *upgrade* re-installs already-satisfied packages at their newest allowed
+    version too (`pip install --upgrade`), rather than only filling in what's
+    missing — used when re-running setup to pick up new dependencies/updates
+    on an existing install.
+    """
     banner("NekoSuneAI Setup")
     total = 8
 
@@ -315,7 +363,7 @@ def full_setup() -> None:
     print("    Virtual environment ready.")
 
     step(2, total, "Installing Python packages...")
-    install_requirements()
+    install_requirements(upgrade=upgrade)
     print("    Dependencies installed.")
 
     step(3, total, "Preparing project files...")
@@ -398,6 +446,7 @@ def full_setup() -> None:
             f"llm_provider={llm_provider}\n"
             f"llm_model={llm_model}\n"
             f"llm_api_url={llm_api_url}\n"
+            f"install_profile={resolve_install_profile()}\n"
         ),
         encoding="utf-8",
     )
@@ -471,6 +520,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Check for and apply updates from GitHub.",
     )
+    parser.add_argument(
+        "--upgrade",
+        action="store_true",
+        help=(
+            "With --setup: also upgrade already-installed packages to the "
+            "newest version allowed by requirements*.txt, instead of only "
+            "installing what's missing. Re-run with this after pulling new "
+            "code to pick up new/updated dependencies on an existing install."
+        ),
+    )
     return parser
 
 
@@ -478,7 +537,7 @@ def main() -> None:
     args = build_parser().parse_args()
 
     if args.setup:
-        full_setup()
+        full_setup(upgrade=args.upgrade)
     elif args.launch:
         launch_gui()
     elif args.terminal:

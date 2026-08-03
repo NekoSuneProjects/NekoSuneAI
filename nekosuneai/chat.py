@@ -397,7 +397,10 @@ def _request_ollama_reply(
                 reply = fallback_reply
         return _strip_links_from_reply(reply)
     except (ValueError, KeyError, TypeError) as exc:
-        raise RuntimeError("Ollama returned an unexpected response format.") from exc
+        raw_snippet = response.text.strip()[:300] if response.text else "(empty body)"
+        raise RuntimeError(
+            f"Ollama returned an unexpected response format. Raw response: {raw_snippet}"
+        ) from exc
 
 
 def _request_openai_compatible_reply(
@@ -462,8 +465,10 @@ def _request_openai_compatible_reply(
                 reply = fallback_reply
         return _strip_links_from_reply(reply)
     except (ValueError, KeyError, TypeError, IndexError) as exc:
+        raw_snippet = response.text.strip()[:300] if response.text else "(empty body)"
         raise RuntimeError(
-            "The OpenAI-compatible endpoint returned an unexpected response format."
+            "The OpenAI-compatible endpoint returned an unexpected response "
+            f"format. Raw response: {raw_snippet}"
         ) from exc
 
 

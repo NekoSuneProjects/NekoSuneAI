@@ -5,6 +5,36 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.3] - Unreleased
+
+### Fixed
+- `install_requirements()` installed all three requirement files (base,
+  voice, GUI) in one combined `pip install -r a -r b -r c` call. pip resolves
+  that as a single atomic transaction — one conflicting package anywhere in
+  the set aborted the WHOLE install, leaving nothing installed (not even the
+  base requirements). Each requirement file is now installed with its own
+  pip call: base must succeed, but a failure in the optional voice/GUI
+  profiles now just disables that feature (with a warning) instead of
+  breaking setup entirely.
+- `python-osc` (needed for the VRChat OSC driver) was never actually
+  installed by the installer — only mentioned in a `.env.example` comment.
+  It's now in `requirements.txt`.
+- Chat error messages for "unexpected response format" (Ollama and
+  OpenAI-compatible) now include a snippet of the actual raw response body,
+  instead of a generic message with no way to tell what the endpoint
+  actually returned.
+
+### Added
+- `install.ps1` / `install.sh` now detect an existing install and offer a
+  fast **Update** path (git pull / re-download the code, refresh pip
+  packages against the profile from your last setup, no questions asked)
+  instead of forcing the whole interactive wizard every time you just want
+  to pick up the latest version.
+- `setup.py --setup --upgrade` upgrades already-installed packages to the
+  newest version allowed by `requirements*.txt` instead of only installing
+  what's missing; `python setup.py --update` (and the fast installer update
+  path above) now use this automatically.
+
 ## [1.1.2] - Unreleased
 
 ### Fixed
@@ -97,6 +127,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.1.3]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.3
 [1.1.2]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.2
 [1.1.1]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.1
 [1.1.0]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.0

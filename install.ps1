@@ -10,7 +10,13 @@
     Or if you already downloaded it:
         .\install.ps1
 
-    What it does:
+    If NekoSuneAI is already installed at $env:USERPROFILE\NekoSuneAI, this
+    instead offers a fast Update path (git pull / re-download + refresh pip
+    packages, no questions asked) so you don't have to redo the whole wizard
+    just to pick up new code and dependencies. Choose "Reinstall" from that
+    prompt to run the full wizard below anyway.
+
+    What the full wizard does:
         1. Checks for (and optionally installs) Python 3.10+
         2. Asks which LLM provider you want (Ollama, OpenAI, OpenRouter, LM Studio, custom)
         3. Installs Ollama if needed, or configures API keys for cloud providers
@@ -721,10 +727,114 @@ function Start-OllamaAndPull {
     }
 }
 
+# ── Fast update path (existing install) ─────────────────────────────────────
+
+function Get-ExistingRunMode {
+    $modeFile = "$INSTALL_DIR\.nekosuneai-run-mode"
+    if (Test-Path $modeFile) {
+        $mode = (Get-Content $modeFile -Raw -ErrorAction SilentlyContinue).Trim()
+        if ($mode -in @("gui", "cli")) { return $mode }
+    }
+    return "gui"
+}
+
+function Update-Existing {
+    Write-Step "*" "Updating existing install at $INSTALL_DIR..."
+
+    $venvPython = "$INSTALL_DIR\.venv\Scripts\python.exe"
+    if (-not (Test-Path $venvPython)) {
+        Write-Warn "No virtual environment found — falling back to full setup."
+        return $false
+    }
+
+    Push-Location $INSTALL_DIR
+    try {
+        if ((Has-Command "git") -and (Test-Path "$INSTALL_DIR\.git")) {
+            Write-Info "Pulling latest changes..."
+            $gitExit = Invoke-Native "git pull origin $REPO_BRANCH --ff-only"
+            if ($gitExit -ne 0) {
+                Write-Warn "git pull failed (exit $gitExit) — you may have local changes."
+                Write-Warn "Resolve that manually (git status), or choose Full reinstall instead."
+                return $true
+            }
+            Write-Ok "Code updated via git pull."
+        } else {
+            Write-Info "No git checkout here — re-downloading the latest ZIP..."
+            $zipUrl  = "$REPO_URL/archive/refs/heads/$REPO_BRANCH.zip"
+            $zipPath = "$env:TEMP\nekosuneai-download.zip"
+            $extractPath = "$env:TEMP\nekosuneai-extract"
+            Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath -UseBasicParsing
+            if (Test-Path $extractPath) { Remove-Item $extractPath -Recurse -Force }
+            Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
+            $innerDir = Get-ChildItem $extractPath | Select-Object -First 1
+            Copy-Item -Path "$($innerDir.FullName)\*" -Destination $INSTALL_DIR -Recurse -Force
+            Remove-Item $zipPath -Force -ErrorAction SilentlyContinue
+            Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Ok "Code updated via ZIP download."
+        }
+
+        Write-Info "Refreshing Python packages (this reuses your existing .env — no questions asked)..."
+        $setupExit = Invoke-Native "`"$venvPython`" setup.py --setup --upgrade"
+        if ($setupExit -ne 0) {
+            Write-Warn "Package refresh had issues (exit $setupExit). See the output above."
+            Write-Warn "NekoSuneAI may still run — optional features (voice/GUI) might be affected."
+        } else {
+            Write-Ok "Packages refreshed."
+        }
+    } finally {
+        Pop-Location
+    }
+
+    Write-Host ""
+    Write-Ok "Update complete."
+    if (Ask-YesNo "Launch NekoSuneAI now?") {
+        $mode = Get-ExistingRunMode
+        Write-Info "Starting NekoSuneAI in $mode mode..."
+        Push-Location $INSTALL_DIR
+        if ($mode -eq "cli") {
+            & $venvPython app.py
+        } else {
+            & "$INSTALL_DIR\.venv\Scripts\pythonw.exe" app.py --gui
+        }
+        Pop-Location
+    }
+    return $true
+}
+
+function Launch-Existing {
+    $mode = Get-ExistingRunMode
+    Write-Info "Starting NekoSuneAI in $mode mode..."
+    Push-Location $INSTALL_DIR
+    $venvPython = "$INSTALL_DIR\.venv\Scripts\python.exe"
+    if ($mode -eq "cli") {
+        & $venvPython app.py
+    } else {
+        & "$INSTALL_DIR\.venv\Scripts\pythonw.exe" app.py --gui
+    }
+    Pop-Location
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 function Main {
     Show-Banner
+
+    if (Test-Path "$INSTALL_DIR\.setup-complete") {
+        $choice = Ask-Choice "NekoSuneAI is already installed at $INSTALL_DIR. What do you want to do?" @(
+            "Update      — pull the latest code and refresh packages (recommended, fast)",
+            "Reinstall   — redo the whole setup wizard from scratch",
+            "Just launch — don't change anything"
+        ) 0
+        if ($choice -eq 0) {
+            if (Update-Existing) { return }
+            # Update-Existing returned false only when there's no venv to update —
+            # fall through to the full wizard below in that case.
+        } elseif ($choice -eq 2) {
+            Launch-Existing
+            return
+        }
+        Write-Host ""
+    }
 
     # Step 1: Python
     $pythonCmd = Ensure-Python
