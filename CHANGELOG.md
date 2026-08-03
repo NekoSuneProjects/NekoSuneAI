@@ -5,6 +5,16 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] - Unreleased
+
+### Fixed
+- Loading the XTTS voice model for the first time crashed with "You must agree
+  to the terms of service to use this model." — coqui-tts asks an interactive
+  `[y/n]` CPML license prompt on first download, which has no stdin to answer
+  into from either the desktop GUI (no console at all) or the headless setup
+  preload step (`bootstrap.py`, run non-interactively via subprocess). Now
+  sets the documented `COQUI_TOS_AGREED=1` bypass before any XTTS model load.
+
 ## [1.2.0] - Unreleased
 
 ### Added
@@ -235,6 +245,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.2.1]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.1
 [1.2.0]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.0
 [1.1.9]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.9
 [1.1.8]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.8

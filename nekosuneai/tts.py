@@ -14,6 +14,15 @@ from typing import Any
 
 import numpy as np
 
+# XTTS-v2 is licensed under Coqui's CPML (non-commercial) and coqui-tts
+# normally asks an interactive "do you agree to CPML?" [y/n] the first time
+# the model is downloaded. That has no stdin to answer into from the desktop
+# GUI (no console at all) or the headless setup preload (bootstrap.py) -
+# it just crashes with "You must agree to the terms of service to use this
+# model." Pre-agreeing here (the documented non-interactive bypass) mirrors
+# what enabling the voice profile already opts a user into.
+os.environ.setdefault("COQUI_TOS_AGREED", "1")
+
 # sounddevice (PortAudio), torch and coqui-tts (TTS) are optional voice extras.
 # Guard them so this module imports text-only (CLI / headless web) on machines
 # without speakers or the heavy ML stack (e.g. a headless Raspberry Pi). The
