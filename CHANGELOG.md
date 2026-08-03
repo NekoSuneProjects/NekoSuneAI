@@ -5,6 +5,16 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.5] - Unreleased
+
+### Changed
+- Settings → Speech-to-Text's Whisper model field is now a dropdown of the
+  standard faster-whisper sizes (`tiny.en`, `base.en`, `small.en`,
+  `medium.en`, `large-v3`, `distil-large-v3`) instead of a free-text field.
+  Picking one downloads and caches it automatically on next use, same as
+  before — faster-whisper already fetches an uncached model by name, this
+  just removes the need to know/type the exact model id.
+
 ## [1.2.4] - Unreleased
 
 ### Fixed
@@ -296,6 +306,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.2.5]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.5
 [1.2.4]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.4
 [1.2.3]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.3
 [1.2.2]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.2

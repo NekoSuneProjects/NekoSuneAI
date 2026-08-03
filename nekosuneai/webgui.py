@@ -128,7 +128,8 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
         "fields": [
             {"key": "stt_provider", "label": "STT engine", "type": "select",
              "options": ["faster-whisper", "google"]},
-            {"key": "stt_model", "label": "Whisper model", "type": "text"},
+            {"key": "stt_model", "label": "Whisper model", "type": "select",
+             "options": ["tiny.en", "base.en", "small.en", "medium.en", "large-v3", "distil-large-v3"]},
             {"key": "stt_language", "label": "Language", "type": "text"},
         ],
     },
