@@ -5,6 +5,18 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.4] - Unreleased
+
+### Fixed
+- The new "already installed?" detection in `install.ps1`/`install.sh`
+  (1.1.3) only checked for the `.setup-complete` marker, which is written
+  at the very END of a successful setup run. A first attempt that crashed
+  partway through (e.g. a pip conflict) leaves `setup.py`/the venv in place
+  without that marker, so the installer never offered the fast Update path
+  and always redid the full wizard. Now detected by `setup.py` being
+  present instead, with "Just launch" falling back to the full wizard if
+  the venv isn't there yet.
+
 ## [1.1.3] - Unreleased
 
 ### Fixed
@@ -127,6 +139,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.1.4]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.4
 [1.1.3]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.3
 [1.1.2]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.2
 [1.1.1]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.1

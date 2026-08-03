@@ -819,7 +819,11 @@ function Launch-Existing {
 function Main {
     Show-Banner
 
-    if (Test-Path "$INSTALL_DIR\.setup-complete") {
+    # Detect an existing install by the presence of the code itself, not a
+    # successful-completion marker — a first attempt that crashed mid-setup
+    # (e.g. a pip conflict) still leaves setup.py/the venv there, and re-running
+    # the whole wizard on top of that is exactly what this menu exists to avoid.
+    if (Test-Path "$INSTALL_DIR\setup.py") {
         $choice = Ask-Choice "NekoSuneAI is already installed at $INSTALL_DIR. What do you want to do?" @(
             "Update      — pull the latest code and refresh packages (recommended, fast)",
             "Reinstall   — redo the whole setup wizard from scratch",
@@ -830,8 +834,11 @@ function Main {
             # Update-Existing returned false only when there's no venv to update —
             # fall through to the full wizard below in that case.
         } elseif ($choice -eq 2) {
-            Launch-Existing
-            return
+            if (Test-Path "$INSTALL_DIR\.venv\Scripts\python.exe") {
+                Launch-Existing
+                return
+            }
+            Write-Warn "No virtual environment found yet — running full setup instead."
         }
         Write-Host ""
     }

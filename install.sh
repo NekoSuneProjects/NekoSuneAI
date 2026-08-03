@@ -798,7 +798,11 @@ update_existing() {
 main() {
     show_banner
 
-    if [[ -f "$INSTALL_DIR/.setup-complete" ]]; then
+    # Detect an existing install by the presence of the code itself, not a
+    # successful-completion marker — a first attempt that crashed mid-setup
+    # (e.g. a pip conflict) still leaves setup.py/the venv there, and re-running
+    # the whole wizard on top of that is exactly what this menu exists to avoid.
+    if [[ -f "$INSTALL_DIR/setup.py" ]]; then
         local existing_choice
         existing_choice=$(ask_choice "NekoSuneAI is already installed at $INSTALL_DIR. What do you want to do?" \
             "Update      — pull the latest code and refresh packages (recommended, fast)" \
@@ -811,8 +815,11 @@ main() {
                 # fall through to the full wizard below in that case.
                 ;;
             3)
-                launch_existing
-                return
+                if [[ -x "$INSTALL_DIR/.venv/bin/python" ]]; then
+                    launch_existing
+                    return
+                fi
+                warn "No virtual environment found yet — running full setup instead."
                 ;;
         esac
         echo ""
