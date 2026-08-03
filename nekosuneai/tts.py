@@ -21,7 +21,7 @@ import numpy as np
 # it just crashes with "You must agree to the terms of service to use this
 # model." Pre-agreeing here (the documented non-interactive bypass) mirrors
 # what enabling the voice profile already opts a user into.
-os.environ.setdefault("COQUI_TOS_AGREED", "1")
+os.environ["COQUI_TOS_AGREED"] = "1"
 
 # sounddevice (PortAudio), torch and coqui-tts (TTS) are optional voice extras.
 # Guard them so this module imports text-only (CLI / headless web) on machines
