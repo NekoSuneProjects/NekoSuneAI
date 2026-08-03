@@ -5,6 +5,20 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.4] - Unreleased
+
+### Fixed
+- Dashboard showed "Busy" (and disabled Start Session) whenever the backend's
+  `busy` flag was true, even with no session started — but `busy` can be true
+  from an unrelated background feature (Watch & React, the VRChat game agent)
+  mid-tick, which has nothing to do with the chat session. `session_started`
+  is now checked first, so an unstarted session always shows "Standby" and
+  Start Session is never blocked by unrelated background activity.
+- The VRChat friends system (`games/vrchat_friends.py`) needed a separate
+  manual `pip install vrchatapi pyotp websocket-client` step — it's
+  lightweight with no known conflicts, so it now ships in `requirements.txt`
+  like the OSC integration does, with no extra step needed.
+
 ## [1.2.3] - Unreleased
 
 ### Added
@@ -282,6 +296,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.2.4]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.4
 [1.2.3]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.3
 [1.2.2]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.2
 [1.2.1]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.1

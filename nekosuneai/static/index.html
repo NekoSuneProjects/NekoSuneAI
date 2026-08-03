@@ -626,15 +626,19 @@ function syncDashboard() {
   const s = STATE;
   // Stat cards
   const sessionEl = $('d-stat-session');
-  if (s.busy) {
-    sessionEl.textContent = 'Busy';
-    sessionEl.className = 'text-lg font-bold text-amber-400 truncate';
-  } else if (s.session_started) {
-    sessionEl.textContent = 'Active';
-    sessionEl.className = 'text-lg font-bold text-emerald-400 truncate';
-  } else {
+  // "busy" only means something once a session is running (it can be true
+  // from an unrelated background feature — Watch & React, the VRChat game
+  // agent — mid-tick, which has nothing to do with the chat session). Check
+  // session_started first so an unstarted session never shows "Busy".
+  if (!s.session_started) {
     sessionEl.textContent = 'Standby';
     sessionEl.className = 'text-lg font-bold text-nova-muted2 truncate';
+  } else if (s.busy) {
+    sessionEl.textContent = 'Busy';
+    sessionEl.className = 'text-lg font-bold text-amber-400 truncate';
+  } else {
+    sessionEl.textContent = 'Active';
+    sessionEl.className = 'text-lg font-bold text-emerald-400 truncate';
   }
   $('d-stat-model').textContent = s.model || '--';
   $('d-stat-mode').textContent = s.hands_free ? 'Voice' : 'Text';
@@ -650,7 +654,11 @@ function syncDashboard() {
   } else {
     btn.textContent = 'Start Session';
     btn.className = 'btn-primary px-6 rounded-lg font-bold text-[13px] tracking-wide transition-all whitespace-nowrap';
-    btn.disabled = s.busy;
+    // Not gated on s.busy — that can be true from an unrelated background
+    // feature (Watch & React, VRChat game agent) and shouldn't block
+    // starting a session; the click itself is debounced client-side in
+    // doStartSession().
+    btn.disabled = false;
   }
 
   // Toggle dots & values

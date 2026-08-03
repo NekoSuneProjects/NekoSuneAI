@@ -20,3 +20,11 @@ numpy>=1.24,<3
 # VRChat OSC integration (games/vrchat.py) — pure-Python, no heavy/compiled
 # deps, so it ships in the base install rather than requirements-voice.txt.
 python-osc>=1.9,<2
+
+# VRChat friends system (games/vrchat_friends.py) — opt-in (off unless
+# VRCHAT_FRIENDS_ENABLED + credentials are set in Settings), but lightweight
+# and no known conflicts with anything else here, so it installs by default
+# like the OSC integration above rather than needing a separate manual step.
+vrchatapi>=1.1,<2
+pyotp>=2.9,<3
+websocket-client>=1.7,<2

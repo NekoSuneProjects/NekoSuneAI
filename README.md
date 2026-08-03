@@ -8,7 +8,7 @@
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://python.org)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.2.3-brightgreen)](VERSION)
+[![Version](https://img.shields.io/badge/version-1.2.4-brightgreen)](VERSION)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078D6?logo=windows&logoColor=white)](https://microsoft.com)
 
 NekoSuneAI is a voice-powered desktop companion built with Python. It listens through your mic, thinks with local or cloud LLMs, and speaks back with a cloned voice — all wrapped in a slick dark-themed UI.
@@ -130,7 +130,7 @@ NekoSuneAI can join you in **VRChat** via the official **OSC API** (EAC-safe —
 
 #### 🤝 Friends System (opt-in, unofficial API)
 
-A separate, **opt-in** service (Game panel → VRChat Friends) that logs into VRChat's unofficial web API to auto-accept friend requests, watch friend online/offline status live, and send a thank-you chatbox message. This is against VRChat's ToS for bots and risks the account getting flagged — use a throwaway account, not your main. Needs `pip install vrchatapi pyotp websocket-client` and credentials in Settings → VRChat Friends (`VRCHAT_USERNAME`, `VRCHAT_PASSWORD`, `VRCHAT_TOTP_SECRET` for authenticator-app 2FA). Stays completely off unless `VRCHAT_FRIENDS_ENABLED=true` and credentials are set.
+A separate, **opt-in** service (Settings → VRChat Friends) that logs into VRChat's unofficial web API to auto-accept friend requests, watch friend online/offline status live, and send a thank-you chatbox message. This is against VRChat's ToS for bots and risks the account getting flagged — use a throwaway account, not your main. Enable it and enter your credentials (username, password, and a TOTP secret if the account uses authenticator-app 2FA) in Settings → VRChat Friends. Stays completely off until you enable it there.
 
 ### 👁️ Watch & React
 

@@ -39,7 +39,10 @@ from .vrchat import send_chatbox_message
 RECONNECT_DELAY_SECONDS = 5.0
 
 VRCHAT_EXTRAS_HINT = (
-    "VRChat friends support needs: pip install vrchatapi pyotp websocket-client"
+    "VRChat friends support needs vrchatapi, pyotp and websocket-client — these "
+    "ship in requirements.txt now, so this usually means your install predates "
+    "that; re-run setup (`python setup.py --setup --upgrade` or the installer's "
+    "Update path) to pick them up, or `pip install vrchatapi pyotp websocket-client` directly."
 )
 
 
