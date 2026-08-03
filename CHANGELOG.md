@@ -5,6 +5,21 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.6] - Unreleased
+
+### Added
+- **Search gateway web search provider** — Settings → Web Search → Provider
+  now has a `gateway` option for a self-hosted multi-backend search proxy
+  (`POST {url}/v1/search` with `{"query", "provider"}` + a Bearer API key,
+  e.g. one that fronts SearXNG/Brave/Tavily/etc. behind one endpoint). New
+  `Gateway backend` (which provider id the gateway should use, e.g.
+  `searxng-search`) and `Gateway API key` fields alongside it. Verified
+  against real request/response captures for the error case (upstream 429)
+  and the empty-results case; the exact field names inside a *non-empty*
+  `results` array are unconfirmed (live testing only returned empty result
+  sets) — it accepts common variants (title/name, url/link,
+  snippet/content/description) but flag it if real results come back oddly.
+
 ## [1.2.5] - Unreleased
 
 ### Changed
@@ -306,6 +321,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.2.6]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.6
 [1.2.5]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.5
 [1.2.4]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.4
 [1.2.3]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.3

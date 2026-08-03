@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date
 from html import unescape
+from typing import Any
 from urllib.parse import urlparse
 
 import requests
@@ -594,11 +595,103 @@ def _search_web_via_duckduckgo(
     return records
 
 
+def _search_web_via_gateway(
+    query: str,
+    *,
+    config: Config,
+) -> list[dict[str, str]]:
+    """Multi-backend search gateway (POST {query, provider} -> {results: [...]}),
+    e.g. a self-hosted proxy in front of SearXNG/Brave/Tavily/etc. behind one
+    OpenAI-style API. NOTE: the exact field names inside each result item are
+    unconfirmed — live testing only ever returned an empty `results` list, so
+    this accepts the common key-name variants other providers here use
+    (title/name, url/link, snippet/content/description) rather than assuming
+    one exact shape. Verify against a real non-empty response and adjust if
+    the gateway uses different names.
+    """
+    normalized_query = " ".join(query.strip().split())
+    if not normalized_query:
+        raise RuntimeError("Please provide a web search query after /web.")
+    if not config.web_search_url:
+        raise RuntimeError(
+            "No search gateway URL set - configure it in Settings -> Web Search."
+        )
+
+    body: dict[str, Any] = {"query": _expand_query_for_recency(normalized_query)}
+    if config.web_search_gateway_provider:
+        body["provider"] = config.web_search_gateway_provider
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "User-Agent": "NekoSuneAI/1.0 (+https://github.com/)",
+    }
+    if config.web_search_api_key:
+        headers["Authorization"] = f"Bearer {config.web_search_api_key}"
+
+    try:
+        response = requests.post(
+            config.web_search_url,
+            json=body,
+            headers=headers,
+            timeout=config.web_timeout_seconds,
+        )
+    except requests.RequestException as exc:
+        raise RuntimeError(
+            f"Search gateway request failed for {config.web_search_url}: {exc}"
+        ) from exc
+
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise RuntimeError(
+            f"Search gateway returned invalid JSON from {config.web_search_url}."
+        ) from exc
+
+    error = payload.get("error") if isinstance(payload, dict) else None
+    if error:
+        detail = error.get("message") if isinstance(error, dict) else str(error)
+        raise RuntimeError(f"Search gateway error: {detail}")
+    if response.status_code >= 400:
+        raise RuntimeError(
+            f"Search gateway returned HTTP {response.status_code} from {config.web_search_url}."
+        )
+
+    raw_results = payload.get("results") if isinstance(payload, dict) else None
+    if not isinstance(raw_results, list):
+        return []
+
+    limit = max(1, min(config.web_max_results, 10))
+    records: list[dict[str, str]] = []
+    for raw in raw_results:
+        if not isinstance(raw, dict):
+            continue
+        url = _clean_text(raw.get("url") or raw.get("link"), "")
+        if not url:
+            continue
+        title = _clean_text(raw.get("title") or raw.get("name"), "Untitled result")
+        snippet = _clean_text(
+            raw.get("snippet") or raw.get("content") or raw.get("description"),
+            "No snippet provided.",
+        )
+        records.append({"title": title, "url": url, "snippet": snippet})
+        if len(records) >= max(limit, min(12, limit * 2)):
+            break
+
+    if records:
+        _enrich_results_with_page_excerpts(records, config.web_timeout_seconds)
+        records = _rerank_results_for_recency(records, normalized_query)
+        records = records[:limit]
+    return records
+
+
 def search_web(query: str, config: Config) -> list[dict[str, str]]:
     if config.web_search_provider == "searxng":
         return _search_web_via_searxng(query, config=config)
     if config.web_search_provider == "duckduckgo":
         return _search_web_via_duckduckgo(query, config=config)
+    if config.web_search_provider == "gateway":
+        return _search_web_via_gateway(query, config=config)
     raise RuntimeError(
         f"Unsupported web search provider '{config.web_search_provider}'."
     )

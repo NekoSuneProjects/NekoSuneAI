@@ -114,6 +114,8 @@ def normalize_web_search_provider(value: str) -> str:
         return "duckduckgo"
     if normalized in {"searxng", "searx", "searx-ng"}:
         return "searxng"
+    if normalized in {"gateway", "search-gateway", "openai-search"}:
+        return "gateway"
     return "searxng"
 
 
@@ -193,6 +195,13 @@ def resolve_web_search_url(provider: str, raw_url: str | None) -> str:
         if path.endswith("/search"):
             return candidate
         return candidate
+    if provider == "gateway":
+        candidate = (raw_url or "").strip().rstrip("/")
+        if not candidate:
+            return ""
+        if candidate.endswith("/v1/search"):
+            return candidate
+        return candidate + "/v1/search"
     return (raw_url or "").strip()
 
 
@@ -257,6 +266,11 @@ class Config:
     web_timeout_seconds: int
     web_region: str
     web_safesearch: str
+    # "gateway" provider only: which backend the gateway's /v1/search proxies
+    # to (e.g. "searxng-search", "duckduckgo-free", "brave-search") and its
+    # Bearer API key.
+    web_search_gateway_provider: str
+    web_search_api_key: str | None
     music_provider_default: str
     soundcloud_stream_endpoint: str
     voice_enabled: bool
@@ -545,6 +559,11 @@ class Config:
             web_safesearch=normalize_web_safesearch(
                 os.getenv("WEB_SAFESEARCH", "moderate")
             ),
+            web_search_gateway_provider=(
+                os.getenv("WEB_SEARCH_GATEWAY_PROVIDER", "searxng-search").strip()
+                or "searxng-search"
+            ),
+            web_search_api_key=parse_optional_str_env("WEB_SEARCH_API_KEY"),
             music_provider_default=music_provider_default,
             soundcloud_stream_endpoint=soundcloud_stream_endpoint,
             voice_enabled=parse_bool_env("VOICE_ENABLED", False),

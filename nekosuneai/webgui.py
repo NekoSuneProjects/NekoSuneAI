@@ -137,8 +137,10 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
         "label": "Web Search",
         "fields": [
             {"key": "web_search_provider", "label": "Provider", "type": "select",
-             "options": ["searxng", "duckduckgo"]},
-            {"key": "web_search_url", "label": "SearXNG URL", "type": "text"},
+             "options": ["searxng", "duckduckgo", "gateway"]},
+            {"key": "web_search_url", "label": "URL (SearXNG endpoint, or gateway base URL)", "type": "text"},
+            {"key": "web_search_gateway_provider", "label": "Gateway backend (e.g. searxng-search)", "type": "text"},
+            {"key": "web_search_api_key", "label": "Gateway API key", "type": "password"},
             {"key": "web_max_results", "label": "Max results", "type": "int"},
             {"key": "web_timeout_seconds", "label": "Timeout (sec)", "type": "int"},
             {"key": "web_region", "label": "Region (e.g. us-en)", "type": "text"},
