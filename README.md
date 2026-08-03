@@ -8,7 +8,7 @@
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://python.org)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.1.7-brightgreen)](VERSION)
+[![Version](https://img.shields.io/badge/version-1.1.8-brightgreen)](VERSION)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078D6?logo=windows&logoColor=white)](https://microsoft.com)
 
 NekoSuneAI is a voice-powered desktop companion built with Python. It listens through your mic, thinks with local or cloud LLMs, and speaks back with a cloned voice — all wrapped in a slick dark-themed UI.
@@ -288,7 +288,7 @@ Copy `.env.example` to `.env` and tweak what you need:
 |---------|---------|-------------|
 | `MUSIC_PROVIDER_DEFAULT` | `soundcloud` | Default music platform |
 | `THINKING_SOUND_ENABLED` | `false` | Play a short cue during noticeably long waits |
-| `THINKING_SOUND_PATH` | *(none)* | Local audio file to play for the cue |
+| `THINKING_SOUND_PATH` | *(none)* | Local audio file OR folder to pick a random track from, for the cue |
 | `THINKING_SOUND_DELAY_SECONDS` | `2.5` | How long to wait before playing it |
 
 ### 🔊 Voice & TTS

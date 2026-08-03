@@ -5,6 +5,21 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.8] - Unreleased
+
+### Added
+- Settings → **Web Search** card (provider, SearXNG URL, max results, timeout,
+  region, safesearch) and **Memory (RAG)** card (enabled, recall count,
+  minimum relevance score) — previously `.env`-only and needed a restart to
+  take effect; now live-editable and SQLite-backed like the rest of Settings.
+
+### Fixed
+- `THINKING_SOUND_PATH` only accepted a single audio file; pointing it at a
+  folder (e.g. `data/music`) silently did nothing since ffplay can't play a
+  directory, and an exception on the background timer thread had nowhere to
+  surface. It now accepts a folder and picks a random track from it each
+  time, and playback failures are logged instead of vanishing silently.
+
 ## [1.1.7] - Unreleased
 
 ### Fixed
@@ -174,6 +189,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.1.8]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.8
 [1.1.7]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.7
 [1.1.6]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.6
 [1.1.5]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.5

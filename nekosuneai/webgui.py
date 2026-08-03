@@ -132,6 +132,27 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "stt_language", "label": "Language", "type": "text"},
         ],
     },
+    "web": {
+        "label": "Web Search",
+        "fields": [
+            {"key": "web_search_provider", "label": "Provider", "type": "select",
+             "options": ["searxng", "duckduckgo"]},
+            {"key": "web_search_url", "label": "SearXNG URL", "type": "text"},
+            {"key": "web_max_results", "label": "Max results", "type": "int"},
+            {"key": "web_timeout_seconds", "label": "Timeout (sec)", "type": "int"},
+            {"key": "web_region", "label": "Region (e.g. us-en)", "type": "text"},
+            {"key": "web_safesearch", "label": "SafeSearch", "type": "select",
+             "options": ["off", "moderate", "strict"]},
+        ],
+    },
+    "rag": {
+        "label": "Memory (RAG)",
+        "fields": [
+            {"key": "rag_enabled", "label": "Remember facts across sessions", "type": "bool"},
+            {"key": "rag_top_k", "label": "Memories recalled per reply", "type": "int"},
+            {"key": "rag_min_score", "label": "Minimum relevance score", "type": "float"},
+        ],
+    },
     "media": {
         "label": "Media",
         "fields": [
@@ -139,7 +160,7 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
              "options": ["soundcloud", "deezer", "spotify"]},
             {"key": "soundcloud_stream_endpoint", "label": "Stream endpoint", "type": "text"},
             {"key": "thinking_sound_enabled", "label": "Play a sound during long waits", "type": "bool"},
-            {"key": "thinking_sound_path", "label": "Thinking sound file (.wav/.mp3)", "type": "text"},
+            {"key": "thinking_sound_path", "label": "Thinking sound file or folder (random pick)", "type": "text"},
             {"key": "thinking_sound_delay_seconds", "label": "Delay before it plays (sec)", "type": "float"},
         ],
     },

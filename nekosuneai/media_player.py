@@ -1,13 +1,17 @@
 from __future__ import annotations
 
+import random
 import shutil
 import subprocess
 import threading
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .config import Config
+
+_AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".m4a", ".flac", ".opus", ".aac", ".wma"}
 
 
 @dataclass
@@ -176,19 +180,47 @@ def current_media_kind() -> str:
     return _PLAYER.current_kind()
 
 
+def _resolve_thinking_sound_path(configured_path: str) -> str | None:
+    """*configured_path* may be a single audio file OR a folder of tracks to
+    pick a random one from each time — ffplay itself can't play a directory,
+    so a folder has to be resolved to one file's path first."""
+    candidate = Path(configured_path)
+    if candidate.is_dir():
+        tracks = [
+            entry for entry in candidate.iterdir()
+            if entry.is_file() and entry.suffix.lower() in _AUDIO_EXTENSIONS
+        ]
+        if not tracks:
+            return None
+        return str(random.choice(tracks))
+    if candidate.is_file():
+        return str(candidate)
+    return None
+
+
+def _play_thinking_sound(config: "Config") -> None:
+    try:
+        resolved_path = _resolve_thinking_sound_path(config.thinking_sound_path)
+        if not resolved_path:
+            return
+        play_media_stream(resolved_path, title="Thinking...", kind="thinking")
+    except Exception as exc:
+        # Runs on a background Timer thread with nothing watching stderr in the
+        # GUI (pythonw.exe) — an uncaught exception here would otherwise just
+        # vanish, making a bad thinking-sound path look like "nothing happens".
+        print(f"[ThinkingSound] Could not play: {exc}")
+
+
 def start_thinking_sound(config: "Config") -> threading.Timer | None:
     """Start a delayed one-shot "thinking" cue — plays only if *config* enables
-    it, a sound file is set, and nothing else is already playing (never
+    it, a sound file/folder is set, and nothing else is already playing (never
     interrupts music the user started). Callers must always pass the returned
     timer to stop_thinking_sound() in a ``finally`` block."""
     if not config.thinking_sound_enabled or not config.thinking_sound_path:
         return None
     if current_media_kind():
         return None
-    timer = threading.Timer(
-        config.thinking_sound_delay_seconds,
-        lambda: play_media_stream(config.thinking_sound_path, title="Thinking...", kind="thinking"),
-    )
+    timer = threading.Timer(config.thinking_sound_delay_seconds, _play_thinking_sound, args=(config,))
     timer.daemon = True
     timer.start()
     return timer
