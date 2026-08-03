@@ -5,6 +5,19 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.5] - Unreleased
+
+### Fixed
+- `requirements-voice.txt` pinned `torch>=2.2,<3` with no upper bound inside
+  the 2.x series. `pip install --upgrade` (the new fast-update path from
+  1.1.3) happily jumped to torch 2.9, but coqui-tts's audio I/O requires the
+  separate `torchcodec` package from torch 2.9 onward, which isn't declared
+  anywhere — breaking voice model preload with an ImportError. Capped
+  `torch`/`torchaudio` to `<2.9` instead of adding torchcodec as a new
+  (ABI-fragile, unpinned) dependency; re-run the installer's Update path or
+  `pip install -r requirements-voice.txt` in the venv to get pip to
+  downgrade back down to a working torch version.
+
 ## [1.1.4] - Unreleased
 
 ### Fixed
@@ -139,6 +152,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.1.5]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.5
 [1.1.4]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.4
 [1.1.3]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.3
 [1.1.2]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.2

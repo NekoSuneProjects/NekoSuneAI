@@ -23,9 +23,14 @@ faster-whisper>=1.2,<2
 coqui-tts>=0.27,<0.28
 gTTS>=2.5,<3
 
-# ML runtime used by XTTS, STT and embeddings
-torch>=2.2,<3
-torchaudio>=2.2,<3
+# ML runtime used by XTTS, STT and embeddings.
+# Capped below 2.9: from PyTorch 2.9, coqui-tts's audio I/O requires the
+# separate torchcodec package (an ABI-matched binary extension with no
+# declared torch-version pin of its own — easy to get a mismatched build).
+# Staying on <2.9 keeps the tested torch/coqui-tts combo working without
+# adding that fragile extra dependency.
+torch>=2.2,<2.9
+torchaudio>=2.2,<2.9
 transformers>=4.40,<5
 
 # Local memory embeddings (lazy-imported by nekosuneai/memory.py)
