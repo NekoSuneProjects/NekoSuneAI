@@ -5,6 +5,17 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.7] - Unreleased
+
+### Fixed
+- `install.ps1` had `#Requires -Version 5.1` as its first line, which only
+  works when the file is executed directly as a `.ps1` — it errors with
+  "not recognized as the name of a cmdlet" under the documented
+  `powershell -c "irm ... | iex"` one-liner, since `iex` parses the
+  downloaded text as a script block rather than a top-level script file.
+  Replaced with an equivalent runtime `$PSVersionTable.PSVersion` check that
+  works under both invocation styles.
+
 ## [1.1.6] - Unreleased
 
 ### Fixed
@@ -163,6 +174,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.1.7]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.7
 [1.1.6]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.6
 [1.1.5]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.5
 [1.1.4]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.4

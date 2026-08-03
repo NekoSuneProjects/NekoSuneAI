@@ -1,5 +1,4 @@
-﻿#Requires -Version 5.1
-<#
+﻿<#
 .SYNOPSIS
     NekoSuneAI one-line installer for Windows.
 
@@ -29,6 +28,17 @@
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
+
+# A #Requires directive only works when this file is invoked directly as a
+# .ps1 — it errors out ("not recognized as the name of a cmdlet") under the
+# documented `irm ... | iex` one-liner, since iex parses the downloaded text
+# as a script block rather than a top-level script file. Check manually
+# instead so both invocation styles work.
+if ($PSVersionTable.PSVersion -lt [version]"5.1") {
+    Write-Host "NekoSuneAI's installer needs PowerShell 5.1 or newer (found $($PSVersionTable.PSVersion))." -ForegroundColor Red
+    Write-Host "Windows 10/11 ships 5.1 by default — check for Windows Update, or install PowerShell 7: https://aka.ms/powershell" -ForegroundColor Yellow
+    exit 1
+}
 
 # ── Config ───────────────────────────────────────────────────────────────────
 
