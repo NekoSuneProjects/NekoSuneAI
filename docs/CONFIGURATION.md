@@ -1,6 +1,12 @@
 # ⚙️ Configuration Reference
 
-NekoSuneAI is configured through environment variables in the `.env` file. Copy `.env.example` to `.env` and adjust as needed.
+Most day-to-day settings (LLM provider/model/API key, voice, speech-to-text,
+web search, memory, media, singing, RVC, VRChat friends, VRChat OSC) live in
+the app's **Settings panel** now and are stored in SQLite — live-editable,
+no restart needed, no `.env` required. This page only covers what's still
+`.env`-only: startup/performance tuning, CLI-provider paths, and low-level
+audio/model knobs with no Settings-UI equivalent yet. Copy `.env.example` to
+`.env` and adjust as needed — the app boots fine with none of this set.
 
 ---
 
@@ -11,107 +17,58 @@ NekoSuneAI is configured through environment variables in the `.env` file. Copy 
 | `AUTO_TUNE_PERFORMANCE` | `true` | Auto-detect hardware and optimise settings on startup |
 | `AUTO_TUNE_GOAL` | `balanced` | Tuning strategy: `speed`, `balanced`, or `quality` |
 | `AUTO_UPDATE_CHECK` | `true` | Check GitHub for version updates on startup |
-| `AUTO_UPDATE_INSTALL` | `true` | Automatically install updates (non-git installs only) |
+| `AUTO_UPDATE_INSTALL` | `false` | Automatically install updates on launch — see the security warning in `.env.example` before enabling |
 | `AUTO_UPDATE_CACHE_SECONDS` | `21600` | Cache update check results for this many seconds |
 | `HF_HUB_DISABLE_SYMLINKS_WARNING` | `1` | Suppress Hugging Face Windows symlink warnings |
-| `NEKOSUNEAI_GITHUB_REPO` | `NekoSuneProjects/NekoSuneAI` | GitHub repo for update checks (owner/repo slug; a full URL is also accepted). `NOVA_GITHUB_REPO` still works as a fallback. |
-| `NEKOSUNEAI_GITHUB_BRANCH` | `main` | GitHub branch for update checks. `NOVA_GITHUB_BRANCH` still works as a fallback. |
+| `NEKOSUNEAI_GITHUB_REPO` | `NekoSuneProjects/NekoSuneAI` | GitHub repo for update checks (owner/repo slug; a full URL is also accepted) |
+| `NEKOSUNEAI_GITHUB_BRANCH` | `main` | GitHub branch for update checks |
 
 ---
 
-## 🤖 LLM Settings
+## 🤖 LLM Tuning
 
-### Provider Selection
+Provider, model, API URL/key and temperature are in **Settings → AI Provider
+& Models**. These have no Settings-UI equivalent:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `LLM_PROVIDER` | `ollama` | Chat backend: `ollama` or `openai` |
-| `LLM_MODEL` | `dolphin3` | Model name |
-| `LLM_API_URL` | *(auto)* | Custom endpoint URL (blank = use provider default) |
-| `LLM_API_KEY` | *(none)* | API key for OpenAI-compatible providers |
 | `LLM_KEEP_ALIVE` | `30m` | How long Ollama keeps the model loaded |
-| `LLM_NUM_PREDICT` | `1200` | Maximum reply tokens |
-| `LLM_TEMPERATURE` | `0.95` | Response creativity (0.0 = deterministic, 2.0 = wild) |
+| `OLLAMA_NUM_PREDICT` | `1200` | Maximum reply tokens |
+| `OLLAMA_SKIP_LOCAL_SETUP` | `false` | Skip local Ollama install/start/model pull when using an existing Ollama server (set its URL in Settings) |
 
-### Ollama-Specific
+### CLI providers
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `OLLAMA_MODEL` | `dolphin3` | Ollama model name (overridden by `LLM_MODEL` if set) |
-| `OLLAMA_API_URL` | `http://127.0.0.1:11434/api/chat` | Ollama API endpoint |
-| `OLLAMA_SKIP_LOCAL_SETUP` | `false` | Skip local Ollama install/start/model pull when using an existing Ollama server endpoint |
-| `OLLAMA_KEEP_ALIVE` | `30m` | Model keep-alive duration |
-| `OLLAMA_NUM_PREDICT` | `1200` | Token budget |
-| `OLLAMA_TEMPERATURE` | `0.95` | Temperature |
-
-### OpenAI-Compatible
+Used when Settings → Provider is `claude-code` / `codex` / `cli`:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `OPENAI_MODEL` | *(none)* | Model name for OpenAI-compatible providers |
-| `OPENAI_API_URL` | *(none)* | API endpoint URL |
-| `OPENAI_API_KEY` | *(none)* | API key |
-
-> 💡 The `openai` provider works with OpenAI, LM Studio, LiteLLM, and any other OpenAI-compatible API.
+| `LLM_CLI_MODEL` | *(none)* | Model id passed to the CLI (e.g. `sonnet`, `opus`) — blank uses the CLI's default |
+| `CLAUDE_CLI_PATH` | *(auto)* | Override the `claude` executable path if not on PATH |
+| `CODEX_CLI_PATH` | *(auto)* | Override the `codex` executable path if not on PATH |
+| `LLM_CLI_COMMAND` | *(none)* | Full custom command for Provider=`cli`; use `{prompt}` to inject the prompt as an argument |
 
 ---
 
-## 🌐 Web Search
+## 🔊 XTTS / 🎙️ Speech-to-Text tuning
+
+Engine choice, model, speaker, speaker-clone, speed, and language are all in
+**Settings → Voice** / **Settings → Speech-to-Text**. These lower-level
+model/streaming/recognition knobs have no Settings-UI equivalent:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `WEB_BROWSING_ENABLED` | `true` | Enable web search features |
-| `WEB_AUTO_SEARCH` | `false` | Auto-search for likely current-event questions |
-| `WEB_SEARCH_PROVIDER` | `searxng` | Backend: `searxng` or `duckduckgo` |
-| `WEB_SEARCH_URL` | `https://searxng.nekosunevr.co.uk/` | SearXNG endpoint |
-| `WEB_MAX_RESULTS` | `5` | Number of results per lookup |
-| `WEB_TIMEOUT_SECONDS` | `15` | Timeout for web requests |
-| `WEB_REGION` | `us-en` | Region code for search results |
-| `WEB_SAFESEARCH` | `moderate` | Safe search level: `off`, `moderate`, or `strict` |
-
----
-
-## 🎵 Media
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MUSIC_PROVIDER_DEFAULT` | `soundcloud` | Default music platform: `soundcloud`, `spotify`, `deezer` |
-| `SOUNDCLOUD_STREAM_ENDPOINT` | `https://dl.nekosunevr.co.uk/api/stream` | SoundCloud stream resolver |
-
----
-
-## 🔊 Text-to-Speech (TTS)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TTS_PROVIDER` | `xtts` | Voice engine: `xtts` (local neural) or `gtts` (Google cloud) |
-| `VOICE_ENABLED` | `false` | Start with voice replies enabled |
 | `XTTS_MODEL_NAME` | `tts_models/multilingual/multi-dataset/xtts_v2` | XTTS model |
-| `XTTS_LANGUAGE` | `en` | Speech language |
-| `XTTS_SPEAKER` | `Ana Florence` | Voice name (use `/speakers` to list options) |
-| `XTTS_SPEAKER_WAV` | *(none)* | Path to a custom voice clone WAV file |
 | `XTTS_USE_GPU` | `true` | Use GPU for voice synthesis |
 | `XTTS_STREAM_OUTPUT` | `true` | Stream audio while generating |
 | `XTTS_STREAM_CHUNK_SIZE` | `20` | Streaming chunk size |
 | `XTTS_STREAM_BUFFER_SECONDS` | `1.8` | Stream buffer duration |
 | `XTTS_CHUNK_MAX_CHARS` | `240` | Max characters per TTS chunk |
 | `XTTS_MAX_TEXT_CHARS` | `5000` | Max total spoken text per reply |
-| `XTTS_SPEED` | `1.00` | Speaking pace (never overridden by auto-tune) |
-
----
-
-## 🎙️ Speech-to-Text (STT)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `STT_PROVIDER` | `faster-whisper` | STT engine: `faster-whisper` or `google` |
 | `STT_USE_GPU` | `true` | Use GPU for transcription |
-| `STT_MODEL` | `small.en` | Whisper model: `tiny.en`, `base.en`, `small.en`, `medium.en`, `large-v3` |
 | `STT_COMPUTE_TYPE` | *(auto)* | Compute type (auto-detected based on hardware) |
 | `STT_BEAM_SIZE` | `5` | Beam search width |
 | `STT_BEST_OF` | `5` | Best-of-N sampling |
 | `STT_VAD_FILTER` | `false` | Voice Activity Detection filter |
-| `STT_LANGUAGE` | `en-US` | Recognition language |
 | `STT_TIMEOUT_SECONDS` | `15` | Max wait time for speech |
 | `STT_PHRASE_TIME_LIMIT_SECONDS` | `30` | Max single phrase duration |
 | `STT_PAUSE_THRESHOLD_SECONDS` | `1.8` | Silence duration to end a phrase |
@@ -119,7 +76,6 @@ NekoSuneAI is configured through environment variables in the `.env` file. Copy 
 | `STT_AMBIENT_DURATION_SECONDS` | `0.6` | Ambient noise calibration duration |
 | `STT_ENERGY_THRESHOLD` | `300` | Mic energy threshold for speech detection |
 | `STT_DYNAMIC_ENERGY_THRESHOLD` | `true` | Dynamically adjust energy threshold |
-| `INPUT_MODE` | `voice` | Default input mode: `voice` (hands-free) or `text` |
 
 ---
 
@@ -134,10 +90,39 @@ NekoSuneAI is configured through environment variables in the `.env` file. Copy 
 
 ---
 
+## Interaction & Game
+
+Input mode and voice on/off are toggled from the chat UI (remembered between
+sessions). Whether the game agent runs at all has no Settings-UI equivalent
+— the OSC host/ports, vision model and think-interval are in **Settings →
+Game**:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `HISTORY_TURNS` | `10` | How many past exchanges the LLM sees for context |
+| `REQUEST_TIMEOUT` | `300` | LLM request timeout (seconds) |
+| `GAME_ENABLED` | `false` | Enable the VRChat OSC game agent |
+
+---
+
+## 🎤 Singing / RVC
+
+Enabled/backend/RVC model path/cloud API are all in **Settings → Singing**
+and **Settings → Voice** (chat RVC). This one has no Settings-UI equivalent:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SINGING_FETCH_INSTRUMENTAL` | `true` | Auto-find a YouTube instrumental/karaoke track when no backing is given |
+
+RVC (chat or singing) is lazy-imported and **not** in `requirements-voice.txt`
+— it pins `numpy<=1.23.5`, which conflicts with this project's `numpy>=1.24`.
+Install it in its own virtualenv, or accept the numpy downgrade at your own
+risk: `pip install "rvc-python>=0.1" --no-deps`.
+
+---
+
 ## 💡 Tips
 
 - Set `AUTO_TUNE_PERFORMANCE=false` if you want full manual control over performance settings.
 - Use `AUTO_TUNE_GOAL=speed` on weaker hardware for snappier responses with smaller models.
-- `XTTS_SPEED` is the one setting auto-tune **never** touches — your companion's voice stays consistent.
-- Leave `LLM_API_URL` blank to use the provider's default endpoint. Only set it if you're running a custom server.
 - `HISTORY_TURNS=10` means the LLM sees the last 10 exchanges for context. Increase for better memory, decrease for faster responses.

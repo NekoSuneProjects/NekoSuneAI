@@ -5,6 +5,17 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.2] - Unreleased
+
+### Changed
+- Trimmed `.env.example`/`docs/CONFIGURATION.md`/README down to only what's
+  genuinely still `.env`-only. Everything that moved to the SQLite-backed
+  Settings panel over time (LLM provider/model/API key/temperature, voice,
+  STT, web search, RAG memory, media, singing, RVC, VRChat friends, VRChat
+  OSC) is no longer documented as an `.env` variable — those entries were
+  stale/redundant since Settings always overrides them at runtime anyway.
+  No behavior change; the app already read the same code defaults either way.
+
 ## [1.2.1] - Unreleased
 
 ### Fixed
@@ -245,6 +256,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.2.2]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.2
 [1.2.1]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.1
 [1.2.0]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.0
 [1.1.9]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.9

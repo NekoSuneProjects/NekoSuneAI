@@ -8,7 +8,7 @@
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://python.org)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-green.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-1.2.1-brightgreen)](VERSION)
+[![Version](https://img.shields.io/badge/version-1.2.2-brightgreen)](VERSION)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078D6?logo=windows&logoColor=white)](https://microsoft.com)
 
 NekoSuneAI is a voice-powered desktop companion built with Python. It listens through your mic, thinks with local or cloud LLMs, and speaks back with a cloned voice — all wrapped in a slick dark-themed UI.
@@ -115,7 +115,7 @@ NekoSuneAI **remembers across sessions** using retrieval-augmented memory — no
 
 - Local **sentence-transformers** embeddings on CPU by default (keeps VRAM free for the LLM); Ollama or OpenAI embedding backends optional
 - Stored in the same SQLite DB; thumbs-up/down reinforces or de-weights memories, and stale/low-score ones are pruned automatically
-- Configure with `RAG_ENABLED`, `RAG_EMBEDDING_PROVIDER`, `RAG_EMBEDDING_MODEL`, `RAG_TOP_K`
+- Configure in Settings → **Memory (RAG)**
 
 ### 🎮 VRChat Integration
 
@@ -126,7 +126,7 @@ NekoSuneAI can join you in **VRChat** via the official **OSC API** (EAC-safe —
 - Reads VRChat's own logs for the current world and **who's in the instance** — greets people by name
 - **Sees** the room when a Vision model is set (Settings → AI Provider, e.g. an Ollama model like `llava` / `qwen2.5vl` / `moondream`, or an OpenAI-compatible multimodal chat model) — describes what's nearby every think-tick so it can react to the world, not just log/OSC data
 - Long chatbox messages are automatically **paged** across multiple `/chatbox/input` sends instead of getting truncated
-- Configure the OSC host/ports and log directory in the **Game** panel or via `.env` (`VRCHAT_OSC_HOST`, `VRCHAT_OSC_PORT`, `VRCHAT_OSC_READ_PORT`, `VRCHAT_LOG_DIR`)
+- Configure the OSC host/ports and log directory in the **Game** panel
 
 #### 🤝 Friends System (opt-in, unofficial API)
 
@@ -252,10 +252,15 @@ Rendered songs live on disk in `audio/songs/` for instant replay.
 
 ## ⚙️ Configuration
 
-Copy `.env.example` to `.env` and tweak what you need:
+Most day-to-day settings — LLM provider/model/API key, voice, speech-to-text,
+web search, memory, media, singing, RVC, VRChat friends, VRChat OSC — live in
+the in-app **Settings panel** (and the **Game** panel for VRChat OSC), stored
+in SQLite, live-editable with no restart. `.env` (copy `.env.example` to get
+started) only covers what's still `.env`-only: startup/performance tuning,
+CLI-provider paths, and low-level audio/model knobs.
 
 <details>
-<summary>📖 Click to expand full configuration reference</summary>
+<summary>📖 Click to expand the remaining .env-only settings</summary>
 
 ### 🧠 Core
 
@@ -264,63 +269,31 @@ Copy `.env.example` to `.env` and tweak what you need:
 | `AUTO_TUNE_PERFORMANCE` | `true` | Auto-detect hardware and tune settings |
 | `AUTO_TUNE_GOAL` | `balanced` | Tuning goal: `speed`, `balanced`, or `quality` |
 | `AUTO_UPDATE_CHECK` | `true` | Check GitHub for updates on startup |
-| `AUTO_UPDATE_INSTALL` | `true` | Auto-install updates for non-git installs |
+| `AUTO_UPDATE_INSTALL` | `false` | Auto-install updates on launch — see the security warning in `.env.example` |
 
-### 🤖 LLM
+### 🤖 LLM Tuning
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `LLM_PROVIDER` | `ollama` | Chat backend: `ollama`, `openai`, or `claude-code` / `codex` / `cli` (shell out to an already-logged-in Claude Code / Codex CLI — no API key) |
-| `LLM_MODEL` / `OLLAMA_MODEL` | `dolphin3` | Which model to use |
-| `LLM_API_URL` | *(auto)* | Chat endpoint URL — set automatically by the installer for your chosen provider |
-| `LLM_API_KEY` | *(none)* | API key for cloud providers (OpenAI, OpenRouter, etc.) |
-| `OLLAMA_SKIP_LOCAL_SETUP` | `false` | Set `true` when using an existing Ollama server endpoint instead of local install/start |
-| `LLM_NUM_PREDICT` | `1200` | Reply token budget |
-| `OLLAMA_NUM_CTX` | `0` | Context window sent to Ollama (`0` = Ollama default). Cap it (e.g. `4096`) so long-context models load on small GPUs |
-| `LLM_TEMPERATURE` | `0.95` | Response creativity |
-
-### 🌐 Web Search
+Provider/model/API URL/key/temperature are in Settings → **AI Provider & Models**.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `WEB_BROWSING_ENABLED` | `true` | Enable web search features |
-| `WEB_AUTO_SEARCH` | `false` | Auto-search for current-event questions |
-| `WEB_SEARCH_PROVIDER` | `searxng` | Backend: `searxng` or `duckduckgo` |
-| `WEB_SEARCH_URL` | *(built-in)* | SearXNG endpoint URL |
-| `WEB_MAX_RESULTS` | `5` | Results per lookup |
-| `WEB_SAFESEARCH` | `moderate` | Safe search: `off`, `moderate`, `strict` |
+| `LLM_KEEP_ALIVE` | `30m` | How long Ollama keeps the model loaded |
+| `OLLAMA_NUM_PREDICT` | `1200` | Reply token budget |
+| `OLLAMA_SKIP_LOCAL_SETUP` | `false` | Skip local Ollama install/start/model-pull when using an existing Ollama server (set its URL in Settings) |
+| `LLM_CLI_MODEL` / `CLAUDE_CLI_PATH` / `CODEX_CLI_PATH` / `LLM_CLI_COMMAND` | *(none)* | CLI-provider executable overrides — see `.env.example` |
 
-### 🎵 Media
+### 🔊 XTTS / 🎙️ Speech-to-Text Tuning
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `MUSIC_PROVIDER_DEFAULT` | `soundcloud` | Default music platform |
-| `THINKING_SOUND_ENABLED` | `false` | Play a short cue during noticeably long waits |
-| `THINKING_SOUND_PATH` | *(none)* | Local audio file OR folder to pick a random track from, for the cue |
-| `THINKING_SOUND_DELAY_SECONDS` | `2.5` | How long to wait before playing it |
-
-### 🔊 Voice & TTS
+Engine, model, speaker, speed and language are in Settings → **Voice** /
+**Speech-to-Text**.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `VOICE_ENABLED` | `false` | Start with voice replies on |
-| `TTS_PROVIDER` | `xtts` | Voice engine: `xtts` or `gtts` |
-| `XTTS_SPEED` | `1.0` | Speaking pace multiplier |
 | `XTTS_USE_GPU` | `true` | Use GPU for voice synthesis |
 | `XTTS_STREAM_OUTPUT` | `true` | Stream audio while generating |
-| `XTTS_SPEAKER` | `Ana Florence` | XTTS voice name |
-| `RVC_CHAT_ENABLED` | `false` | Convert normal chat replies through an RVC voice model — needs `rvc-python` installed separately (see `.env.example`; it conflicts with this project's `numpy` pin, so it's not in `requirements-voice.txt`) |
-| `RVC_CHAT_MODEL_PATH` | *(none)* | Trained RVC model `.pth` for chat (separate from the singing RVC model) |
-| `RVC_CHAT_PITCH` | `0` | Pitch shift in semitones, +/- |
-
-### 🎙️ Speech-to-Text
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `STT_PROVIDER` | `faster-whisper` | STT engine |
-| `STT_MODEL` | `small.en` | Whisper model size |
 | `STT_USE_GPU` | `true` | Use GPU for transcription |
-| `INPUT_MODE` | `voice` | Default input: `voice` or `text` |
+| `STT_BEAM_SIZE` / `STT_BEST_OF` | `5` / `5` | Whisper beam search / best-of-N sampling |
+| `STT_VAD_FILTER` | `false` | Voice Activity Detection filter |
 
 ### 🔈 Audio Devices
 
@@ -329,37 +302,18 @@ Copy `.env.example` to `.env` and tweak what you need:
 | `MIC_DEVICE_INDEX` | *(auto)* | Pin a specific microphone |
 | `SPEAKER_DEVICE_INDEX` | *(auto)* | Pin a specific speaker |
 
-### 🧬 RAG Memory
+### 🎮 Game Playing / 🎤 Singing
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| `RAG_ENABLED` | `true` | Remember facts across sessions |
-| `RAG_EMBEDDING_PROVIDER` | `local` | `local` (CPU MiniLM), `ollama`, or `openai` |
-| `RAG_EMBEDDING_MODEL` | `all-MiniLM-L6-v2` | Embedding model id |
-| `RAG_TOP_K` | `4` | How many memories to recall per reply |
-
-### 🎮 Game Playing
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `GAME_ENABLED` | `false` | Enable the game agent |
-| `GAME_TICK_SECONDS` | `4` | Seconds between observe/act ticks |
-| `VISION_MODEL` | *(none)* | Optional multimodal model for VRChat screen awareness / Watch & React (not required for VRChat OSC play) |
-| `VRCHAT_OSC_HOST` | `127.0.0.1` | VRChat OSC host |
-| `VRCHAT_OSC_PORT` | `9000` | VRChat OSC send port |
-| `VRCHAT_OSC_READ_PORT` | `9001` | VRChat OSC receive port (avatar params) |
-| `VRCHAT_LOG_DIR` | *(auto)* | Folder containing VRChat's output logs (auto-detected if blank) |
-| `VRCHAT_FRIENDS_ENABLED` | `false` | Opt-in unofficial-API friends system (ToS risk — see above) |
-| `VRCHAT_USERNAME` / `VRCHAT_PASSWORD` | *(none)* | VRChat account credentials for the friends system |
-| `VRCHAT_TOTP_SECRET` | *(none)* | Authenticator-app 2FA secret (email 2FA isn't supported here) |
-
-### 🎤 Singing
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `SINGING_ENABLED` | `true` | Enable singing |
-| `SINGING_BACKEND` | `local` | `local` (XTTS/gTTS), `rvc`, or `cloud` |
+| `GAME_ENABLED` | `false` | Enable the VRChat OSC game agent (OSC host/ports/vision model/tick are in Settings → Game) |
 | `SINGING_FETCH_INSTRUMENTAL` | `true` | Auto-find a YouTube instrumental when no backing is given |
+
+RVC (chat or singing) is lazy-imported and **not** in `requirements-voice.txt`
+— it pins `numpy<=1.23.5`, conflicting with this project's `numpy>=1.24`.
+Install it separately, or accept the downgrade: `pip install "rvc-python>=0.1" --no-deps`.
+
+See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) for the complete list.
 
 </details>
 
