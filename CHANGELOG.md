@@ -5,6 +5,32 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.3] - Unreleased
+
+### Added
+- **End Session button** — the Dashboard's session button was a dead end
+  once clicked: it turned into a disabled green "Running" pill with no way
+  to stop a session short of restarting the app (there was no backend
+  `end_session()` at all). It's now a live "End Session" button (`Api.
+  end_session()` in `webgui.py`) that also force-stops anything in-flight
+  (LLM/TTS/playback) before ending.
+- VRChat's vision read now explicitly prioritizes chat-bubble/speech-bubble
+  text above someone's head (quoted verbatim), flags when that text just
+  changed since the last look vs. a lingering stale bubble, and distinguishes
+  a "typing..." indicator from finished text so the companion waits instead
+  of replying to someone who hasn't finished typing yet. When a bubble just
+  changed, the next observe/act tick fires ~1.5s later instead of waiting the
+  full tick interval, so short-lived bubbles are far less likely to be missed.
+
+### Fixed
+- VRChat's `turn`/`look` OSC actions held the look-axis at full deflection
+  for up to 6 seconds (whatever duration the LLM picked) with no target/
+  feedback loop at all — a multi-second hold could easily swing the camera
+  wildly past a person's head into the sky or floor. Durations are now
+  clamped tight (turn: 0.05–0.5s, look: 0.05–0.35s) and the game agent is
+  told to use several small corrective nudges to track a person, one tick at
+  a time, instead of one large blind sweep.
+
 ## [1.2.2] - Unreleased
 
 ### Changed
@@ -256,6 +282,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.2.3]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.3
 [1.2.2]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.2
 [1.2.1]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.1
 [1.2.0]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.2.0

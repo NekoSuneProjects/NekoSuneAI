@@ -216,7 +216,7 @@ tailwind.config = {
               <div id="d-stat-mode" class="text-lg font-bold text-nova-text truncate">Text</div>
               <div class="text-[10px] text-nova-muted font-medium tracking-wider uppercase">Input Mode</div>
             </div>
-            <button id="d-btn-session" onclick="doStartSession()" class="btn-primary px-6 rounded-lg font-bold text-[13px] tracking-wide transition-all whitespace-nowrap">
+            <button id="d-btn-session" onclick="doSessionButtonClick()" class="btn-primary px-6 rounded-lg font-bold text-[13px] tracking-wide transition-all whitespace-nowrap">
               Start Session
             </button>
           </div>
@@ -644,9 +644,9 @@ function syncDashboard() {
   // Session button
   const btn = $('d-btn-session');
   if (s.session_started) {
-    btn.textContent = 'Running';
-    btn.className = 'btn-success px-6 rounded-lg font-bold text-[13px] tracking-wide transition-all cursor-default whitespace-nowrap';
-    btn.disabled = true;
+    btn.textContent = 'End Session';
+    btn.className = 'bg-red-600 hover:bg-red-500 text-white px-6 rounded-lg font-bold text-[13px] tracking-wide transition-all whitespace-nowrap';
+    btn.disabled = false;
   } else {
     btn.textContent = 'Start Session';
     btn.className = 'btn-primary px-6 rounded-lg font-bold text-[13px] tracking-wide transition-all whitespace-nowrap';
@@ -1036,10 +1036,21 @@ async function doListenFromChat() {
 
 // ── Dashboard actions ────────────────────────────────────────────────────
 
+async function doSessionButtonClick() {
+  if (STATE.session_started) { await doEndSession(); }
+  else { await doStartSession(); }
+}
+
 async function doStartSession() {
   if (!_appReady) return;
   $('d-btn-session').disabled = true;
   try { await api().start_session(); } catch(e) { console.error(e); }
+}
+
+async function doEndSession() {
+  if (!_appReady) return;
+  $('d-btn-session').disabled = true;
+  try { await api().end_session(); } catch(e) { console.error(e); }
 }
 
 async function doToggle(key) {

@@ -93,6 +93,7 @@ class VRChatDriver:
         self._running_hold = False          # whether the Run button is held
         self._last_move_at = 0.0            # when we last commanded forward/back
         self._last_move_kind = ""           # "walk" | "back" | ""
+        self._last_scene_text: str | None = None  # previous tick's vision read, to spot new chatbox text
 
     # ── lifecycle ─────────────────────────────────────────────────────────────
 
@@ -217,18 +218,32 @@ class VRChatDriver:
         # 3) Optional vision (screen caption) when a vision backend is available —
         # same Ollama-then-OpenAI-vision dispatcher Watch & React uses, so VRChat
         # gets the same fallback instead of being Ollama-only.
+        scene_changed = False
         if vision.vision_available(self.config):
             png = screen.capture_png()
             if png is not None:
                 text = vision.describe_image(
                     self.config, png,
                     "You are the eyes of an AI in VRChat. Describe the room/world, nearby "
-                    "players or avatars, menus, and anything interesting to walk toward. Be concise.",
+                    "players or avatars, menus, and anything interesting to walk toward. "
+                    "PRIORITIZE reading any chat bubble / speech bubble text floating above "
+                    "someone's head — quote it verbatim, and say whose head it's above. "
+                    "These bubbles vanish after a few seconds, so report them even if that's "
+                    "all you have time to describe. If what you see is just a 'typing...' "
+                    "indicator (dots, no actual words yet) rather than finished text, say so "
+                    "explicitly instead of guessing what they're typing. Be concise.",
                 )
                 if text:
                     raw["scene"] = text
-                    parts.append(f"I see: {text}")
-        elif not parts:
+                    # A changed reading (vs. last tick) means new chatbox text likely just
+                    # appeared — used to poll again sooner instead of waiting a full tick,
+                    # so a short-lived chat bubble isn't missed.
+                    scene_changed = self._last_scene_text is not None and text != self._last_scene_text
+                    self._last_scene_text = text
+                    freshness = " (just changed since my last look)" if scene_changed else ""
+                    parts.append(f"I see: {text}{freshness}")
+        raw["scene_changed"] = scene_changed
+        if not vision.vision_available(self.config) and not parts:
             parts.append(
                 "In VRChat (OSC control). No vision model set, so I can't see the world; "
                 "I can still walk, turn, run, jump, emote, and chat."
@@ -270,12 +285,22 @@ class VRChatDriver:
                 return {"ok": True, "message": f"strafed {args.get('direction', 'right')}"}
             if verb == "turn":
                 direction = 1.0 if str(args.get("direction", "right")).lower() == "right" else -1.0
-                self._timed_axis("/input/LookHorizontal", direction, args.get("seconds", 0.6))
+                # Capped well below _timed_axis's general 6s ceiling: this holds the
+                # look-axis at FULL deflection, so anything more than a fraction of a
+                # second at that speed swings the camera wildly past its target (a
+                # multi-second hold was spinning straight past a person's head into
+                # the sky/ground). Small, repeated corrections track a moving target
+                # far better than one long blind sweep.
+                seconds = max(0.05, min(0.5, float(args.get("seconds", 0.25))))
+                self._timed_axis("/input/LookHorizontal", direction, seconds)
                 return {"ok": True, "message": f"turned {args.get('direction', 'right')}"}
             if verb == "look":
-                # Look up/down briefly (e.g. to read a sign or see a face).
+                # Look up/down briefly (e.g. to read a sign or see a face). Same
+                # overshoot reasoning as "turn" above, tuned even tighter since
+                # vertical look drifts into sky/ground fastest.
                 direction = 1.0 if str(args.get("direction", "up")).lower() == "up" else -1.0
-                self._timed_axis("/input/LookVertical", direction, args.get("seconds", 0.4))
+                seconds = max(0.05, min(0.35, float(args.get("seconds", 0.2))))
+                self._timed_axis("/input/LookVertical", direction, seconds)
                 return {"ok": True, "message": f"looked {args.get('direction', 'up')}"}
             if verb == "run":
                 on = bool(args.get("value", not self._running_hold))
@@ -315,7 +340,19 @@ class VRChatDriver:
             "commands (no !mine/!searchForBlock/etc.) — they do nothing here. Move "
             "around, look, and chat naturally with people; greet people by name when "
             "you can see who's here. If you bump a wall or near a ledge, turn before "
-            "walking again. One action per turn."
+            "walking again. One action per turn.\n"
+            "Chat bubbles above someone's head vanish after only a few seconds — if "
+            "'I see' mentions one, that IS the most important thing happening right "
+            "now: read it and reply/react before anything else, especially if it's "
+            "marked '(just changed since my last look)' (a fresh message, not one "
+            "you've already reacted to) or if it's directed at you by name. But if "
+            "'I see' only reports a 'typing...' indicator (no finished words yet), "
+            "use 'wait' — do NOT reply or react until you actually see their finished "
+            "message text; replying to someone mid-typing means responding to nothing.\n"
+            "turn/look only nudge the view briefly per action, on purpose — to track "
+            "a person's head, use SEVERAL small turn/look actions one tick at a time "
+            "(checking what you see between each) rather than one big turn/look, "
+            "which will swing past them into the sky or floor."
         )
 
     def verbs_help(self) -> str:
@@ -323,8 +360,10 @@ class VRChatDriver:
             "Args go in args.\n"
             "walk{seconds?} = forward | back{seconds?} = step back | "
             "strafe{direction:'left'|'right',seconds?} = sidestep | "
-            "turn{direction:'left'|'right',seconds?} = turn | "
-            "look{direction:'up'|'down',seconds?} = tilt view | "
+            "turn{direction:'left'|'right',seconds? (0.05-0.5, default 0.25, small "
+            "nudge only)} = turn | "
+            "look{direction:'up'|'down',seconds? (0.05-0.35, default 0.2, small nudge "
+            "only)} = tilt view | "
             "run{value?bool} = toggle running | jump = jump | "
             "say{text} = talk in the chatbox | emote{param,value?} = avatar "
             "expression | wait = idle this turn."

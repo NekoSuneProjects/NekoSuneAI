@@ -18,6 +18,12 @@ from ..engine import GenerationRequest, detect_emotion, generate_reply
 from ..media_player import start_thinking_sound, stop_thinking_sound
 from .base import GameCommand, GameDriver
 
+# Wait this long (instead of the full tick interval) after a tick whose
+# observation flagged something time-sensitive (e.g. VRChat chat-bubble text
+# that just changed) — short-lived chat bubbles disappear well before a
+# typical multi-second tick_seconds would notice a follow-up message.
+_FAST_POLL_SECONDS = 1.5
+
 # Verbs that need a subject (item/block) in their args.
 _NAME_VERBS = {
     "mine", "collect", "gather", "bring", "store", "deposit", "find_in_chests",
@@ -306,12 +312,16 @@ class GameAgent:
         self.narrate(f"Alright, let's play. Goal: {self.goal}.", "happy")
 
         while not self._stop.is_set():
+            fast_poll = False
             try:
-                self._tick()
+                fast_poll = self._tick()
             except Exception as exc:
                 self.narrate(f"Something went wrong: {exc}", "anxious")
             # Wait for the next tick, but wake instantly on a new order / stop.
-            self._wake.wait(self.tick_seconds)
+            # After a time-sensitive observation (e.g. a chat bubble just changed),
+            # poll again sooner instead of waiting the full interval.
+            wait_seconds = min(self.tick_seconds, _FAST_POLL_SECONDS) if fast_poll else self.tick_seconds
+            self._wake.wait(wait_seconds)
             self._wake.clear()
 
         try:
@@ -320,16 +330,22 @@ class GameAgent:
             pass
         self.narrate("Okay, I'm done playing for now.", "neutral")
 
-    def _tick(self) -> None:
+    def _tick(self) -> bool:
+        """Runs one observe-decide-act cycle. Returns True when the driver's
+        observation flagged something time-sensitive (e.g. VRChat chat-bubble
+        text that just changed) — the caller polls again sooner instead of
+        waiting the full tick interval, so short-lived chat bubbles aren't
+        missed."""
         if self._stop.is_set():
-            return
+            return False
         obs = self.driver.observe()
         try:
             self.on_update(obs.raw)
         except Exception:
             pass
         if self._stop.is_set():
-            return
+            return False
+        fast_poll = bool(obs.raw.get("scene_changed"))
 
         # The system prompt (identity + mission + verbs + format) never changes
         # during a session, so build it ONCE and reuse it. This replaces the full
@@ -361,7 +377,7 @@ class GameAgent:
             stop_thinking_sound(thinking_timer)
 
         if self._stop.is_set():
-            return
+            return False
 
         # Prefer our JSON; if the model used Mindcraft !command syntax, translate it.
         command = _extract_command(result.reply) or _extract_mindcraft(result.reply)
@@ -402,3 +418,4 @@ class GameAgent:
         self._log.append({"role": "user", "content": f"Result: {outcome_text}"})
         if len(self._log) > 12:
             self._log = self._log[-12:]
+        return fast_poll

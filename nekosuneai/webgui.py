@@ -342,6 +342,21 @@ class Api:
             threading.Thread(target=self._auto_listen, daemon=True).start()
         return {"ok": True, "msg": "Session started."}
 
+    def end_session(self) -> dict[str, Any]:
+        if not self.session_started:
+            return {"ok": False, "msg": "No session running."}
+        if self.busy:
+            self._stop_event.set()
+            try:
+                import sounddevice as sd
+                sd.stop()
+            except Exception:
+                pass
+        self.session_started = False
+        self._push_state()
+        self._push_chat("System", "Session ended.", "system")
+        return {"ok": True, "msg": "Session ended."}
+
     def toggle_voice(self) -> dict[str, Any]:
         self.state.voice_enabled = not self.state.voice_enabled
         self._save_ui_pref("voice_enabled", self.state.voice_enabled)
