@@ -517,6 +517,69 @@ start_ollama_and_pull() {
 
 # ── Step 6: GPU ──────────────────────────────────────────────────────────────
 
+# Every CUDA build PyTorch currently publishes wheels for, newest first. A
+# driver reporting CUDA X can run any wheel built for CUDA <= X, so detection
+# picks the newest entry this driver still satisfies (version_ge, defined above).
+CUDA_BUILD_LABELS=(13.2 13.0 12.9 12.8 12.6 12.1 11.8)
+CUDA_BUILD_URLS=(
+    "https://download.pytorch.org/whl/cu132"
+    "https://download.pytorch.org/whl/cu130"
+    "https://download.pytorch.org/whl/cu129"
+    "https://download.pytorch.org/whl/cu128"
+    "https://download.pytorch.org/whl/cu126"
+    "https://download.pytorch.org/whl/cu121"
+    "https://download.pytorch.org/whl/cu118"
+)
+CUDA_BUILD_DESCS=(
+    "latest, newest GPUs and drivers"
+    "very recent, widely supported"
+    "recent, broad driver support"
+    "RTX 20/30/40/50 series, newest-ish drivers"
+    "stable, RTX 20/30/40 series"
+    "slightly older drivers"
+    "legacy, GTX 900/1000 series or old drivers"
+)
+
+# nvidia-smi ships with the driver (not the CUDA toolkit), so this detects any
+# NVIDIA GPU with a working driver, toolkit or not. Its banner prints a line
+# like "... Driver Version: 550.54.15   CUDA Version: 12.4 |". Echoes the
+# detected version and returns 0, or returns 1 if nothing could be detected.
+detect_cuda_version() {
+    has_cmd nvidia-smi || return 1
+    local output pattern
+    output=$(nvidia-smi 2>&1) || return 1
+    pattern="CUDA Version: ([0-9]+\.[0-9]+)"
+    if [[ "$output" =~ $pattern ]]; then
+        echo "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    return 1
+}
+
+# Echoes the array index of the newest CUDA_BUILD_* entry the detected driver
+# version ($1) still satisfies, or returns 1 if even the oldest is too new.
+select_cuda_build_index() {
+    local detected="$1" i
+    for i in "${!CUDA_BUILD_LABELS[@]}"; do
+        if version_ge "$detected" "${CUDA_BUILD_LABELS[$i]}"; then
+            echo "$i"
+            return 0
+        fi
+    done
+    return 1
+}
+
+install_cuda_torch() {
+    local url="$1" label="$2"
+    info "Installing CUDA $label PyTorch... (this downloads ~2 GB)"
+    local venv_python="$INSTALL_DIR/.venv/bin/python"
+    if "$venv_python" -m pip install --upgrade --index-url "$url" torch torchaudio torchcodec -q; then
+        ok "CUDA $label PyTorch installed. Voice synthesis will be much faster!"
+    else
+        warn "CUDA install had issues. CPU mode will still work fine."
+    fi
+}
+
 ask_gpu() {
     step "6/7" "GPU acceleration..."
 
@@ -532,8 +595,28 @@ ask_gpu() {
         return
     fi
 
+    local detected
+    if detected=$(detect_cuda_version); then
+        local idx
+        if idx=$(select_cuda_build_index "$detected"); then
+            ok "Detected an NVIDIA driver supporting CUDA $detected."
+            if ask_yes_no "Install CUDA ${CUDA_BUILD_LABELS[$idx]} PyTorch for faster voice synthesis? (~2 GB download)"; then
+                install_cuda_torch "${CUDA_BUILD_URLS[$idx]}" "${CUDA_BUILD_LABELS[$idx]}"
+            else
+                ok "Using CPU mode. You can add GPU support later."
+                info "To add GPU later, run:"
+                info "  $INSTALL_DIR/.venv/bin/python -m pip install --upgrade --index-url ${CUDA_BUILD_URLS[$idx]} torch torchaudio torchcodec"
+            fi
+            return
+        fi
+        warn "Detected CUDA $detected, older than any supported PyTorch build (oldest is 11.8) — using CPU-only mode."
+        return
+    fi
+
+    # nvidia-smi missing or gave nothing usable — fall back to asking manually
+    # (there might still be a GPU it couldn't see, or a specific version you want).
     local choice
-    choice=$(ask_choice "Do you have an NVIDIA GPU for faster voice synthesis?" \
+    choice=$(ask_choice "No NVIDIA driver detected. Do you have an NVIDIA GPU for faster voice synthesis?" \
         "Yes — install CUDA-accelerated PyTorch" \
         "No  — stick with CPU-only (works fine, just slower voice)" \
         "Skip — I'll decide later")
@@ -541,39 +624,23 @@ ask_gpu() {
     if [[ "$choice" == "1" ]]; then
         echo ""
         info "Pick the CUDA version that matches your GPU and driver."
-        info "Not sure? Choose CUDA 12.8 — it works with most modern GPUs."
+        info "Not sure? Choose CUDA ${CUDA_BUILD_LABELS[0]} — it works with most current GPUs/drivers."
         info "Older GPUs (GTX 900/1000 series) or old drivers may need 11.8."
         echo ""
 
+        local options=() i
+        for i in "${!CUDA_BUILD_LABELS[@]}"; do
+            options+=("CUDA ${CUDA_BUILD_LABELS[$i]}  — ${CUDA_BUILD_DESCS[$i]}")
+        done
         local cuda_choice
-        cuda_choice=$(ask_choice "Which CUDA version?" \
-            "CUDA 12.8  — latest, RTX 20/30/40/50 series, newest drivers" \
-            "CUDA 12.6  — stable, RTX 20/30/40 series" \
-            "CUDA 12.4  — safe bet for most modern GPUs" \
-            "CUDA 12.1  — slightly older drivers" \
-            "CUDA 11.8  — legacy, GTX 900/1000 series or old drivers")
-
-        local cuda_url cuda_label
-        case "$cuda_choice" in
-            1) cuda_url="https://download.pytorch.org/whl/cu128"; cuda_label="12.8" ;;
-            2) cuda_url="https://download.pytorch.org/whl/cu126"; cuda_label="12.6" ;;
-            3) cuda_url="https://download.pytorch.org/whl/cu124"; cuda_label="12.4" ;;
-            4) cuda_url="https://download.pytorch.org/whl/cu121"; cuda_label="12.1" ;;
-            5) cuda_url="https://download.pytorch.org/whl/cu118"; cuda_label="11.8" ;;
-        esac
-
-        info "Installing CUDA $cuda_label PyTorch... (this downloads ~2 GB)"
-        local venv_python="$INSTALL_DIR/.venv/bin/python"
-        if "$venv_python" -m pip install --upgrade --index-url "$cuda_url" torch torchaudio -q; then
-            ok "CUDA $cuda_label PyTorch installed. Voice synthesis will be much faster!"
-        else
-            warn "CUDA install had issues. CPU mode will still work fine."
-        fi
+        cuda_choice=$(ask_choice "Which CUDA version?" "${options[@]}")
+        local idx=$((cuda_choice - 1))
+        install_cuda_torch "${CUDA_BUILD_URLS[$idx]}" "${CUDA_BUILD_LABELS[$idx]}"
 
     elif [[ "$choice" == "2" ]]; then
         ok "Using CPU mode. You can add GPU support later."
         info "To add GPU later, run:"
-        info "  $INSTALL_DIR/.venv/bin/python -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu128 torch torchaudio"
+        info "  $INSTALL_DIR/.venv/bin/python -m pip install --upgrade --index-url ${CUDA_BUILD_URLS[0]} torch torchaudio torchcodec"
     else
         ok "Skipped. Default CPU mode works out of the box."
     fi

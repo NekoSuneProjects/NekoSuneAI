@@ -4,13 +4,13 @@ import argparse
 import os
 import subprocess
 import sys
-from pathlib import Path
 
 from dotenv import load_dotenv
 
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 from .cli import main as cli_main
+from .paths import ROOT_DIR
 from .updater import (
     apply_update,
     check_for_updates,
@@ -18,7 +18,6 @@ from .updater import (
     get_auto_update_install_enabled,
 )
 
-ROOT_DIR = Path(__file__).resolve().parent.parent
 SETUP_MARKER = ROOT_DIR / ".setup-complete"
 SETUP_PY = ROOT_DIR / "setup.py"
 
@@ -52,7 +51,12 @@ def ensure_setup() -> None:
 def restart_current_process() -> None:
     environment = os.environ.copy()
     environment["NEKOSUNEAI_SKIP_AUTO_UPDATE"] = "1"
-    command = [sys.executable, str(ROOT_DIR / "app.py"), *sys.argv[1:]]
+    if getattr(sys, "frozen", False):
+        # sys.executable IS the frozen app itself here — re-exec it directly,
+        # there's no separate app.py shipped alongside a packaged build.
+        command = [sys.executable, *sys.argv[1:]]
+    else:
+        command = [sys.executable, str(ROOT_DIR / "app.py"), *sys.argv[1:]]
     subprocess.Popen(command, cwd=str(ROOT_DIR), env=environment)
     raise SystemExit(0)
 

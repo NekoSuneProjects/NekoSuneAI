@@ -1,4 +1,4 @@
-﻿<#
+<#
 .SYNOPSIS
     NekoSuneAI one-line installer for Windows.
 
@@ -30,17 +30,17 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
 
 # A #Requires directive only works when this file is invoked directly as a
-# .ps1 — it errors out ("not recognized as the name of a cmdlet") under the
+# .ps1 - it errors out ("not recognized as the name of a cmdlet") under the
 # documented `irm ... | iex` one-liner, since iex parses the downloaded text
 # as a script block rather than a top-level script file. Check manually
 # instead so both invocation styles work.
 if ($PSVersionTable.PSVersion -lt [version]"5.1") {
     Write-Host "NekoSuneAI's installer needs PowerShell 5.1 or newer (found $($PSVersionTable.PSVersion))." -ForegroundColor Red
-    Write-Host "Windows 10/11 ships 5.1 by default — check for Windows Update, or install PowerShell 7: https://aka.ms/powershell" -ForegroundColor Yellow
+    Write-Host "Windows 10/11 ships 5.1 by default - check for Windows Update, or install PowerShell 7: https://aka.ms/powershell" -ForegroundColor Yellow
     exit 1
 }
 
-# ── Config ───────────────────────────────────────────────────────────────────
+# -- Config -------------------------------------------------------------------
 
 $REPO_URL     = "https://github.com/NekoSuneProjects/NekoSuneAI"
 $REPO_BRANCH  = "main"
@@ -49,7 +49,7 @@ $PYTHON_MIN   = [version]"3.10.0"
 $PYTHON_WINGET_ID = "Python.Python.3.11"
 $OLLAMA_WINGET_ID = "Ollama.Ollama"
 
-# ── Colors & helpers ─────────────────────────────────────────────────────────
+# -- Colors & helpers ---------------------------------------------------------
 
 function Write-Step  { param([string]$n, [string]$msg) Write-Host "  [$n] " -ForegroundColor Magenta -NoNewline; Write-Host $msg }
 function Write-Ok    { param([string]$msg) Write-Host "    [OK] " -ForegroundColor Green -NoNewline; Write-Host $msg }
@@ -178,7 +178,7 @@ function Configure-LLMEnv {
     Write-Ok "LLM provider configured."
 }
 
-# ── Banner ───────────────────────────────────────────────────────────────────
+# -- Banner -------------------------------------------------------------------
 
 function Show-Banner {
     Write-Host ""
@@ -199,14 +199,14 @@ function Show-Banner {
     Write-Host ""
 }
 
-# ── Step 1: Python ───────────────────────────────────────────────────────────
+# -- Step 1: Python -----------------------------------------------------------
 
 function Ensure-Python {
     Write-Step "1/7" "Checking for Python 3.10+..."
 
     # Prefer a Python the voice/ML stack ships wheels for (3.12 / 3.11 / 3.10) via
     # the py launcher first, so a box that ALSO has a brand-new 3.13/3.14 doesn't
-    # get picked — coqui-tts/numba/llvmlite/torch don't have wheels there yet and
+    # get picked - coqui-tts/numba/llvmlite/torch don't have wheels there yet and
     # pip would try (and fail) to build them from source.
     if (Has-Command "py") {
         foreach ($v in @("3.12", "3.11", "3.10")) {
@@ -254,22 +254,22 @@ function Ensure-Python {
     }
 }
 
-# ── Step 2: LLM Provider ────────────────────────────────────────────────────
+# -- Step 2: LLM Provider ----------------------------------------------------
 
 function Choose-LLMProvider {
     Write-Step "2/7" "Choose your LLM provider..."
     Write-Host ""
     Write-Host "         NekoSuneAI works with local and cloud LLMs." -ForegroundColor DarkGray
-    Write-Host "         Pick what works for you — you can always change it later in " -ForegroundColor DarkGray -NoNewline
+    Write-Host "         Pick what works for you - you can always change it later in " -ForegroundColor DarkGray -NoNewline
     Write-Host ".env" -ForegroundColor White
     Write-Host ""
 
     $choice = Ask-Choice "Which LLM provider do you want to use?" @(
-        "Ollama        — free, runs locally, no API key needed (recommended)",
-        "OpenAI        — GPT-4o, GPT-4, etc. (requires API key)",
-        "OpenRouter    — tons of models, one API key (requires API key)",
-        "LM Studio     — local OpenAI-compatible server (no API key)",
-        "Custom        — any OpenAI-compatible endpoint"
+        "Ollama        - free, runs locally, no API key needed (recommended)",
+        "OpenAI        - GPT-4o, GPT-4, etc. (requires API key)",
+        "OpenRouter    - tons of models, one API key (requires API key)",
+        "LM Studio     - local OpenAI-compatible server (no API key)",
+        "Custom        - any OpenAI-compatible endpoint"
     ) 0
 
     $result = @{
@@ -346,7 +346,7 @@ function Choose-LLMProvider {
     return $result
 }
 
-# ── Step 3: Ollama (only if needed) ─────────────────────────────────────────
+# -- Step 3: Ollama (only if needed) -----------------------------------------
 
 function Ensure-Ollama {
     param([bool]$Needed = $true)
@@ -397,7 +397,7 @@ function Ensure-Ollama {
     }
 }
 
-# ── Step 4: Clone / Download ────────────────────────────────────────────────
+# -- Step 4: Clone / Download ------------------------------------------------
 
 function Get-NekoSuneAI {
     Write-Step "4/7" "Downloading NekoSuneAI..."
@@ -431,7 +431,7 @@ function Get-NekoSuneAI {
             Write-Ok "Cloned to $INSTALL_DIR"
         }
     } else {
-        Write-Info "git not found — downloading as ZIP..."
+        Write-Info "git not found - downloading as ZIP..."
         $zipUrl  = "$REPO_URL/archive/refs/heads/$REPO_BRANCH.zip"
         $zipPath = "$env:TEMP\nekosuneai-download.zip"
         $extractPath = "$env:TEMP\nekosuneai-extract"
@@ -450,7 +450,7 @@ function Get-NekoSuneAI {
     }
 }
 
-# ── Step 5: Setup + configure .env ──────────────────────────────────────────
+# -- Step 5: Setup + configure .env ------------------------------------------
 
 function Run-Setup {
     param([string]$PythonCmd, [hashtable]$LLMConfig)
@@ -478,16 +478,16 @@ function Run-Setup {
     }
 }
 
-# ── Run mode (GUI vs CLI) ────────────────────────────────────────────────────
+# -- Run mode (GUI vs CLI) ----------------------------------------------------
 
 # Ask HOW NekoSuneAI should run. Drives the dependency profile and the shortcut:
-#   GUI → base + voice + desktop GUI   (profile: full)
-#   CLI → base + voice                 (profile: voice)
+#   GUI -> base + voice + desktop GUI   (profile: full)
+#   CLI -> base + voice                 (profile: voice)
 # Both always install requirements.txt + -voice.txt; GUI adds requirements-gui.txt.
 function Choose-RunMode {
     $choice = Ask-Choice "How do you want to run NekoSuneAI?" @(
-        "GUI  — native desktop window (recommended on Windows)",
-        "CLI  — terminal chat, no window needed (headless-friendly)"
+        "GUI  - native desktop window (recommended on Windows)",
+        "CLI  - terminal chat, no window needed (headless-friendly)"
     ) 0  # default to GUI on Windows
 
     if ($choice -eq 1) {
@@ -501,59 +501,106 @@ function Choose-RunMode {
     }
 }
 
-# ── Step 6: GPU ──────────────────────────────────────────────────────────────
+# -- Step 6: GPU --------------------------------------------------------------
+
+# Every CUDA build PyTorch currently publishes wheels for, newest first. A
+# driver reporting CUDA X can run any wheel built for CUDA <= X, so detection
+# picks the newest entry this driver still satisfies.
+$script:CudaBuilds = @(
+    @{ Label = "13.2"; Version = [version]"13.2"; Url = "https://download.pytorch.org/whl/cu132"; Desc = "latest, newest GPUs and drivers" },
+    @{ Label = "13.0"; Version = [version]"13.0"; Url = "https://download.pytorch.org/whl/cu130"; Desc = "very recent, widely supported" },
+    @{ Label = "12.9"; Version = [version]"12.9"; Url = "https://download.pytorch.org/whl/cu129"; Desc = "recent, broad driver support" },
+    @{ Label = "12.8"; Version = [version]"12.8"; Url = "https://download.pytorch.org/whl/cu128"; Desc = "RTX 20/30/40/50 series, newest-ish drivers" },
+    @{ Label = "12.6"; Version = [version]"12.6"; Url = "https://download.pytorch.org/whl/cu126"; Desc = "stable, RTX 20/30/40 series" },
+    @{ Label = "12.1"; Version = [version]"12.1"; Url = "https://download.pytorch.org/whl/cu121"; Desc = "slightly older drivers" },
+    @{ Label = "11.8"; Version = [version]"11.8"; Url = "https://download.pytorch.org/whl/cu118"; Desc = "legacy, GTX 900/1000 series or old drivers" }
+)
+
+function Get-DetectedCudaVersion {
+    # nvidia-smi ships with the driver (not the CUDA toolkit), so this detects
+    # any NVIDIA GPU with a working driver, toolkit or not. Its banner prints
+    # a line like "... Driver Version: 550.54.15   CUDA Version: 12.4 |".
+    if (-not (Has-Command "nvidia-smi")) { return $null }
+    try {
+        $output = & nvidia-smi 2>&1 | Out-String
+        if ($output -match "CUDA Version:\s*([\d.]+)") {
+            return [version]$Matches[1]
+        }
+    } catch { }
+    return $null
+}
+
+function Select-CudaBuild {
+    param([version]$DetectedVersion)
+    foreach ($build in $script:CudaBuilds) {
+        if ($DetectedVersion -ge $build.Version) { return $build }
+    }
+    return $null  # driver too old even for the oldest supported wheel (11.8)
+}
+
+function Install-CudaTorch {
+    param([string]$Url, [string]$Label)
+    Write-Info "Installing CUDA $Label PyTorch... (this downloads ~2 GB)"
+    $venvPython = "$INSTALL_DIR\.venv\Scripts\python.exe"
+    $pipExit = Invoke-Native "`"$venvPython`" -m pip install --upgrade --index-url $Url torch torchaudio torchcodec -q"
+    if ($pipExit -eq 0) {
+        Write-Ok "CUDA $Label PyTorch installed. Voice synthesis will be much faster!"
+    } else {
+        Write-Warn "CUDA install had issues. CPU mode will still work fine."
+    }
+}
 
 function Ask-GPU {
     Write-Step "6/7" "GPU acceleration..."
 
-    $choice = Ask-Choice "Do you have an NVIDIA GPU for faster voice synthesis?" @(
-        "Yes — install CUDA-accelerated PyTorch",
-        "No  — stick with CPU-only (works fine, just slower voice)",
-        "Skip — I'll decide later"
+    $detected = Get-DetectedCudaVersion
+    if ($detected) {
+        $build = Select-CudaBuild -DetectedVersion $detected
+        if ($build) {
+            Write-Ok "Detected an NVIDIA driver supporting CUDA $detected."
+            if (Ask-YesNo "Install CUDA $($build.Label) PyTorch for faster voice synthesis? (~2 GB download)") {
+                Install-CudaTorch -Url $build.Url -Label $build.Label
+            } else {
+                Write-Ok "Using CPU mode. You can add GPU support later."
+                Write-Info "To add GPU later, run:"
+                Write-Info "  $INSTALL_DIR\.venv\Scripts\python.exe -m pip install --upgrade --index-url $($build.Url) torch torchaudio torchcodec"
+            }
+        } else {
+            Write-Warn "Detected CUDA $detected, older than any supported PyTorch build (oldest is 11.8) - using CPU-only mode."
+        }
+        return
+    }
+
+    # nvidia-smi missing or gave nothing usable - fall back to asking manually
+    # (there might still be a GPU it couldn't see, or a specific version you want).
+    $choice = Ask-Choice "No NVIDIA driver detected. Do you have an NVIDIA GPU for faster voice synthesis?" @(
+        "Yes - install CUDA-accelerated PyTorch",
+        "No  - stick with CPU-only (works fine, just slower voice)",
+        "Skip - I'll decide later"
     ) 0  # default to Yes
 
     if ($choice -eq 0) {
         Write-Host ""
         Write-Info "Pick the CUDA version that matches your GPU and driver."
-        Write-Info "Not sure? Choose CUDA 12.8 — it works with most modern GPUs."
+        Write-Info "Not sure? Choose CUDA 13.2 - it works with most current GPUs/drivers."
         Write-Info "Older GPUs (GTX 900/1000 series) or old drivers may need 11.8."
         Write-Host ""
 
         $cudaChoice = Ask-Choice "Which CUDA version?" @(
-            "CUDA 12.8  — latest, RTX 20/30/40/50 series, newest drivers",
-            "CUDA 12.6  — stable, RTX 20/30/40 series",
-            "CUDA 12.4  — safe bet for most modern GPUs",
-            "CUDA 12.1  — slightly older drivers",
-            "CUDA 11.8  — legacy, GTX 900/1000 series or old drivers"
+            $script:CudaBuilds | ForEach-Object { "CUDA $($_.Label)  - $($_.Desc)" }
         ) 0
-
-        $cudaUrl = switch ($cudaChoice) {
-            0 { "https://download.pytorch.org/whl/cu128" }
-            1 { "https://download.pytorch.org/whl/cu126" }
-            2 { "https://download.pytorch.org/whl/cu124" }
-            3 { "https://download.pytorch.org/whl/cu121" }
-            4 { "https://download.pytorch.org/whl/cu118" }
-        }
-        $cudaLabel = @("12.8", "12.6", "12.4", "12.1", "11.8")[$cudaChoice]
-
-        Write-Info "Installing CUDA $cudaLabel PyTorch... (this downloads ~2 GB)"
-        $venvPython = "$INSTALL_DIR\.venv\Scripts\python.exe"
-        $pipExit = Invoke-Native "`"$venvPython`" -m pip install --upgrade --index-url $cudaUrl torch torchaudio torchcodec -q"
-        if ($pipExit -eq 0) {
-            Write-Ok "CUDA $cudaLabel PyTorch installed. Voice synthesis will be much faster!"
-        } else {
-            Write-Warn "CUDA install had issues. CPU mode will still work fine."
-        }
+        $build = $script:CudaBuilds[$cudaChoice]
+        Install-CudaTorch -Url $build.Url -Label $build.Label
     } elseif ($choice -eq 1) {
         Write-Ok "Using CPU mode. You can add GPU support later."
         Write-Info "To add GPU later, run:"
-        Write-Info "  $INSTALL_DIR\.venv\Scripts\python.exe -m pip install --upgrade --index-url https://download.pytorch.org/whl/cu128 torch torchaudio torchcodec"
+        Write-Info "  $INSTALL_DIR\.venv\Scripts\python.exe -m pip install --upgrade --index-url $($script:CudaBuilds[0].Url) torch torchaudio torchcodec"
     } else {
         Write-Ok "Skipped. Default CPU mode works out of the box."
     }
 }
 
-# ── Step 7: Launcher + shortcut (both GUI and CLI modes) ─────────────────────
+# -- Step 7: Launcher + shortcut (both GUI and CLI modes) ---------------------
 
 function Create-Launchers {
     $mode = if ($script:RunMode) { $script:RunMode } else { "gui" }
@@ -569,14 +616,14 @@ function Create-Launchers {
     if ($mode -eq "cli") {
         $batBody = @"
 @echo off
-REM Auto-generated by install.ps1 — starts NekoSuneAI in terminal (CLI) mode.
+REM Auto-generated by install.ps1 - starts NekoSuneAI in terminal (CLI) mode.
 cd /d "%~dp0"
 "%~dp0.venv\Scripts\python.exe" app.py %*
 "@
     } else {
         $batBody = @"
 @echo off
-REM Auto-generated by install.ps1 — starts NekoSuneAI in GUI mode.
+REM Auto-generated by install.ps1 - starts NekoSuneAI in GUI mode.
 cd /d "%~dp0"
 "%~dp0.venv\Scripts\pythonw.exe" app.py --gui %*
 "@
@@ -632,19 +679,19 @@ cd /d "%~dp0"
     }
 }
 
-# ── Finish ───────────────────────────────────────────────────────────────────
+# -- Finish -------------------------------------------------------------------
 
 function Show-Finish {
     param([hashtable]$LLMConfig)
 
     Write-Host ""
-    Write-Host "  ╔══════════════════════════════════════════════════════╗" -ForegroundColor Green
-    Write-Host "  ║                                                      ║" -ForegroundColor Green
-    Write-Host "  ║       " -ForegroundColor Green -NoNewline
+    Write-Host "  +======================================================+" -ForegroundColor Green
+    Write-Host "  |                                                      |" -ForegroundColor Green
+    Write-Host "  |       " -ForegroundColor Green -NoNewline
     Write-Host "NekoSuneAI is ready to go!" -ForegroundColor White -NoNewline
-    Write-Host "                  ║" -ForegroundColor Green
-    Write-Host "  ║                                                      ║" -ForegroundColor Green
-    Write-Host "  ╚══════════════════════════════════════════════════════╝" -ForegroundColor Green
+    Write-Host "                  |" -ForegroundColor Green
+    Write-Host "  |                                                      |" -ForegroundColor Green
+    Write-Host "  +======================================================+" -ForegroundColor Green
     Write-Host ""
     Write-Host "    Installed to: " -NoNewline -ForegroundColor DarkGray
     Write-Host $INSTALL_DIR -ForegroundColor White
@@ -679,7 +726,7 @@ function Show-Finish {
     Write-Host ""
 }
 
-# ── Ollama helpers (start + pull model) ──────────────────────────────────────
+# -- Ollama helpers (start + pull model) --------------------------------------
 
 function Start-OllamaAndPull {
     param([string]$OllamaExe, [string]$Model)
@@ -737,7 +784,7 @@ function Start-OllamaAndPull {
     }
 }
 
-# ── Fast update path (existing install) ─────────────────────────────────────
+# -- Fast update path (existing install) -------------------------------------
 
 function Get-ExistingRunMode {
     $modeFile = "$INSTALL_DIR\.nekosuneai-run-mode"
@@ -753,7 +800,7 @@ function Update-Existing {
 
     $venvPython = "$INSTALL_DIR\.venv\Scripts\python.exe"
     if (-not (Test-Path $venvPython)) {
-        Write-Warn "No virtual environment found — falling back to full setup."
+        Write-Warn "No virtual environment found - falling back to full setup."
         return $false
     }
 
@@ -763,13 +810,13 @@ function Update-Existing {
             Write-Info "Pulling latest changes..."
             $gitExit = Invoke-Native "git pull origin $REPO_BRANCH --ff-only"
             if ($gitExit -ne 0) {
-                Write-Warn "git pull failed (exit $gitExit) — you may have local changes."
+                Write-Warn "git pull failed (exit $gitExit) - you may have local changes."
                 Write-Warn "Resolve that manually (git status), or choose Full reinstall instead."
                 return $true
             }
             Write-Ok "Code updated via git pull."
         } else {
-            Write-Info "No git checkout here — re-downloading the latest ZIP..."
+            Write-Info "No git checkout here - re-downloading the latest ZIP..."
             $zipUrl  = "$REPO_URL/archive/refs/heads/$REPO_BRANCH.zip"
             $zipPath = "$env:TEMP\nekosuneai-download.zip"
             $extractPath = "$env:TEMP\nekosuneai-extract"
@@ -783,11 +830,11 @@ function Update-Existing {
             Write-Ok "Code updated via ZIP download."
         }
 
-        Write-Info "Refreshing Python packages (this reuses your existing .env — no questions asked)..."
+        Write-Info "Refreshing Python packages (this reuses your existing .env - no questions asked)..."
         $setupExit = Invoke-Native "`"$venvPython`" setup.py --setup --upgrade"
         if ($setupExit -ne 0) {
             Write-Warn "Package refresh had issues (exit $setupExit). See the output above."
-            Write-Warn "NekoSuneAI may still run — optional features (voice/GUI) might be affected."
+            Write-Warn "NekoSuneAI may still run - optional features (voice/GUI) might be affected."
         } else {
             Write-Ok "Packages refreshed."
         }
@@ -824,31 +871,31 @@ function Launch-Existing {
     Pop-Location
 }
 
-# ── Main ─────────────────────────────────────────────────────────────────────
+# -- Main ---------------------------------------------------------------------
 
 function Main {
     Show-Banner
 
     # Detect an existing install by the presence of the code itself, not a
-    # successful-completion marker — a first attempt that crashed mid-setup
+    # successful-completion marker - a first attempt that crashed mid-setup
     # (e.g. a pip conflict) still leaves setup.py/the venv there, and re-running
     # the whole wizard on top of that is exactly what this menu exists to avoid.
     if (Test-Path "$INSTALL_DIR\setup.py") {
         $choice = Ask-Choice "NekoSuneAI is already installed at $INSTALL_DIR. What do you want to do?" @(
-            "Update      — pull the latest code and refresh packages (recommended, fast)",
-            "Reinstall   — redo the whole setup wizard from scratch",
-            "Just launch — don't change anything"
+            "Update      - pull the latest code and refresh packages (recommended, fast)",
+            "Reinstall   - redo the whole setup wizard from scratch",
+            "Just launch - don't change anything"
         ) 0
         if ($choice -eq 0) {
             if (Update-Existing) { return }
-            # Update-Existing returned false only when there's no venv to update —
+            # Update-Existing returned false only when there's no venv to update -
             # fall through to the full wizard below in that case.
         } elseif ($choice -eq 2) {
             if (Test-Path "$INSTALL_DIR\.venv\Scripts\python.exe") {
                 Launch-Existing
                 return
             }
-            Write-Warn "No virtual environment found yet — running full setup instead."
+            Write-Warn "No virtual environment found yet - running full setup instead."
         }
         Write-Host ""
     }
@@ -859,7 +906,7 @@ function Main {
     # Step 2: Choose LLM provider
     $llmConfig = Choose-LLMProvider
 
-    # Run mode (GUI vs CLI) — drives deps + launcher.
+    # Run mode (GUI vs CLI) - drives deps + launcher.
     Choose-RunMode
 
     # Step 3: Ollama (only if chosen)
@@ -899,7 +946,7 @@ function Main {
     }
 }
 
-# ── Run ──────────────────────────────────────────────────────────────────────
+# -- Run ----------------------------------------------------------------------
 
 try {
     Main

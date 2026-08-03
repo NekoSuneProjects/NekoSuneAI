@@ -5,6 +5,34 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.1.9] - Unreleased
+
+### Fixed
+- `install.ps1` contained em-dashes, arrows, and box-drawing characters (in
+  comments AND in actual banner/menu string literals). PowerShell 5.1's
+  `Invoke-RestMethod` doesn't reliably auto-detect UTF-8 from HTTP responses,
+  so fetching the script via the documented `irm ... | iex` one-liner could
+  silently mangle those multi-byte sequences, corrupting the token stream and
+  producing cascading parse errors ("Missing '(' after 'If'", etc.) that had
+  nothing to do with the actual line they pointed at. Scrubbed the whole file
+  to plain ASCII, which eliminates this bug class regardless of terminal/
+  encoding configuration on the machine running the installer.
+
+### Added
+- `install.ps1`/`install.sh` now auto-detect the installed NVIDIA driver's
+  supported CUDA version (via `nvidia-smi`) and auto-select the newest
+  compatible PyTorch build, instead of always asking. Falls back to the
+  previous manual picker if no driver is detected. The manual picker's CUDA
+  list is refreshed (added 13.2/13.0/12.9, dropped the now-ancient 12.4) to
+  match what's actually published at download.pytorch.org today.
+- Prep work for the upcoming packaged installers (Windows `.exe`, Linux
+  `.deb`/`.rpm`/`.apk`): `nekosuneai/paths.py` and `nekosuneai/launcher.py`
+  now handle running from a PyInstaller-frozen build correctly (`ROOT_DIR`
+  resolving to the exe's own directory instead of PyInstaller's internal
+  extraction dir, and the self-restart-after-update path no longer assuming
+  a separate `app.py` exists next to the exe). No behavior change for normal
+  source-checkout runs.
+
 ## [1.1.8] - Unreleased
 
 ### Added
@@ -189,6 +217,7 @@ First release under the NekoSuneAI name — a focused rebrand of the project
 - The headless browser web UI (`--web`) and Docker support, which existed to
   serve it.
 
+[1.1.9]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.9
 [1.1.8]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.8
 [1.1.7]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.7
 [1.1.6]: https://github.com/NekoSuneProjects/NekoSuneAI/releases/tag/v1.1.6
