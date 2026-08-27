@@ -45,7 +45,7 @@ def _save(items: list[Monitor]) -> None:
 
 def parse_monitor_request(text: str) -> tuple[str, Any] | None:
     lowered = text.lower().strip()
-    if re.search(r"\b(?:stop|cancel|delete|remove)\s+(?:all\s+)?(?:monitoring|monitors|tracking|scheduled tasks?|updates?)\b", lowered):
+    if re.search(r"\b(?:stop|cancel|delete|remove|clear|purge)\s+(?:all\s+)?(?:monitoring|monitors|tracking|scheduled (?:tasks?|monitors?|updates?)|updates?)\b", lowered):
         return "stop_all", None
     match = re.search(r"\b(?:stop|cancel|delete|remove)\s+(?:monitor|task)\s+([\w-]+)", lowered)
     if match:
@@ -107,6 +107,28 @@ def _summary(monitor: Monitor, result: dict[str, Any]) -> str:
     emergency = _emergency_summary(monitor, payload)
     if emergency:
         return emergency
+    content = payload.get("content") if isinstance(payload, dict) else None
+    if isinstance(content, list):
+        text = next((str(item.get("text", "")) for item in content if isinstance(item, dict) and item.get("type") == "text"), "")
+        if text:
+            try:
+                payload = json.loads(text)
+            except ValueError:
+                return f"Scheduled update [{monitor.id}] {monitor.name}: {text[:1800]}"
+    if monitor.tool in {"aircraft_nearby", "military_aircraft_nearby"} and isinstance(payload, dict):
+        aircraft = payload.get("aircraft") if isinstance(payload.get("aircraft"), list) else []
+        location = payload.get("reference") or payload.get("location") or {}
+        place = (location.get("displayName") or location.get("name") or "your saved area") if isinstance(location, dict) else str(location or "your saved area")
+        count = int(payload.get("count", len(aircraft)) or 0)
+        if not aircraft:
+            return f"Scheduled aircraft update [{monitor.id}] for {place}: no aircraft were detected in the selected area."
+        details = []
+        for plane in aircraft[:3]:
+            identity = plane.get("callsign") or plane.get("registration") or plane.get("aircraftType") or "unidentified aircraft"
+            distance = plane.get("distanceNm")
+            movement = plane.get("movement") or plane.get("flightPhase") or ""
+            details.append(f"{identity}{f', {float(distance):.1f} nautical miles away' if isinstance(distance, (int, float)) else ''}{f', {movement}' if movement else ''}")
+        return f"Scheduled aircraft update [{monitor.id}] for {place}: {count} aircraft detected. " + ". ".join(details) + "."
     compact = json.dumps(payload, ensure_ascii=False, default=str)
     if len(compact) > 1800:
         compact = compact[:1800] + "…"
@@ -136,9 +158,8 @@ class MonitorManager:
                 items.append(value); _save(items)
                 return f"Scheduled monitor {value.id}: {value.name}, every {value.interval_seconds // 60 or 1} minute(s). I'll keep posting updates until you stop it."
             if action == "stop_all":
-                count = sum(1 for item in items if item.active)
-                for item in items: item.active = False
-                _save(items); return f"Stopped {count} active scheduled monitor(s)."
+                count = len(items)
+                _save([]); return f"Removed all {count} scheduled monitor(s)."
             if action == "stop":
                 found = next((item for item in items if item.id == value), None)
                 if not found: return f"I couldn't find monitor {value}."
@@ -146,6 +167,25 @@ class MonitorManager:
             active = [item for item in items if item.active]
             if not active: return "There are no active scheduled monitors."
             return "Active scheduled monitors:\n" + "\n".join(f"- {x.id}: {x.name}, every {x.interval_seconds}s" for x in active)
+
+    def list_all(self) -> list[dict[str, Any]]:
+        with self._lock:
+            return [asdict(item) for item in _load()]
+
+    def remove(self, monitor_id: str) -> bool:
+        with self._lock:
+            items = _load()
+            kept = [item for item in items if item.id != str(monitor_id)]
+            if len(kept) == len(items):
+                return False
+            _save(kept)
+            return True
+
+    def clear(self) -> int:
+        with self._lock:
+            items = _load()
+            _save([])
+            return len(items)
 
     def _loop(self) -> None:
         while not self._stop.wait(2):

@@ -192,6 +192,7 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "mcp_servers_json", "label": "MCP servers (JSON; supports API key or OAuth)", "type": "text"},
             {"key": "mcp_timeout_seconds", "label": "MCP timeout (sec)", "type": "float"},
             {"key": "bridge_ws_url", "label": "NekoAI Bridge voice WebSocket URL", "type": "text"},
+            {"key": "bridge_auth_token", "label": "Bridge voice bearer token (nai_...)", "type": "password"},
             {"key": "bridge_user_id", "label": "Bridge quota/user ID", "type": "text"},
             {"key": "bridge_tts_voice", "label": "Remote voice (Edge example: en-GB-SoniaNeural)", "type": "text"},
             {"key": "bridge_tts_engine", "label": "Remote TTS engine", "type": "select", "options": ["edge-stream", "piper"]},
@@ -199,6 +200,7 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "warning_sound_path", "label": "Warning sound file", "type": "text"},
             {"key": "danger_sound_path", "label": "Danger sound file", "type": "text"},
             {"key": "emergency_broadcast_tts", "label": "Read government emergency broadcasts aloud", "type": "bool"},
+            {"key": "monitor_tts_enabled", "label": "Read scheduled monitor updates aloud", "type": "bool"},
         ],
     },
     "home": {
@@ -433,18 +435,20 @@ class Api:
         """Deliver background monitor updates into chat and the toast layer."""
         self._push_chat("Monitor", msg, "system")
         self._push_notification(msg)
-        if level != "none" and self.config:
+        if not self.config:
+            return
+        if level != "none":
             try:
                 play_alert_sound(level, self.config)
             except Exception:
                 pass
-            if self.config.emergency_broadcast_tts and msg.startswith("Government emergency broadcast"):
-                # Run synthesis after the alarm cue on the monitor thread. The
-                # selected TTS may be local or the remote NekoAI Bridge.
-                try:
-                    self._speak(msg, "scared" if level == "danger" else "serious")
-                except Exception:
-                    pass
+        should_speak = self.config.monitor_tts_enabled or (
+            self.config.emergency_broadcast_tts and msg.startswith("Government emergency broadcast")
+        )
+        if should_speak:
+            # Run synthesis after any alarm cue on the monitor thread. Ordinary
+            # aircraft and weather updates are spoken too when monitor TTS is on.
+            self._speak(msg, "scared" if level == "danger" else "serious")
 
     # ── state ─────────────────────────────────────────────────────────────────
 
@@ -897,16 +901,51 @@ class Api:
         except Exception as exc:
             return {"ok": False, "msg": str(exc)}
 
+    def clear_all_memories(self) -> dict[str, Any]:
+        if not self.memory:
+            return {"ok": False, "msg": "Memory not ready."}
+        count = self.memory.wipe(self.active_profile_id)
+        return {"ok": True, "msg": f"Deleted {count} memories for this profile.", "count": count}
+
+    def get_scheduled_monitors(self) -> list[dict[str, Any]]:
+        return self.monitor_manager.list_all() if self.monitor_manager else []
+
+    def remove_scheduled_monitor(self, monitor_id: str) -> dict[str, Any]:
+        if not self.monitor_manager:
+            return {"ok": False, "msg": "Monitor manager is not ready."}
+        removed = self.monitor_manager.remove(monitor_id)
+        return {"ok": removed, "msg": f"Removed monitor {monitor_id}." if removed else f"Monitor {monitor_id} was not found."}
+
+    def clear_scheduled_monitors(self) -> dict[str, Any]:
+        if not self.monitor_manager:
+            return {"ok": False, "msg": "Monitor manager is not ready."}
+        count = self.monitor_manager.clear()
+        return {"ok": True, "msg": f"Removed all {count} scheduled monitor(s).", "count": count}
+
     # ── voice output ────────────────────────────────────────────────────────────
 
-    def _speak(self, text: str, emotion: str = "neutral") -> None:
+    def _speak(self, text: str, emotion: str = "neutral") -> bool:
         """Speak text via TTS."""
         try:
             audio_path = speak_text(text, self.config, self.state)
             if should_play_audio_after_synthesis(self.config) and not self._stopped():
                 play_audio_file(audio_path, self.config.speaker_device_index)
-        except Exception:
-            pass
+            return True
+        except Exception as exc:
+            self._push_status(f"TTS error: {exc}")
+            self._push_notification(f"TTS error: {exc}")
+            return False
+
+    def test_tts_output(self) -> dict[str, Any]:
+        if (err := self._not_ready()):
+            return err
+        if not self._acquire():
+            return {"ok": False, "msg": "NekoSuneAI is busy. Try the audio test again in a moment."}
+        try:
+            ok = self._speak("NekoSuneAI audio test. Your Alexa speaker output is connected.", "happy")
+            return {"ok": ok, "msg": "TTS test sent to the selected output." if ok else "TTS test failed. See the status message for the exact error."}
+        finally:
+            self._release()
 
     # ── game agent ────────────────────────────────────────────────────────────
 

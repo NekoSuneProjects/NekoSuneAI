@@ -26,6 +26,21 @@ class MonitorParsingTests(unittest.TestCase):
     def test_stops_all(self):
         self.assertEqual(parse_monitor_request("stop all scheduled tasks"), ("stop_all", None))
 
+    def test_clear_monitor_phrases(self):
+        self.assertEqual(parse_monitor_request("Stop all monitors"), ("stop_all", None))
+        self.assertEqual(parse_monitor_request("Clear all scheduled monitors"), ("stop_all", None))
+
+    def test_summarizes_bridge_aircraft_without_reading_raw_json(self):
+        monitor = Monitor("plane1", "aircraft — North Shields", "aircraft_nearby", {}, 300)
+        payload = {
+            "content": [{"type": "text", "text": '{"reference":{"displayName":"North Shields"},"count":1,"aircraft":[{"callsign":"SHT12U","distanceNm":8.3,"movement":"passing"}]}'}]
+        }
+        spoken = _summary(monitor, payload)
+        self.assertIn("North Shields", spoken)
+        self.assertIn("1 aircraft detected", spoken)
+        self.assertIn("SHT12U", spoken)
+        self.assertNotIn('"aircraft"', spoken)
+
     def test_cleans_government_alert_for_tts(self):
         monitor = Monitor("alert1", "UK alerts", "emergency_alerts", {"region":"GB"}, 300)
         spoken = _summary(monitor, {"structuredContent":{"alerts":[{"headline":"Flood warning", "severity":"Severe", "instruction":"Move to higher ground."}]}})

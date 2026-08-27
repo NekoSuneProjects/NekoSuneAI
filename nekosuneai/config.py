@@ -351,9 +351,11 @@ class Config:
     warning_sound_path: str | None
     danger_sound_path: str | None
     bridge_ws_url: str | None
+    bridge_auth_token: str | None
     bridge_user_id: str
     bridge_tts_voice: str | None
     emergency_broadcast_tts: bool
+    monitor_tts_enabled: bool
     bridge_tts_engine: str
     bridge_tts_rate: str
     wake_word_enabled: bool
@@ -684,9 +686,11 @@ class Config:
             warning_sound_path=parse_optional_str_env("WARNING_SOUND_PATH"),
             danger_sound_path=parse_optional_str_env("DANGER_SOUND_PATH"),
             bridge_ws_url=parse_optional_str_env("BRIDGE_WS_URL"),
+            bridge_auth_token=parse_optional_str_env("BRIDGE_AUTH_TOKEN"),
             bridge_user_id=os.getenv("BRIDGE_USER_ID", "nekosuneai").strip() or "nekosuneai",
             bridge_tts_voice=parse_optional_str_env("BRIDGE_TTS_VOICE"),
             emergency_broadcast_tts=parse_bool_env("EMERGENCY_BROADCAST_TTS", True),
+            monitor_tts_enabled=parse_bool_env("MONITOR_TTS_ENABLED", True),
             bridge_tts_engine=os.getenv("BRIDGE_TTS_ENGINE", "edge-stream").strip().lower() or "edge-stream",
             bridge_tts_rate=os.getenv("BRIDGE_TTS_RATE", "+10%").strip() or "+10%",
             wake_word_enabled=parse_bool_env("WAKE_WORD_ENABLED", False),

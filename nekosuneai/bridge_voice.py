@@ -15,10 +15,15 @@ from .paths import AUDIO_DIR
 
 
 def _bridge_token(config: Config) -> str:
+    if config.bridge_auth_token:
+        return config.bridge_auth_token
     for server in load_servers(config):
         if server.bearer_token:
             return server.bearer_token
-    raise RuntimeError("Remote voice needs bearer_token in an MCP server entry.")
+    raise RuntimeError(
+        "Remote Bridge voice needs BRIDGE_AUTH_TOKEN (your nai_ Bridge User token). "
+        "OAuth only authenticates the MCP tools."
+    )
 
 
 def _request(config: Config, payload: dict[str, Any], on_audio=None) -> dict[str, Any]:

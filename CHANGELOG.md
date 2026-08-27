@@ -20,6 +20,8 @@
   registration, PKCE-S256, consent callback, and persistent rotating tokens.
 - Show the Bridge's OAuth error description for discovery, registration and
   token-exchange failures instead of an opaque HTTP exception.
+- Add a Scheduled Monitors dashboard page with individual/remove-all controls,
+  a clear-all RAG memory button, reliable clear commands, and monitor TTS.
 
 All notable changes to **NekoSuneAI** are documented here.
 
