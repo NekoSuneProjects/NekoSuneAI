@@ -577,6 +577,8 @@ class Api:
             return {"ok": False, "msg": "Microphone is muted."}
         if not self._acquire():
             return {"ok": False, "msg": "System is busy."}
+        if self.wake_word:
+            self.wake_word.pause()
         try:
             self._push_status("Listening...")
             self._push_state()
@@ -602,6 +604,8 @@ class Api:
             self._push_status(msg)
             return {"ok": False, "msg": msg}
         finally:
+            if self.wake_word:
+                self.wake_word.resume()
             self._release()
             # Re-arm hands-free listening no matter how the turn ended — normal
             # reply, early-handled request, timeout, or a backend error. Without
@@ -1708,6 +1712,8 @@ class Api:
         if (err := self._not_ready()): return err
         if not self._acquire():
             return {"ok": False, "msg": "System is busy."}
+        if self.wake_word:
+            self.wake_word.pause()
         try:
             self._push_status("Calibrating microphone...")
             self.state.speech_recognizer = None
@@ -1720,6 +1726,8 @@ class Api:
             self._push_status(f"Calibration failed: {exc}")
             return {"ok": False, "msg": str(exc)}
         finally:
+            if self.wake_word:
+                self.wake_word.resume()
             self._release()
 
     def get_performance_info(self) -> list[str]:

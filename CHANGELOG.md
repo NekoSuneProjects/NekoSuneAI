@@ -12,6 +12,10 @@
   intercept clicks, keep its full button styling, and surface backend errors.
 - Pin NumPy to the 1.x ABI used by Raspberry Pi wake-word native modules and
   verify that ABI during the Docker build.
+- Open Kinect 360 as a four-channel microphone array and down-mix the selected
+  channel to mono for wake-word detection and speech recognition.
+- Temporarily release exclusive ALSA microphones while manual/hands-free STT or
+  calibration is active, then re-arm wake-word listening automatically.
 
 All notable changes to **NekoSuneAI** are documented here.
 

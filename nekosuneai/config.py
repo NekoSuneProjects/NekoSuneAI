@@ -298,6 +298,8 @@ class Config:
     speaker_device_index: int | None
     mic_sample_rate: int | None
     mic_chunk_size: int
+    mic_input_channels: int
+    mic_channel_index: int
     # RAG memory
     rag_enabled: bool
     rag_embedding_provider: str
@@ -637,6 +639,8 @@ class Config:
             speaker_device_index=parse_optional_int_env("SPEAKER_DEVICE_INDEX"),
             mic_sample_rate=parse_optional_int_env("MIC_SAMPLE_RATE"),
             mic_chunk_size=mic_chunk_size,
+            mic_input_channels=max(0, int(os.getenv("MIC_INPUT_CHANNELS", "0"))),
+            mic_channel_index=max(0, int(os.getenv("MIC_CHANNEL_INDEX", "0"))),
             rag_enabled=parse_bool_env("RAG_ENABLED", True),
             rag_embedding_provider=normalize_rag_embedding_provider(
                 os.getenv("RAG_EMBEDDING_PROVIDER", "local")

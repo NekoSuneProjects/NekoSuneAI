@@ -51,6 +51,15 @@ PipeWire/PulseAudio or select its ALSA entry in the dashboard. If neither
 command lists it, check the Kinect power/USB adapter and host driver before
 restarting the container.
 
+Kinect 360 normally exposes four capture channels. NekoSuneAI auto-detects
+that layout and sends channel 0 to wake-word/STT. To set it explicitly:
+
+```env
+MIC_SAMPLE_RATE=16000
+MIC_INPUT_CHANNELS=4
+MIC_CHANNEL_INDEX=0
+```
+
 Use `MIC_DEVICE_INDEX` after checking NekoSuneAI's audio-device list. The
 Compose file passes `/dev/snd` and `/dev/bus/usb` through. Kinect 360 is a
 libfreenect device; do not install libfreenect2, which is for Kinect v2.

@@ -47,12 +47,22 @@ def _require_audio() -> None:
 
 
 class SoundDeviceStream:
-    def __init__(self, raw_stream: sd.RawInputStream):
+    def __init__(self, raw_stream: sd.RawInputStream, channels: int = 1, channel_index: int = 0):
         self.raw_stream = raw_stream
+        self.channels = channels
+        self.channel_index = channel_index
 
     def read(self, size: int) -> bytes:
         data, _overflowed = self.raw_stream.read(size)
-        return bytes(data)
+        raw = bytes(data)
+        if self.channels <= 1:
+            return raw
+        samples = np.frombuffer(raw, dtype=np.int16)
+        usable = samples.size - (samples.size % self.channels)
+        if usable <= 0:
+            return b""
+        mono = samples[:usable].reshape(-1, self.channels)[:, self.channel_index]
+        return np.ascontiguousarray(mono).tobytes()
 
     def close(self) -> None:
         try:
@@ -74,6 +84,8 @@ class SoundDeviceMicrophone(_AudioSourceBase):
         device_index: int | None = None,
         sample_rate: int | None = None,
         chunk_size: int = 1024,
+        input_channels: int = 0,
+        channel_index: int = 0,
     ):
         _require_audio()
         assert device_index is None or isinstance(device_index, int)
@@ -86,6 +98,10 @@ class SoundDeviceMicrophone(_AudioSourceBase):
         self.device_index = device_info["index"]
         self.device_name = device_info["name"]
         default_sample_rate = device_info["default_sample_rate"]
+        max_input_channels = device_info["max_input_channels"]
+        auto_channels = 4 if "kinect" in self.device_name.lower() and max_input_channels >= 4 else 1
+        self.input_channels = max(1, min(input_channels or auto_channels, max_input_channels))
+        self.channel_index = max(0, min(channel_index, self.input_channels - 1))
 
         self.SAMPLE_WIDTH = 2
         self.SAMPLE_RATE = sample_rate or default_sample_rate
@@ -100,7 +116,7 @@ class SoundDeviceMicrophone(_AudioSourceBase):
                 samplerate=self.SAMPLE_RATE,
                 blocksize=self.CHUNK,
                 device=self.device_index,
-                channels=1,
+                channels=self.input_channels,
                 dtype="int16",
             )
             self._raw_stream.start()
@@ -109,7 +125,9 @@ class SoundDeviceMicrophone(_AudioSourceBase):
                 f"Could not open microphone '{self.device_name}'. {exc}"
             ) from exc
 
-        self.stream = SoundDeviceStream(self._raw_stream)
+        self.stream = SoundDeviceStream(
+            self._raw_stream, self.input_channels, self.channel_index
+        )
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> None:
@@ -207,6 +225,7 @@ def resolve_input_device_info(device_index: int | None) -> dict[str, Any]:
         "index": resolved_index,
         "name": normalize_audio_device_name(device_name),
         "default_sample_rate": int(default_sample_rate),
+        "max_input_channels": max(1, int(device.get("max_input_channels", 1))),
     }
 
 
@@ -322,6 +341,8 @@ def get_speech_recognizer_signature(config: Config) -> tuple[Any, ...]:
         config.mic_device_index,
         config.mic_sample_rate,
         config.mic_chunk_size,
+        config.mic_input_channels,
+        config.mic_channel_index,
         config.stt_energy_threshold,
         config.stt_dynamic_energy_threshold,
         config.stt_pause_threshold_seconds,
@@ -414,6 +435,8 @@ def recalibrate_microphone(
         device_index=config.mic_device_index,
         sample_rate=config.mic_sample_rate,
         chunk_size=config.mic_chunk_size,
+        input_channels=config.mic_input_channels,
+        channel_index=config.mic_channel_index,
     ) as source:
         recognizer.adjust_for_ambient_noise(
             source, duration=config.stt_ambient_duration_seconds
@@ -516,6 +539,8 @@ def recognize_speech(
         device_index=config.mic_device_index,
         sample_rate=config.mic_sample_rate,
         chunk_size=config.mic_chunk_size,
+        input_channels=config.mic_input_channels,
+        channel_index=config.mic_channel_index,
     ) as source:
         try:
             audio = recognizer.listen(
