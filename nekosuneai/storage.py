@@ -129,6 +129,10 @@ def clone_default_profile() -> dict[str, Any]:
 def ensure_runtime_dirs() -> None:
     DATA_DIR.mkdir(exist_ok=True)
     AUDIO_DIR.mkdir(exist_ok=True)
+    # Docker's /app/audio bind mount hides image-layer files, so create the
+    # defaults in the mounted directory at runtime on first launch.
+    from .alert_sounds import ensure_default_alert_sounds
+    ensure_default_alert_sounds(AUDIO_DIR)
 
 
 # ── Store operations (SQLite-backed) ─────────────────────────────────────

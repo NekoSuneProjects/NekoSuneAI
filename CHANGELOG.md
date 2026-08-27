@@ -26,6 +26,8 @@
   route explicit military-aircraft requests to the military-only tracker.
 - Raise spoken warning alerts when rain is forecast within 15 minutes or when
   the forecast reports an elevated lightning risk.
+- Automatically generate bundled warning and danger WAV sounds in Docker's
+  mounted audio directory on first launch without external downloads.
 
 All notable changes to **NekoSuneAI** are documented here.
 
