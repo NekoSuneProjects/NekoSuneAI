@@ -8,7 +8,8 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN python -m pip install --upgrade pip && python -m pip install -r requirements.txt
 COPY requirements-wakeword.txt ./
-RUN python -m pip install -r requirements-wakeword.txt
+RUN python -m pip install -r requirements-wakeword.txt \
+    && python -c "import openwakeword.utils; openwakeword.utils.download_models(model_names=['hey_jarvis'])"
 COPY . .
 RUN mkdir -p /app/data /app/audio && touch /app/.setup-complete
 VOLUME ["/app/data", "/app/audio"]

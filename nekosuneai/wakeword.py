@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from pathlib import Path
 from typing import Callable
 
 import numpy as np
@@ -25,8 +26,16 @@ class WakeWordListener:
     def _run(self) -> None:
         try:
             import sounddevice as sd
+            import openwakeword.utils
             from openwakeword.model import Model
-            model = Model(wakeword_models=[self.config.wake_word_model])
+
+            model_name = self.config.wake_word_model
+            # The PyPI package intentionally does not include pretrained model
+            # files. Download official named models once before loading them.
+            # Explicit file paths are left alone for custom "Hey Neko" models.
+            if not Path(model_name).expanduser().is_file():
+                openwakeword.utils.download_models(model_names=[model_name])
+            model = Model(wakeword_models=[model_name])
             while not self.stop_event.is_set():
                 triggered = False
                 with sd.InputStream(samplerate=16000, channels=1, dtype="int16",

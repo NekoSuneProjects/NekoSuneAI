@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.1 wake-word image fix
+
+- Preload the official `hey_jarvis` model in Docker images and automatically
+  fetch missing official wake-word models at runtime.
+
 All notable changes to **NekoSuneAI** are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
