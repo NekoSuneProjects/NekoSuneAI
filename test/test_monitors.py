@@ -1,6 +1,6 @@
 import unittest
 
-from nekosuneai.monitors import Monitor, _summary, parse_monitor_request
+from nekosuneai.monitors import Monitor, _summary, _weather_alert_level, parse_monitor_request
 
 
 class MonitorParsingTests(unittest.TestCase):
@@ -48,6 +48,23 @@ class MonitorParsingTests(unittest.TestCase):
         spoken = _summary(monitor, {"reference": {"name": "saved area"}, "count": 0, "aircraft": []})
         self.assertIn("military aircraft update", spoken)
         self.assertIn("none were detected", spoken)
+
+    def test_warns_when_rain_is_due_within_fifteen_minutes(self):
+        monitor = Monitor("rain1", "weather — saved area", "weather_now", {}, 300)
+        payload = {
+            "location": {"name": "North Shields", "latitude": 55.01, "longitude": -1.44},
+            "current": {"temperatureC": 12, "windSpeedKmh": 18},
+            "rain": {"currentlyWet": False, "rainEtaMinutes": 15},
+            "lightning": {"risk": "low"},
+        }
+        spoken = _summary(monitor, payload)
+        self.assertEqual(_weather_alert_level("weather_now", payload), "warning")
+        self.assertIn("Warning: rain is expected in about 15 minutes", spoken)
+        self.assertNotIn("latitude", spoken)
+
+    def test_does_not_warn_for_rain_later_than_fifteen_minutes(self):
+        payload = {"rain": {"currentlyWet": False, "rainEtaMinutes": 45}, "lightning": {"risk": "low"}}
+        self.assertEqual(_weather_alert_level("weather_now", payload), "none")
 
     def test_cleans_government_alert_for_tts(self):
         monitor = Monitor("alert1", "UK alerts", "emergency_alerts", {"region":"GB"}, 300)

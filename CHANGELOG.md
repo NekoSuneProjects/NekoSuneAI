@@ -24,6 +24,8 @@
   a clear-all RAG memory button, reliable clear commands, and monitor TTS.
 - Present scheduled MCP results as privacy-safe natural-language summaries and
   route explicit military-aircraft requests to the military-only tracker.
+- Raise spoken warning alerts when rain is forecast within 15 minutes or when
+  the forecast reports an elevated lightning risk.
 
 All notable changes to **NekoSuneAI** are documented here.
 

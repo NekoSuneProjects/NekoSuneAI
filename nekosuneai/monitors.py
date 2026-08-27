@@ -101,14 +101,9 @@ def _emergency_summary(monitor: Monitor, payload: Any) -> str | None:
     return f"Government emergency broadcast [{monitor.id}]. " + " ".join(lines)
 
 
-def _summary(monitor: Monitor, result: dict[str, Any]) -> str:
-    structured = result.get("structuredContent") if isinstance(result, dict) else None
-    payload = structured if structured is not None else result
-    emergency = _emergency_summary(monitor, payload)
-    if emergency:
-        return emergency
-    # MCP transports may wrap the useful result in content/structuredContent
-    # more than once. Unwrap text JSON before formatting it for chat and TTS.
+def _unwrap_payload(result: Any) -> Any:
+    """Return useful structured data from nested MCP transport wrappers."""
+    payload = result
     for _ in range(4):
         if isinstance(payload, dict) and payload.get("structuredContent") is not None:
             payload = payload["structuredContent"]
@@ -121,8 +116,42 @@ def _summary(monitor: Monitor, result: dict[str, Any]) -> str:
                     payload = json.loads(text)
                     continue
                 except ValueError:
-                    return f"Scheduled update [{monitor.id}]: {text[:1800]}"
+                    return text
         break
+    return payload
+
+
+def _weather_alert_level(tool: str, result: Any) -> str:
+    """Classify forecast urgency without treating ordinary weather as danger."""
+    if tool not in {"weather_now", "weather_forecast", "rain_eta", "weather_warnings"}:
+        return "none"
+    payload = _unwrap_payload(result)
+    if not isinstance(payload, dict):
+        return "none"
+    lowered = json.dumps(payload, ensure_ascii=False, default=str).lower()
+    if any(word in lowered for word in ("extreme", "severe", "tornado warning", "immediate threat")):
+        return "danger"
+    rain = payload.get("rain") if isinstance(payload.get("rain"), dict) else {}
+    eta = rain.get("rainEtaMinutes")
+    currently_wet = bool(rain.get("currentlyWet"))
+    lightning = payload.get("lightning") if isinstance(payload.get("lightning"), dict) else {}
+    lightning_risk = str(lightning.get("risk") or "").lower()
+    if currently_wet or (isinstance(eta, (int, float)) and 0 <= eta <= 15):
+        return "warning"
+    if lightning_risk and lightning_risk != "low":
+        return "warning"
+    if any(word in lowered for word in ("warning", "alert", "hazard")):
+        return "warning"
+    return "none"
+
+
+def _summary(monitor: Monitor, result: dict[str, Any]) -> str:
+    payload = _unwrap_payload(result)
+    emergency = _emergency_summary(monitor, payload)
+    if emergency:
+        return emergency
+    if isinstance(payload, str):
+        return f"Scheduled update [{monitor.id}]: {payload[:1800]}"
     if monitor.tool in {"aircraft_nearby", "military_aircraft_nearby"} and isinstance(payload, dict):
         aircraft = payload.get("aircraft") if isinstance(payload.get("aircraft"), list) else []
         location = payload.get("reference") or payload.get("location") or {}
@@ -149,9 +178,22 @@ def _summary(monitor: Monitor, result: dict[str, Any]) -> str:
         temperature = weather.get("temperature") or weather.get("temperatureC") or weather.get("temp_c")
         condition = weather.get("condition") or weather.get("summary") or weather.get("weather")
         wind = weather.get("windSpeed") or weather.get("windSpeedKph") or weather.get("wind_kph")
+        rain = payload.get("rain") if isinstance(payload.get("rain"), dict) else {}
+        eta = rain.get("rainEtaMinutes")
+        currently_wet = bool(rain.get("currentlyWet"))
+        lightning = payload.get("lightning") if isinstance(payload.get("lightning"), dict) else {}
+        lightning_risk = str(lightning.get("risk") or "").strip()
         parts = [str(condition).strip() if condition else ""]
         if temperature is not None: parts.append(f"temperature {temperature} degrees Celsius")
         if wind is not None: parts.append(f"wind speed {wind} kilometres per hour")
+        if currently_wet:
+            parts.insert(0, "Warning: rain is occurring now")
+        elif isinstance(eta, (int, float)) and 0 <= eta <= 15:
+            parts.insert(0, f"Warning: rain is expected in about {max(1, round(eta))} minutes")
+        elif isinstance(eta, (int, float)):
+            parts.append(f"rain is expected in about {max(1, round(eta))} minutes")
+        if lightning_risk and lightning_risk.lower() != "low":
+            parts.append(f"lightning risk is {lightning_risk}")
         spoken = ", ".join(part for part in parts if part)
         return f"Scheduled weather update [{monitor.id}] for {place}: {spoken or 'the forecast was refreshed, but no readable conditions were returned.'}"
     if isinstance(payload, dict):
@@ -238,7 +280,9 @@ class MonitorManager:
                     elapsed = now - (datetime.fromisoformat(item.last_run).timestamp() if item.last_run else 0)
                     if digest != item.last_hash or elapsed >= 3600:
                         lowered = serialized.lower()
-                        level = "danger" if any(x in lowered for x in ("extreme", "severe", "tornado warning", "immediate threat")) else "warning" if any(x in lowered for x in ("warning", "alert", "hazard")) else "none"
+                        level = _weather_alert_level(item.tool, result)
+                        if level == "none":
+                            level = "danger" if any(x in lowered for x in ("extreme", "severe", "tornado warning", "immediate threat")) else "warning" if any(x in lowered for x in ("warning", "alert", "hazard")) else "none"
                         self.notify(_summary(item, result), level)
                     item.last_hash = digest
                 except Exception as exc:
