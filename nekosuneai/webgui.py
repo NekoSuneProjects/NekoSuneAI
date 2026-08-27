@@ -72,6 +72,38 @@ WINDOW_TITLE = "NekoSuneAI Studio"
 WINDOWS_APP_ID = "NekoSuneProjects.NekoSuneAI.Studio"
 _window: "webview.Window | None" = None
 
+
+def _pulse_audio_status() -> dict[str, Any]:
+    """Return host PipeWire/Pulse devices visible through the mounted socket."""
+    status: dict[str, Any] = {"available": False, "sources": [], "sinks": []}
+    try:
+        info = subprocess.run(
+            ["pactl", "info"], capture_output=True, text=True, timeout=4, check=True
+        ).stdout
+        values = {}
+        for line in info.splitlines():
+            key, separator, value = line.partition(":")
+            if separator:
+                values[key.strip()] = value.strip()
+        status.update({
+            "available": True,
+            "server": values.get("Server Name", "PulseAudio/PipeWire"),
+            "default_source": values.get("Default Source", ""),
+            "default_sink": values.get("Default Sink", ""),
+        })
+        for kind, target in (("sources", "sources"), ("sinks", "sinks")):
+            output = subprocess.run(
+                ["pactl", "list", "short", kind],
+                capture_output=True, text=True, timeout=4, check=True,
+            ).stdout
+            status[target] = [
+                fields[1] for line in output.splitlines()
+                if len(fields := line.split("\t")) > 1
+            ]
+    except (FileNotFoundError, subprocess.SubprocessError) as exc:
+        status["error"] = str(exc)
+    return status
+
 # Per-driver game settings shown in the Game panel (instead of editing .env).
 # Each field maps to a Config attribute; values are persisted to app_state.
 GAME_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
@@ -1635,17 +1667,30 @@ class Api:
     def get_audio_devices(self) -> dict[str, Any]:
         if not self._initialized:
             return {"mics": [], "speakers": [], "current_mic": None, "current_speaker": None}
+        errors: list[str] = []
         try:
             mics = list_input_devices_compact()
-            speakers = list_output_devices_compact()
-        except Exception:
+        except Exception as exc:
             mics = []
+            errors.append(f"Microphone discovery: {exc}")
+        try:
+            speakers = list_output_devices_compact()
+        except Exception as exc:
             speakers = []
+            errors.append(f"Speaker discovery: {exc}")
+        pulse = _pulse_audio_status()
+        if not pulse.get("available"):
+            errors.append(
+                "Host Bluetooth audio is unavailable. Check PUID/PGID, "
+                "XDG_RUNTIME_DIR, and the mounted PulseAudio/PipeWire socket."
+            )
         return {
             "mics": mics,
             "speakers": speakers,
             "current_mic": self.config.mic_device_index,
             "current_speaker": self.config.speaker_device_index,
+            "pulse": pulse,
+            "errors": errors,
         }
 
     def apply_audio_devices(self, mic_index: Any, speaker_index: Any) -> dict[str, Any]:

@@ -4,6 +4,8 @@
 
 - Preload the official `hey_jarvis` model in Docker images and automatically
   fetch missing official wake-word models at runtime.
+- Expose the Raspberry Pi user's PipeWire/PulseAudio session to Docker, install
+  ALSA/Pulse discovery tools, and report Kinect/Alexa device errors in Settings.
 
 All notable changes to **NekoSuneAI** are documented here.
 

@@ -6,6 +6,9 @@ services:
         APP_VERSION: "1.2.1"
     image: ghcr.io/nekosuneprojects/nekosuneai:1.2.1
     restart: unless-stopped
+    # Match the desktop audio-session owner so PipeWire/PulseAudio accepts the
+    # container through its Unix socket. Set PUID/PGID in .env if not 1000.
+    user: "${PUID:-1000}:${PGID:-1000}"
     stdin_open: true
     tty: true
     network_mode: host
@@ -16,12 +19,14 @@ services:
       - ./data:/app/data
       - ./audio:/app/audio
       - /dev/bus/usb:/dev/bus/usb
-      - ${XDG_RUNTIME_DIR:-/run/user/1000}/pulse/native:/run/pulse/native
+      - ${XDG_RUNTIME_DIR:-/run/user/1000}/pulse:${XDG_RUNTIME_DIR:-/run/user/1000}/pulse
     devices:
       - /dev/snd:/dev/snd
     group_add:
-      - "29"
+      - "${AUDIO_GID:-29}"
+      - "${VIDEO_GID:-44}"
     environment:
-      PULSE_SERVER: unix:/run/pulse/native
+      XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-/run/user/1000}
+      PULSE_SERVER: unix:${XDG_RUNTIME_DIR:-/run/user/1000}/pulse/native
       WEB_DASHBOARD_HOST: 0.0.0.0
       WEB_DASHBOARD_PORT: 8788

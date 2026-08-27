@@ -461,6 +461,7 @@ tailwind.config = {
               <div class="text-[11px] text-nova-muted mb-1">Speaker / Output</div>
               <select id="set-spk-select" class="w-full"><option value="">System default</option></select>
             </div>
+            <div id="audio-device-status" class="text-[11px] text-nova-muted leading-relaxed"></div>
             <button onclick="doApplyAudio()" class="btn-primary px-4 py-2 rounded-lg text-[12px] font-semibold">Apply Audio Devices</button>
           </div>
         </div>
@@ -1225,8 +1226,19 @@ async function doRefreshAudio() {
     const d = await api().get_audio_devices();
     const micSel = $('set-mic-select');
     const spkSel = $('set-spk-select');
-    micSel.innerHTML = '<option value="">System default</option>' + (d.mics||[]).map(m => `<option value="${m.index}" ${m.index===d.current_mic?'selected':''}>${escHtml(m.name)}</option>`).join('');
-    spkSel.innerHTML = '<option value="">System default</option>' + (d.speakers||[]).map(s => `<option value="${s.index}" ${s.index===d.current_speaker?'selected':''}>${escHtml(s.name)}</option>`).join('');
+    const pulse = d.pulse || {};
+    const defaultMic = pulse.default_source ? `System default - ${pulse.default_source}` : 'System default';
+    const defaultSpk = pulse.default_sink ? `System default - ${pulse.default_sink}` : 'System default';
+    micSel.innerHTML = `<option value="">${escHtml(defaultMic)}</option>` + (d.mics||[]).map(m => `<option value="${m.index}" ${m.index===d.current_mic?'selected':''}>${escHtml(m.name)}${m.hostapi ? ' ('+escHtml(m.hostapi)+')' : ''}</option>`).join('');
+    spkSel.innerHTML = `<option value="">${escHtml(defaultSpk)}</option>` + (d.speakers||[]).map(s => `<option value="${s.index}" ${s.index===d.current_speaker?'selected':''}>${escHtml(s.name)}${s.hostapi ? ' ('+escHtml(s.hostapi)+')' : ''}</option>`).join('');
+    const status = $('audio-device-status');
+    if ((d.errors||[]).length) {
+      status.textContent = d.errors.join(' ');
+      status.className = 'text-[11px] text-amber-300 leading-relaxed';
+    } else {
+      status.textContent = `Host audio connected via ${pulse.server || 'PulseAudio/PipeWire'}. ${(d.mics||[]).length} microphone(s), ${(d.speakers||[]).length} output(s).`;
+      status.className = 'text-[11px] text-emerald-300 leading-relaxed';
+    }
   } catch(e) { console.error(e); }
 }
 
