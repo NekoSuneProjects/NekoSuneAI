@@ -67,8 +67,9 @@ tailwind.config = {
   input:focus, textarea:focus, select:focus { border-color:#a78bfa; box-shadow:0 0 0 3px rgba(167,139,250,.13); }
   .studio-grid { background-image:linear-gradient(rgba(120,126,190,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(120,126,190,.035) 1px,transparent 1px); background-size:28px 28px; }
   .avatar-stage { position:relative; overflow:hidden; background:radial-gradient(circle at 50% 42%,rgba(167,139,250,.28),transparent 34%),linear-gradient(145deg,#171936,#0c0e20); }
-  .avatar-stage::before { content:''; position:absolute; inset:14%; border:1px solid rgba(103,232,249,.18); border-radius:50%; box-shadow:0 0 50px rgba(167,139,250,.17); animation:stagePulse 4s ease-in-out infinite; }
-  .avatar-stage::after { content:''; position:absolute; left:10%; right:10%; bottom:18%; height:1px; background:linear-gradient(90deg,transparent,#67e8f9,transparent); box-shadow:0 0 18px #67e8f9; }
+  .avatar-stage::before { content:''; position:absolute; inset:14%; pointer-events:none; border:1px solid rgba(103,232,249,.18); border-radius:50%; box-shadow:0 0 50px rgba(167,139,250,.17); animation:stagePulse 4s ease-in-out infinite; }
+  .avatar-stage::after { content:''; position:absolute; left:10%; right:10%; bottom:18%; pointer-events:none; height:1px; background:linear-gradient(90deg,transparent,#67e8f9,transparent); box-shadow:0 0 18px #67e8f9; }
+  #d-btn-session { position:relative; z-index:20; min-width:190px; min-height:46px; cursor:pointer; }
   .avatar-logo { filter:drop-shadow(0 12px 28px rgba(167,139,250,.35)); animation:avatarFloat 4s ease-in-out infinite; }
   .live-pill { display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(103,232,249,.28);background:rgba(103,232,249,.08);padding:5px 10px;border-radius:999px;color:#a5f3fc;font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase; }
   .live-pill::before { content:'';width:7px;height:7px;border-radius:50%;background:#67e8f9;box-shadow:0 0 10px #67e8f9;animation:livePulse 1.6s infinite; }
@@ -210,7 +211,7 @@ tailwind.config = {
               <div id="d-companion" class="text-2xl font-extrabold tracking-tight">NekoSuneAI</div>
               <div id="d-description" class="text-[11px] text-nova-muted2 mt-1 max-w-xs line-clamp-2">Your AI VTuber companion</div>
             </div>
-            <button id="d-btn-session" onclick="doSessionButtonClick()" class="relative z-10 btn-primary mt-6 px-8 py-3 rounded-xl font-bold text-[12px] tracking-[.12em] uppercase whitespace-nowrap">Start Session</button>
+            <button id="d-btn-session" type="button" onclick="doSessionButtonClick()" class="relative z-20 btn-primary mt-6 px-8 py-3 rounded-xl font-bold text-[12px] tracking-[.12em] uppercase whitespace-nowrap" aria-label="Start NekoSuneAI session">Start Session</button>
           </section>
 
           <!-- Command center -->
@@ -686,11 +687,15 @@ function syncDashboard() {
   const btn = $('d-btn-session');
   if (s.session_started) {
     btn.textContent = 'End Session';
-    btn.className = 'bg-red-600 hover:bg-red-500 text-white px-6 rounded-lg font-bold text-[13px] tracking-wide transition-all whitespace-nowrap';
+    btn.className = 'relative z-20 mt-6 bg-red-600 hover:bg-red-500 text-white px-8 py-3 rounded-xl font-bold text-[12px] tracking-[.12em] uppercase transition-all whitespace-nowrap';
+    btn.setAttribute('aria-label', 'End NekoSuneAI session');
+    btn.setAttribute('aria-pressed', 'true');
     btn.disabled = false;
   } else {
     btn.textContent = 'Start Session';
-    btn.className = 'btn-primary px-6 rounded-lg font-bold text-[13px] tracking-wide transition-all whitespace-nowrap';
+    btn.className = 'relative z-20 btn-primary mt-6 px-8 py-3 rounded-xl font-bold text-[12px] tracking-[.12em] uppercase transition-all whitespace-nowrap';
+    btn.setAttribute('aria-label', 'Start NekoSuneAI session');
+    btn.setAttribute('aria-pressed', 'false');
     // Not gated on s.busy — that can be true from an unrelated background
     // feature (Watch & React, VRChat game agent) and shouldn't block
     // starting a session; the click itself is debounced client-side in
@@ -1088,14 +1093,50 @@ async function doSessionButtonClick() {
 
 async function doStartSession() {
   if (!_appReady) return;
-  $('d-btn-session').disabled = true;
-  try { await api().start_session(); } catch(e) { console.error(e); }
+  const btn = $('d-btn-session');
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+  try {
+    const result = await api().start_session();
+    if (!result || !result.ok) {
+      showNotification((result && result.msg) || 'Could not start the session.');
+      btn.disabled = false;
+      btn.textContent = 'Start Session';
+      return;
+    }
+    STATE.session_started = true;
+    syncDashboard();
+    showNotification(result.msg || 'Session started.');
+  } catch(e) {
+    console.error(e);
+    showNotification('Could not start session: ' + (e.message || e));
+    btn.disabled = false;
+    btn.textContent = 'Start Session';
+  }
 }
 
 async function doEndSession() {
   if (!_appReady) return;
-  $('d-btn-session').disabled = true;
-  try { await api().end_session(); } catch(e) { console.error(e); }
+  const btn = $('d-btn-session');
+  btn.disabled = true;
+  btn.textContent = 'Ending...';
+  try {
+    const result = await api().end_session();
+    if (!result || !result.ok) {
+      showNotification((result && result.msg) || 'Could not end the session.');
+      btn.disabled = false;
+      return;
+    }
+    STATE.session_started = false;
+    STATE.busy = false;
+    syncDashboard();
+    showNotification(result.msg || 'Session ended.');
+  } catch(e) {
+    console.error(e);
+    showNotification('Could not end session: ' + (e.message || e));
+    btn.disabled = false;
+    syncDashboard();
+  }
 }
 
 async function doToggle(key) {

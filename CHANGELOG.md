@@ -8,6 +8,8 @@
   ALSA/Pulse discovery tools, and report Kinect/Alexa device errors in Settings.
 - Default wake-word inference to ONNX to avoid Raspberry Pi TFLite native-wrapper
   crashes, with an advanced dashboard setting for either backend.
+- Repair the dashboard Start Session control so animated stage layers cannot
+  intercept clicks, keep its full button styling, and surface backend errors.
 
 All notable changes to **NekoSuneAI** are documented here.
 
