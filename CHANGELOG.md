@@ -5,6 +5,21 @@ All notable changes to **NekoSuneAI** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project aims to follow [Semantic Versioning](https://semver.org/).
 
+## [1.2.1] - Unreleased
+
+### Added
+- Remote MCP platforms with API-key and OAuth authentication, NekoAI Bridge
+  TTS/STT, aircraft/weather/government-alert tools, persistent scheduled
+  monitors, spoken emergency broadcasts, and warning/danger cues.
+- Low-latency Edge streaming TTS with Piper as the offline fallback.
+- A redesigned VTuber control-studio dashboard.
+- Docker-first multi-architecture releases for amd64 and Raspberry Pi arm64.
+
+### Changed
+- GitHub Actions now builds Docker images automatically on a self-hosted Linux
+  x64 runner. Windows packaging is an optional manual Wine build on that same
+  runner; no GitHub-hosted Windows runner is required.
+
 ## [1.2.6] - Unreleased
 
 ### Added

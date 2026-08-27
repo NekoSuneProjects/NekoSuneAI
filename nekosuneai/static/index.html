@@ -12,24 +12,11 @@ tailwind.config = {
     extend: {
       colors: {
         nova: {
-          bg:       '#0a0f0d',
-          nav:      '#070b09',
-          surface:  '#0f1713',
-          surface2: '#16211b',
-          surface3: '#1c2b22',
-          border:   '#1e3327',
-          border2:  '#28472f',
-          text:     '#e8f5ec',
-          muted:    '#5f9174',
-          muted2:   '#8fcba6',
-          input:    '#08130d',
-          accent:   '#22c55e',
-          accentH:  '#16a34a',
-          accentD:  '#15803d',
-          accentBg: '#0b2418',
-          accentB:  '#1f6e3f',
-          vr:       '#4ade80',
-          vrGlow:   '#39ff8f',
+          bg:       '#080914', nav:'#0b0c1c', surface:'#111329', surface2:'#181b38',
+          surface3:'#202449', border:'#292d55', border2:'#3c4275', text:'#f4f2ff',
+          muted:'#777da9', muted2:'#b3b7dc', input:'#0d0f24', accent:'#a78bfa',
+          accentH:'#c4b5fd', accentD:'#7c3aed', accentBg:'#211b45', accentB:'#6d5bc7',
+          vr:'#67e8f9', vrGlow:'#22d3ee',
         }
       }
     }
@@ -37,43 +24,58 @@ tailwind.config = {
 }
 </script>
 <style>
-  html, body { margin:0; padding:0; background:#0a0f0d; color:#e8f5ec; font-family:'Segoe UI','Inter',system-ui,sans-serif; overflow:hidden; height:100%; }
+  :root { --violet:#a78bfa; --cyan:#67e8f9; --pink:#f0abfc; --ink:#080914; }
+  html, body { margin:0; padding:0; background:#080914; color:#f4f2ff; font-family:'Segoe UI Variable','Inter','Segoe UI',system-ui,sans-serif; overflow:hidden; height:100%; }
+  body::before { content:''; position:fixed; inset:0; pointer-events:none; background:radial-gradient(circle at 85% 5%,rgba(124,58,237,.18),transparent 32%),radial-gradient(circle at 18% 92%,rgba(34,211,238,.09),transparent 30%); }
   ::-webkit-scrollbar { width:5px; }
   ::-webkit-scrollbar-track { background:transparent; }
   ::-webkit-scrollbar-thumb { background:#1c2b22; border-radius:3px; }
   ::-webkit-scrollbar-thumb:hover { background:#22c55e; }
   .nav-item { transition: all 0.15s ease; }
-  .nav-item:hover { background:#0f1713; color:#e8f5ec; }
-  .nav-item.active { background:#0b2418; color:#86efac; border-left-color:#22c55e; box-shadow: inset 0 0 18px rgba(34,197,94,0.12); }
+  .nav-item { margin:3px 10px; width:calc(100% - 20px)!important; border-radius:10px; border:1px solid transparent!important; }
+  .nav-item:hover { background:rgba(167,139,250,.08); color:#fff; transform:translateX(2px); }
+  .nav-item.active { background:linear-gradient(100deg,rgba(167,139,250,.18),rgba(103,232,249,.06)); color:#ddd6fe; border-color:rgba(167,139,250,.26)!important; box-shadow:0 8px 25px rgba(0,0,0,.18),inset 0 0 18px rgba(167,139,250,.07); }
   .page { display:none; }
   .page.active { display:flex; }
   .toggle-dot { transition: transform 0.2s ease, background 0.2s ease; }
   .toggle-bg { transition: background 0.2s ease; }
   .card {
-    background: linear-gradient(180deg, rgba(22,33,27,0.9), rgba(15,23,19,0.9));
-    border:1px solid #1e3327; border-radius:12px;
+    background:linear-gradient(145deg,rgba(25,28,58,.88),rgba(14,16,36,.94));
+    border:1px solid rgba(120,126,190,.23); border-radius:16px;
     box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset, 0 8px 24px -12px rgba(0,0,0,0.6);
     backdrop-filter: blur(6px);
   }
-  .card-alt { background:#16211b; border:1px solid #28472f; border-radius:12px; }
-  .btn-primary { background:#22c55e; color:#052e16; font-weight:600; box-shadow: 0 0 0 rgba(34,197,94,0); transition: all 0.15s ease; }
-  .btn-primary:hover { background:#4ade80; box-shadow: 0 0 18px rgba(34,197,94,0.45); }
+  .card:hover { border-color:rgba(167,139,250,.36); }
+  .card-alt { background:#181b38; border:1px solid #3c4275; border-radius:14px; }
+  .btn-primary { background:linear-gradient(135deg,#a78bfa,#67e8f9); color:#111329; font-weight:700; box-shadow:0 8px 24px rgba(124,58,237,.24); transition:all .18s ease; }
+  .btn-primary:hover { filter:brightness(1.12); transform:translateY(-1px); box-shadow:0 10px 30px rgba(103,232,249,.25); }
   .btn-primary:disabled { background:#16211b; color:#5f9174; cursor:not-allowed; box-shadow:none; }
-  .btn-secondary { background:#16211b; color:#8fcba6; border:1px solid #28472f; transition: all 0.15s ease; }
-  .btn-secondary:hover { background:#1c2b22; color:#e8f5ec; border-color:#1f6e3f; box-shadow: 0 0 12px rgba(34,197,94,0.15); }
+  .btn-secondary { background:rgba(29,32,66,.82); color:#c4c8e8; border:1px solid #3c4275; transition:all .18s ease; }
+  .btn-secondary:hover { background:#262a55; color:#fff; border-color:#8b7ce5; box-shadow:0 0 16px rgba(167,139,250,.16); }
   .btn-secondary:disabled { background:#0f1713; color:#5f9174; border-color:#1e3327; cursor:not-allowed; box-shadow:none; }
   .btn-danger { background:rgba(248,113,113,0.08); color:#f87171; border:1px solid rgba(127,29,29,0.5); }
   .btn-danger:hover { background:rgba(248,113,113,0.15); }
   .btn-success { background:rgba(34,197,94,0.08); color:#22c55e; border:1px solid rgba(20,83,45,0.5); }
   .btn-success:hover { background:rgba(34,197,94,0.15); }
-  .chat-bubble-user { background:rgba(251,191,36,0.06); border-left:3px solid #7c5a1a; }
-  .chat-bubble-assistant { background:rgba(74,222,128,0.07); border-left:3px solid #1f6e3f; }
+  .chat-bubble-user { background:rgba(103,232,249,.06); border-left:3px solid #22d3ee; }
+  .chat-bubble-assistant { background:rgba(167,139,250,.08); border-left:3px solid #a78bfa; }
   .chat-bubble-system { background:rgba(107,114,128,0.06); border-left:3px solid #2a473a; }
   input, textarea, select {
-    background:#08130d; border:1px solid #28472f; border-radius:6px; padding:8px 12px;
-    color:#e8f5ec; font-size:13px; outline:none; transition: border-color 0.15s, box-shadow 0.15s;
+    background:#0d0f24; border:1px solid #343961; border-radius:10px; padding:9px 13px;
+    color:#f4f2ff; font-size:13px; outline:none; transition:border-color .15s,box-shadow .15s;
   }
-  input:focus, textarea:focus, select:focus { border-color:#22c55e; box-shadow: 0 0 0 3px rgba(34,197,94,0.15); }
+  input:focus, textarea:focus, select:focus { border-color:#a78bfa; box-shadow:0 0 0 3px rgba(167,139,250,.13); }
+  .studio-grid { background-image:linear-gradient(rgba(120,126,190,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(120,126,190,.035) 1px,transparent 1px); background-size:28px 28px; }
+  .avatar-stage { position:relative; overflow:hidden; background:radial-gradient(circle at 50% 42%,rgba(167,139,250,.28),transparent 34%),linear-gradient(145deg,#171936,#0c0e20); }
+  .avatar-stage::before { content:''; position:absolute; inset:14%; border:1px solid rgba(103,232,249,.18); border-radius:50%; box-shadow:0 0 50px rgba(167,139,250,.17); animation:stagePulse 4s ease-in-out infinite; }
+  .avatar-stage::after { content:''; position:absolute; left:10%; right:10%; bottom:18%; height:1px; background:linear-gradient(90deg,transparent,#67e8f9,transparent); box-shadow:0 0 18px #67e8f9; }
+  .avatar-logo { filter:drop-shadow(0 12px 28px rgba(167,139,250,.35)); animation:avatarFloat 4s ease-in-out infinite; }
+  .live-pill { display:inline-flex;align-items:center;gap:7px;border:1px solid rgba(103,232,249,.28);background:rgba(103,232,249,.08);padding:5px 10px;border-radius:999px;color:#a5f3fc;font-size:10px;font-weight:700;letter-spacing:.11em;text-transform:uppercase; }
+  .live-pill::before { content:'';width:7px;height:7px;border-radius:50%;background:#67e8f9;box-shadow:0 0 10px #67e8f9;animation:livePulse 1.6s infinite; }
+  .section-kicker { color:#969bd0;font-size:10px;font-weight:700;letter-spacing:.16em;text-transform:uppercase; }
+  @keyframes avatarFloat { 0%,100%{transform:translateY(0)}50%{transform:translateY(-7px)} }
+  @keyframes stagePulse { 50%{transform:scale(1.05);opacity:.7} }
+  @keyframes livePulse { 50%{opacity:.35} }
   input:disabled, select:disabled { background:#0f1713; color:#5f9174; }
   .fade-in { animation: fadeIn 0.2s ease; }
   @keyframes fadeIn { from{opacity:0;transform:translateY(4px)} to{opacity:1;transform:translateY(0)} }
@@ -109,7 +111,7 @@ tailwind.config = {
   /* ── Loading screen ── */
   #loading-screen {
     position:fixed; inset:0; z-index:9999;
-    background:#0a0f0d;
+    background:radial-gradient(circle at center,#181533,#080914 62%);
     display:flex; flex-direction:column; align-items:center; justify-content:center;
     transition: opacity 0.5s ease;
   }
@@ -160,12 +162,12 @@ tailwind.config = {
 <div class="flex flex-1 overflow-hidden">
 
   <!-- ── Sidebar ── -->
-  <nav id="sidebar" class="flex flex-col w-52 min-w-[208px] bg-nova-nav border-r border-nova-border flex-shrink-0">
-    <div class="px-5 py-4 border-b border-nova-border flex items-center gap-3">
-      <img src="logo.png" alt="" class="w-9 h-9 rounded-lg drop-shadow" draggable="false">
+  <nav id="sidebar" class="flex flex-col w-60 min-w-[240px] bg-nova-nav/90 border-r border-nova-border flex-shrink-0 backdrop-blur-xl">
+    <div class="px-5 py-5 border-b border-nova-border flex items-center gap-3">
+      <div class="relative"><div class="absolute inset-0 bg-violet-500/30 blur-xl rounded-full"></div><img src="logo.png" alt="" class="relative w-10 h-10 rounded-xl drop-shadow" draggable="false"></div>
       <div>
         <div class="text-[17px] font-bold text-nova-text" id="nav-logo">NekoSuneAI</div>
-        <div class="text-[10px] text-nova-muted tracking-wide">AI Companion Studio</div>
+        <div class="text-[9px] text-violet-300/70 tracking-[.18em] uppercase">VTuber Control Studio</div>
       </div>
     </div>
     <div class="flex-1 py-2 overflow-y-auto">
@@ -177,8 +179,9 @@ tailwind.config = {
       <button onclick="showPage('profiles')"    data-page="profiles"    class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#128100;</span> Profiles</button>
       <button onclick="showPage('settings')"    data-page="settings"    class="nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5"><span class="w-5 text-center opacity-70">&#9881;</span> Settings</button>
     </div>
-    <div class="px-4 py-3 border-t border-nova-border">
-      <div class="text-[10px] text-nova-muted" id="nav-status">Ready</div>
+    <div class="m-3 p-3 rounded-xl border border-violet-400/15 bg-violet-400/5">
+      <div class="section-kicker mb-1">Studio status</div>
+      <div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-cyan-300 shadow-[0_0_10px_#67e8f9]"></span><div class="text-[11px] text-nova-muted2 truncate" id="nav-status">Ready</div></div>
     </div>
   </nav>
 
@@ -186,9 +189,9 @@ tailwind.config = {
   <div class="flex flex-col flex-1 overflow-hidden">
 
     <!-- Page header -->
-    <div class="flex items-center gap-3 px-6 py-3 bg-nova-surface border-b border-nova-border min-h-[54px]">
-      <h1 id="page-title" class="text-lg font-bold">Dashboard</h1>
-      <span id="page-sub" class="text-[11px] text-nova-muted">Session controls and status</span>
+    <div class="flex items-center gap-3 px-7 py-4 bg-nova-surface/70 backdrop-blur-xl border-b border-nova-border min-h-[66px]">
+      <div><h1 id="page-title" class="text-xl font-bold tracking-tight">Dashboard</h1><div id="page-sub" class="text-[10px] text-nova-muted mt-0.5 tracking-wide">Session controls and status</div></div>
+      <div class="ml-auto live-pill">Neko system online</div>
     </div>
 
     <!-- Pages container -->
@@ -197,64 +200,63 @@ tailwind.config = {
       <!-- ═══════════════════════════════════════════════════════════════ -->
       <!-- PAGE: Dashboard -->
       <!-- ═══════════════════════════════════════════════════════════════ -->
-      <div id="page-dashboard" class="page active flex-col h-full overflow-hidden">
-
-        <!-- Top strip: stats + session + controls -->
-        <div class="flex-shrink-0 p-4 pb-0 space-y-3">
-
-          <!-- Row 1: stat cards + session button -->
-          <div class="flex gap-3 items-stretch">
-            <div class="card p-3 flex-1 min-w-0">
-              <div id="d-stat-session" class="text-lg font-bold text-nova-muted2 truncate">Standby</div>
-              <div class="text-[10px] text-nova-muted font-medium tracking-wider uppercase">Session</div>
+      <div id="page-dashboard" class="page active flex-col h-full overflow-y-auto studio-grid">
+        <div class="p-5 lg:p-7 grid grid-cols-12 gap-4 max-w-[1500px] w-full mx-auto">
+          <!-- VTuber stage -->
+          <section class="avatar-stage card col-span-12 lg:col-span-4 min-h-[330px] flex flex-col items-center justify-center p-6">
+            <div class="absolute top-5 left-5 live-pill">Companion ready</div>
+            <img src="logo.png" alt="NekoSuneAI avatar" class="avatar-logo relative z-10 w-40 h-40 object-contain" draggable="false">
+            <div class="relative z-10 text-center mt-4">
+              <div id="d-companion" class="text-2xl font-extrabold tracking-tight">NekoSuneAI</div>
+              <div id="d-description" class="text-[11px] text-nova-muted2 mt-1 max-w-xs line-clamp-2">Your AI VTuber companion</div>
             </div>
-            <div class="card p-3 flex-1 min-w-0">
-              <div id="d-stat-model" class="text-lg font-bold text-nova-text truncate">--</div>
-              <div class="text-[10px] text-nova-muted font-medium tracking-wider uppercase">Model</div>
-            </div>
-            <div class="card p-3 flex-1 min-w-0">
-              <div id="d-stat-mode" class="text-lg font-bold text-nova-text truncate">Text</div>
-              <div class="text-[10px] text-nova-muted font-medium tracking-wider uppercase">Input Mode</div>
-            </div>
-            <button id="d-btn-session" onclick="doSessionButtonClick()" class="btn-primary px-6 rounded-lg font-bold text-[13px] tracking-wide transition-all whitespace-nowrap">
-              Start Session
-            </button>
-          </div>
+            <button id="d-btn-session" onclick="doSessionButtonClick()" class="relative z-10 btn-primary mt-6 px-8 py-3 rounded-xl font-bold text-[12px] tracking-[.12em] uppercase whitespace-nowrap">Start Session</button>
+          </section>
 
-          <!-- Row 2: compact controls bar -->
-          <div class="card flex items-center divide-x divide-nova-border overflow-hidden">
+          <!-- Command center -->
+          <section class="col-span-12 lg:col-span-8 space-y-4">
+            <div class="grid grid-cols-3 gap-3">
+              <div class="card p-4 min-w-0"><div class="section-kicker">Session</div><div id="d-stat-session" class="text-xl font-bold text-cyan-200 truncate mt-1">Standby</div></div>
+              <div class="card p-4 min-w-0"><div class="section-kicker">Brain / Model</div><div id="d-stat-model" class="text-xl font-bold truncate mt-1">--</div></div>
+              <div class="card p-4 min-w-0"><div class="section-kicker">Input mode</div><div id="d-stat-mode" class="text-xl font-bold truncate mt-1">Text</div></div>
+            </div>
+
+            <div class="card p-4">
+              <div class="flex items-center justify-between mb-3"><div><div class="section-kicker">Live controls</div><div class="text-sm font-semibold mt-1">Performance deck</div></div><button onclick="doClearHistory()" class="text-[10px] text-nova-muted hover:text-pink-300 transition-colors uppercase tracking-wider">Clear history</button></div>
+              <div class="grid grid-cols-2 xl:grid-cols-5 gap-2">
             <!-- Voice -->
-            <button onclick="doToggle('voice')" class="flex items-center gap-2 px-4 py-2.5 hover:bg-nova-surface2 transition-colors flex-1 min-w-0">
+            <button onclick="doToggle('voice')" class="card-alt flex items-center gap-2 px-3 py-3 transition-colors min-w-0">
               <div id="d-dot-voice" class="w-2 h-2 rounded-full bg-nova-muted flex-shrink-0"></div>
               <span class="text-[12px] font-medium text-nova-text truncate">Voice</span>
               <span id="d-val-voice" class="text-[11px] font-semibold text-nova-muted ml-auto">OFF</span>
             </button>
             <!-- Hands-Free -->
-            <button onclick="doToggle('handsfree')" class="flex items-center gap-2 px-4 py-2.5 hover:bg-nova-surface2 transition-colors flex-1 min-w-0">
+            <button onclick="doToggle('handsfree')" class="card-alt flex items-center gap-2 px-3 py-3 transition-colors min-w-0">
               <div id="d-dot-hf" class="w-2 h-2 rounded-full bg-nova-muted flex-shrink-0"></div>
               <span class="text-[12px] font-medium text-nova-text truncate">Hands-Free</span>
               <span id="d-val-hf" class="text-[11px] font-semibold text-nova-muted ml-auto">OFF</span>
             </button>
             <!-- Mic -->
-            <button onclick="doToggle('mic')" class="flex items-center gap-2 px-4 py-2.5 hover:bg-nova-surface2 transition-colors flex-1 min-w-0">
+            <button onclick="doToggle('mic')" class="card-alt flex items-center gap-2 px-3 py-3 transition-colors min-w-0">
               <div id="d-dot-mic" class="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></div>
               <span class="text-[12px] font-medium text-nova-text truncate">Mic</span>
               <span id="d-val-mic" class="text-[11px] font-semibold text-emerald-400 ml-auto">LIVE</span>
             </button>
             <!-- Web -->
-            <button onclick="doToggle('web_search')" class="flex items-center gap-2 px-4 py-2.5 hover:bg-nova-surface2 transition-colors flex-1 min-w-0">
+            <button onclick="doToggle('web_search')" class="card-alt flex items-center gap-2 px-3 py-3 transition-colors min-w-0">
               <div id="d-dot-web" class="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></div>
               <span class="text-[12px] font-medium text-nova-text truncate">Web</span>
               <span id="d-val-web" class="text-[11px] font-semibold text-emerald-400 ml-auto">ON</span>
             </button>
             <!-- Media -->
-            <button onclick="doToggle('media')" class="flex items-center gap-2 px-4 py-2.5 hover:bg-nova-surface2 transition-colors flex-1 min-w-0">
+            <button onclick="doToggle('media')" class="card-alt flex items-center gap-2 px-3 py-3 transition-colors min-w-0">
               <div id="d-dot-media" class="w-2 h-2 rounded-full bg-emerald-500 flex-shrink-0"></div>
               <span class="text-[12px] font-medium text-nova-text truncate">Media</span>
               <span id="d-val-media" class="text-[11px] font-semibold text-emerald-400 ml-auto">ON</span>
             </button>
             <!-- Quick actions -->
-            <div class="flex items-center gap-1.5 px-3 py-2 flex-shrink-0">
+              </div>
+            <div class="flex flex-wrap items-center gap-2 mt-3">
               <button id="d-btn-listen" onclick="doListen()" class="btn-secondary text-[11px] px-2.5 py-1.5 rounded-md font-medium" disabled>Listen</button>
               <button id="d-btn-stop" onclick="doStop()" class="hidden bg-red-600 hover:bg-red-500 text-white text-[11px] px-2.5 py-1.5 rounded-md font-medium">Stop</button>
               <button onclick="doRecalibrate()" class="btn-secondary text-[11px] px-2.5 py-1.5 rounded-md font-medium">Calibrate</button>
@@ -262,14 +264,27 @@ tailwind.config = {
             </div>
           </div>
 
-          <!-- Companion info bar -->
-          <div class="flex items-center gap-3 px-1">
-            <div id="d-companion" class="text-[12px] font-semibold text-nova-text flex-shrink-0">NekoSuneAI</div>
-            <div id="d-description" class="text-[11px] text-nova-muted truncate">--</div>
-            <div class="ml-auto flex-shrink-0">
-              <button onclick="doClearHistory()" class="text-[11px] text-nova-muted hover:text-red-400 transition-colors">Clear history</button>
+            <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+              <div class="card p-4">
+                <div class="section-kicker mb-2">Creator shortcuts</div>
+                <div class="grid grid-cols-2 gap-2">
+                  <button onclick="showPage('chat')" class="btn-secondary rounded-xl p-3 text-left"><span class="block text-sm font-semibold">Open live chat</span><span class="text-[10px] text-nova-muted">Talk, type or use voice</span></button>
+                  <button onclick="showPage('watch')" class="btn-secondary rounded-xl p-3 text-left"><span class="block text-sm font-semibold">Watch & react</span><span class="text-[10px] text-nova-muted">React to games and streams</span></button>
+                  <button onclick="showPage('game')" class="btn-secondary rounded-xl p-3 text-left"><span class="block text-sm font-semibold">VRChat agent</span><span class="text-[10px] text-nova-muted">OSC and world activity</span></button>
+                  <button onclick="showPage('sing')" class="btn-secondary rounded-xl p-3 text-left"><span class="block text-sm font-semibold">Voice studio</span><span class="text-[10px] text-nova-muted">Sing and manage memory</span></button>
+                </div>
+              </div>
+              <div class="card p-4">
+                <div class="section-kicker mb-2">Remote awareness</div>
+                <div class="space-y-2 text-[11px]">
+                  <div class="flex items-center gap-3 p-2.5 rounded-xl bg-cyan-300/5 border border-cyan-300/10"><span class="text-cyan-200 text-lg">⌁</span><div><div class="font-semibold">Aircraft & radar</div><div class="text-nova-muted">Continuous selected-area monitoring</div></div></div>
+                  <div class="flex items-center gap-3 p-2.5 rounded-xl bg-violet-300/5 border border-violet-300/10"><span class="text-violet-200 text-lg">◌</span><div><div class="font-semibold">Weather intelligence</div><div class="text-nova-muted">Forecasts, rain and official warnings</div></div></div>
+                  <div class="flex items-center gap-3 p-2.5 rounded-xl bg-pink-300/5 border border-pink-300/10"><span class="text-pink-200 text-lg">◇</span><div><div class="font-semibold">Scheduled monitors</div><div class="text-nova-muted">Persistent updates until you say stop</div></div></div>
+                  <div class="flex items-center gap-3 p-2.5 rounded-xl bg-cyan-300/5 border border-cyan-300/10"><span class="text-cyan-200 text-lg">◉</span><div><div class="font-semibold">Wake word</div><div id="d-wake-status" class="text-nova-muted">Checking microphone listener…</div></div></div>
+                </div>
+              </div>
             </div>
-          </div>
+          </section>
         </div>
       </div>
 
@@ -515,7 +530,13 @@ tailwind.config = {
 <!-- ════════════════════════════════════════════════════════════════════════ -->
 <script>
 const $ = id => document.getElementById(id);
-const api = () => window.pywebview ? window.pywebview.api : null;
+const WEB_TOKEN = new URLSearchParams(location.search).get('token') || localStorage.getItem('neko-token') || '';
+if (WEB_TOKEN) localStorage.setItem('neko-token', WEB_TOKEN);
+const WEB_API = new Proxy({}, { get: (_target, method) => async (...args) => {
+  const response = await fetch('/api/rpc', {method:'POST', headers:{'Content-Type':'application/json','X-Neko-Token':WEB_TOKEN}, body:JSON.stringify({method,args})});
+  const payload = await response.json(); if (!response.ok) throw new Error(payload.error || 'Web API error'); return payload.result;
+}});
+const api = () => window.pywebview ? window.pywebview.api : WEB_API;
 
 let STATE = {};
 let currentPage = 'dashboard';
@@ -585,6 +606,11 @@ function dismissLoader() {
     setTimeout(() => screen.remove(), 600);
   }, remaining);
 }
+// Visual/design preview without a pywebview backend. Normal app launches are
+// unchanged; this only activates when the explicit ?preview query is present.
+if (new URLSearchParams(window.location.search).has('preview')) {
+  setTimeout(dismissLoader, 50);
+}
 
 // ── Page navigation ──────────────────────────────────────────────────────
 
@@ -617,8 +643,18 @@ function showPage(key) {
   if (key === 'watch')      loadWatchReact();
   if (key === 'profiles')   loadProfiles();
   if (key === 'settings')   { syncSettings(); loadAppSettings(); }
-  if (key === 'dashboard')  syncDashboard();
+  if (key === 'dashboard')  { syncDashboard(); loadWakeStatus(); }
 }
+
+async function loadWakeStatus() {
+  const el = $('d-wake-status'); if (!el || !_appReady) return;
+  try {
+    const s = await api().get_wake_word_status();
+    el.textContent = s.running ? `${s.model} listening · score ${s.last_score}` : s.enabled ? `Needs attention: ${s.error || 'listener stopped'}` : 'Disabled · enable in Settings';
+    el.className = s.running ? 'text-cyan-200' : 'text-nova-muted';
+  } catch (_) { el.textContent = 'Status unavailable'; }
+}
+setInterval(loadWakeStatus, 3000);
 
 // ── State sync ───────────────────────────────────────────────────────────
 
@@ -1228,8 +1264,23 @@ function showNotification(msg, isAlert) {
 // ── Init ─────────────────────────────────────────────────────────────────
 
 function _apiReady() {
-  return !!(window.pywebview && window.pywebview.api && typeof window.pywebview.api.initialize === 'function');
+  return !!((window.pywebview && window.pywebview.api && typeof window.pywebview.api.initialize === 'function') || WEB_TOKEN);
 }
+
+async function pollWebEvents() {
+  if (window.pywebview || !WEB_TOKEN) return;
+  try {
+    const response = await fetch('/api/events', {headers:{'X-Neko-Token':WEB_TOKEN}});
+    const payload = await response.json();
+    (payload.events || []).forEach(event => {
+      if (event.type === 'state') window.__onStateUpdate(event.value);
+      if (event.type === 'chat') window.__onChatMessage(event.value);
+      if (event.type === 'status') window.__onStatusUpdate(event.value);
+      if (event.type === 'notification') window.__onNotification(event.value);
+    });
+  } catch (_) {}
+}
+setInterval(pollWebEvents, 750);
 
 async function init() {
   // Wait for the pywebview API bridge AND its methods to attach. pywebview sets

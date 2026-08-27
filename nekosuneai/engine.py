@@ -37,6 +37,7 @@ class GenerationResult:
     reply: str
     emotion: str
     danger: bool
+    alert_level: str = "none"
 
 
 _SAD_WORDS = ("sad", "upset", "hurt", "depressed", "annoyed", "lonely", "cry")
@@ -102,12 +103,22 @@ def generate_reply(req: GenerationRequest) -> GenerationResult:
         history = None
     else:
         history = req.history if req.history is not None else []
+    mcp_context = None
+    alert_level = "none"
+    try:
+        from .mcp_client import fetch_mcp_context
+        mcp_context, alert_level = fetch_mcp_context(req.user_text, req.config)
+    except Exception as exc:
+        mcp_context = f"The configured MCP service could not be used: {exc}"
+    extra_system = list(req.extra_system)
+    if mcp_context:
+        extra_system.append(mcp_context)
     reply = request_reply(
         req.user_text,
         req.profile,
         req.config,
         web_context=req.web_context,
-        extra_system=req.extra_system or None,
+        extra_system=extra_system or None,
         history=history,
         speaker_label=req.speaker_label,
         max_tokens=req.max_tokens,
@@ -118,4 +129,5 @@ def generate_reply(req: GenerationRequest) -> GenerationResult:
         reply=reply,
         emotion=detect_emotion(combined),
         danger=detect_danger(combined),
+        alert_level=alert_level,
     )

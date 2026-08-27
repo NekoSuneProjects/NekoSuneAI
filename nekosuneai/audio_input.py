@@ -531,7 +531,10 @@ def recognize_speech(
             )
 
     try:
-        if config.stt_provider == "google":
+        if config.stt_provider == "bridge":
+            from .bridge_voice import transcribe
+            text, detected_language = transcribe(audio.get_wav_data(), config)
+        elif config.stt_provider == "google":
             text, detected_language = transcribe_audio_with_google(
                 recognizer, audio, config
             )

@@ -1,0 +1,27 @@
+services:
+  nekosuneai:
+    build:
+      context: .
+      args:
+        APP_VERSION: "1.2.1"
+    image: ghcr.io/nekosuneprojects/nekosuneai:1.2.1
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    network_mode: host
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - ./data:/app/data
+      - ./audio:/app/audio
+      - /dev/bus/usb:/dev/bus/usb
+      - ${XDG_RUNTIME_DIR:-/run/user/1000}/pulse/native:/run/pulse/native
+    devices:
+      - /dev/snd:/dev/snd
+    group_add:
+      - "29"
+    environment:
+      PULSE_SERVER: unix:/run/pulse/native
+      WEB_DASHBOARD_HOST: 0.0.0.0
+      WEB_DASHBOARD_PORT: 8788

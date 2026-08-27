@@ -29,6 +29,9 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Launch the native desktop GUI (needs a display + pywebview).",
     )
+    parser.add_argument("--web", action="store_true", help="Serve the browser dashboard.")
+    parser.add_argument("--web-host", default=os.getenv("WEB_DASHBOARD_HOST", "0.0.0.0"))
+    parser.add_argument("--web-port", type=int, default=int(os.getenv("WEB_DASHBOARD_PORT", "8788")))
     return parser
 
 
@@ -106,6 +109,10 @@ def main() -> None:
         from .webgui import main as gui_main
 
         gui_main()
+        return
+    if args.web:
+        from .webserver import serve
+        serve(args.web_host, args.web_port, os.getenv("WEB_DASHBOARD_TOKEN") or None)
         return
 
     cli_main()

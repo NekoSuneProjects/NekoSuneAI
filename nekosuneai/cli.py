@@ -11,8 +11,8 @@ from .audio_input import (
     recalibrate_microphone,
     resolve_input_device_info,
 )
-from .chat import request_reply
 from .config import Config, normalize_tts_provider, parse_input_mode
+from .engine import GenerationRequest, generate_reply
 from .defaults import VOICE_COMMAND_ALIASES
 from .memory import MemoryStore
 from .models import CommandResult, SessionState, UserTurn
@@ -32,6 +32,7 @@ from .tts import (
     get_xtts_device,
     list_xtts_speakers,
     play_audio_file,
+    play_alert_sound,
     print_xtts_speakers,
     resolve_optional_path,
     should_play_audio_after_synthesis,
@@ -731,9 +732,13 @@ def main() -> None:
 
         extra_system = [state.sticky_instruction] if state.sticky_instruction else None
         try:
-            reply = request_reply(
-                user_text, profile, config, web_context=web_context, extra_system=extra_system
-            )
+            generated = generate_reply(GenerationRequest(
+                user_text=user_text, profile=profile, config=config,
+                web_context=web_context, extra_system=extra_system or [],
+            ))
+            reply = generated.reply
+            if generated.alert_level != "none":
+                play_alert_sound(generated.alert_level, config)
         except RuntimeError as exc:
             print()
             print(f"[Companion error] {exc}")

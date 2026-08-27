@@ -31,6 +31,9 @@ from .memory import MemoryStore
 from .media import handle_media_request
 from .media_player import start_thinking_sound, stop_thinking_sound
 from .models import SessionState
+from .monitors import MonitorManager
+from .wakeword import WakeWordListener
+from .home_assistant import HomeAssistantMqtt
 from .sticky import is_reset_command, try_clear_sticky_instruction, try_set_sticky_instruction
 from .storage import (
     _safe_profile_id,
@@ -53,6 +56,7 @@ from .tts import (
     get_xtts_device,
     list_output_devices_compact,
     play_audio_file,
+    play_alert_sound,
     should_play_audio_after_synthesis,
     speak_text,
 )
@@ -110,7 +114,7 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
     "voice": {
         "label": "Voice (TTS)",
         "fields": [
-            {"key": "tts_provider", "label": "TTS engine", "type": "select", "options": ["xtts", "gtts"]},
+            {"key": "tts_provider", "label": "TTS engine", "type": "select", "options": ["bridge", "xtts", "gtts"]},
             {"key": "xtts_speaker", "label": "XTTS speaker", "type": "text"},
             {"key": "xtts_speaker_wav", "label": "Voice clone .wav (optional)", "type": "text"},
             {"key": "xtts_speed", "label": "Speed", "type": "float"},
@@ -127,7 +131,7 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
         "label": "Speech-to-Text",
         "fields": [
             {"key": "stt_provider", "label": "STT engine", "type": "select",
-             "options": ["faster-whisper", "google"]},
+             "options": ["bridge", "faster-whisper", "google"]},
             {"key": "stt_model", "label": "Whisper model", "type": "select",
              "options": ["tiny.en", "base.en", "small.en", "medium.en", "large-v3", "distil-large-v3"]},
             {"key": "stt_language", "label": "Language", "type": "text"},
@@ -146,6 +150,35 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "web_region", "label": "Region (e.g. us-en)", "type": "text"},
             {"key": "web_safesearch", "label": "SafeSearch", "type": "select",
              "options": ["off", "moderate", "strict"]},
+        ],
+    },
+    "mcp": {
+        "label": "Remote MCP & NekoAI Bridge",
+        "fields": [
+            {"key": "mcp_enabled", "label": "Enable MCP tools", "type": "bool"},
+            {"key": "mcp_auto_route", "label": "Automatically use tools for weather, aircraft and alerts", "type": "bool"},
+            {"key": "mcp_servers_json", "label": "MCP servers (JSON; supports API key or OAuth)", "type": "text"},
+            {"key": "mcp_timeout_seconds", "label": "MCP timeout (sec)", "type": "float"},
+            {"key": "bridge_ws_url", "label": "NekoAI Bridge voice WebSocket URL", "type": "text"},
+            {"key": "bridge_user_id", "label": "Bridge quota/user ID", "type": "text"},
+            {"key": "bridge_tts_voice", "label": "Remote voice (Edge example: en-GB-SoniaNeural)", "type": "text"},
+            {"key": "bridge_tts_engine", "label": "Remote TTS engine", "type": "select", "options": ["edge-stream", "piper"]},
+            {"key": "bridge_tts_rate", "label": "Fast TTS speech rate (e.g. +10%)", "type": "text"},
+            {"key": "warning_sound_path", "label": "Warning sound file", "type": "text"},
+            {"key": "danger_sound_path", "label": "Danger sound file", "type": "text"},
+            {"key": "emergency_broadcast_tts", "label": "Read government emergency broadcasts aloud", "type": "bool"},
+        ],
+    },
+    "home": {
+        "label": "Wake Word & Home Assistant",
+        "fields": [
+            {"key": "wake_word_enabled", "label": "Enable local wake word", "type": "bool"},
+            {"key": "wake_word_model", "label": "Wake-word model/name", "type": "text"},
+            {"key": "wake_word_threshold", "label": "Detection threshold", "type": "float"},
+            {"key": "home_assistant_mqtt_host", "label": "Home Assistant MQTT host", "type": "text"},
+            {"key": "home_assistant_mqtt_port", "label": "MQTT port", "type": "int"},
+            {"key": "home_assistant_mqtt_username", "label": "MQTT username", "type": "text"},
+            {"key": "home_assistant_mqtt_password", "label": "MQTT password", "type": "password"},
         ],
     },
     "rag": {
@@ -241,9 +274,16 @@ class Api:
         self._watch_thread: threading.Thread | None = None
         # VRChat friends system — opt-in, separate from the OSC game driver.
         self._vrchat_friends: Any = None
+        self.monitor_manager: MonitorManager | None = None
+        self.wake_word: WakeWordListener | None = None
+        self.home_assistant: HomeAssistantMqtt | None = None
+        self._web_events: list[dict[str, Any]] = []
+        self._web_events_lock = threading.Lock()
 
     def initialize(self) -> dict[str, Any]:
         """Heavy init — called from JS once the loading screen is visible."""
+        if self._initialized:
+            return self.get_state()
         ensure_runtime_dirs()
         self.config = Config.from_env()
         self._apply_saved_app_settings()
@@ -260,6 +300,12 @@ class Api:
         # Restore the Voice & Input + Media toggles saved last session.
         self._apply_saved_ui_prefs()
         self._initialized = True
+        self.monitor_manager = MonitorManager(self.config, self._monitor_notification)
+        self.monitor_manager.start()
+        self.wake_word = WakeWordListener(self.config, self._wake_detected)
+        self.wake_word.start()
+        self.home_assistant = HomeAssistantMqtt(self.config, self._home_assistant_command)
+        self.home_assistant.start()
         # Update window title with the loaded companion name
         global _window
         if _window:
@@ -288,19 +334,64 @@ class Api:
                 pass
 
     def _push_state(self) -> None:
+        self._queue_web_event({"type": "state", "value": self.get_state()})
         self._js(f"window.__onStateUpdate({json.dumps(self.get_state())})")
 
     def _push_chat(self, author: str, text: str, role: str) -> None:
+        self._queue_web_event({"type": "chat", "value": {"author": author, "text": text, "role": role}})
         payload = json.dumps({"author": author, "text": text, "role": role})
         self._js(f"window.__onChatMessage({payload})")
 
     def _push_status(self, msg: str) -> None:
+        self._queue_web_event({"type": "status", "value": msg})
+        if self.home_assistant: self.home_assistant.publish_state(msg)
         safe = json.dumps(msg)
         self._js(f"window.__onStatusUpdate({safe})")
 
     def _push_notification(self, msg: str) -> None:
+        self._queue_web_event({"type": "notification", "value": msg})
         safe = json.dumps(msg)
         self._js(f"window.__onNotification({safe})")
+
+    def _queue_web_event(self, event: dict[str, Any]) -> None:
+        with self._web_events_lock:
+            self._web_events.append(event)
+            if len(self._web_events) > 200: del self._web_events[:-200]
+
+    def get_web_events(self) -> list[dict[str, Any]]:
+        with self._web_events_lock:
+            events, self._web_events = self._web_events, []
+        return events
+
+    def _wake_detected(self) -> None:
+        self._push_notification(f"Wake word detected: {self.config.wake_word_model}")
+        if not self.session_started: self.start_session()
+        if not self.mic_muted and not self.busy: self.start_listen()
+
+    def _home_assistant_command(self, text: str) -> None:
+        if text == "WAKE": self._wake_detected(); return
+        if not self.session_started: self.start_session()
+        self.send_message(text)
+
+    def get_wake_word_status(self) -> dict[str, Any]:
+        return self.wake_word.status() if self.wake_word else {"enabled": False, "running": False}
+
+    def _monitor_notification(self, msg: str, level: str = "none") -> None:
+        """Deliver background monitor updates into chat and the toast layer."""
+        self._push_chat("Monitor", msg, "system")
+        self._push_notification(msg)
+        if level != "none" and self.config:
+            try:
+                play_alert_sound(level, self.config)
+            except Exception:
+                pass
+            if self.config.emergency_broadcast_tts and msg.startswith("Government emergency broadcast"):
+                # Run synthesis after the alarm cue on the monitor thread. The
+                # selected TTS may be local or the remote NekoAI Bridge.
+                try:
+                    self._speak(msg, "scared" if level == "danger" else "serious")
+                except Exception:
+                    pass
 
     # ── state ─────────────────────────────────────────────────────────────────
 
@@ -520,6 +611,17 @@ class Api:
         self._push_chat(user_name, user_text, "user")
         self._push_status("Thinking...")
 
+        if self.monitor_manager:
+            monitor_reply = self.monitor_manager.handle(user_text)
+            if monitor_reply is not None:
+                append_history("user", user_text)
+                append_history("assistant", monitor_reply)
+                self._push_chat(companion, monitor_reply, "assistant")
+                if self.state.voice_enabled and not self._stopped():
+                    self._speak(monitor_reply, "neutral")
+                self._push_status("Ready.")
+                return monitor_reply
+
         # Sticky wake-instructions + reset/clear — checked before anything else
         # so they always short-circuit with a quick acknowledgement rather than
         # a full LLM turn.
@@ -630,6 +732,12 @@ class Api:
         finally:
             stop_thinking_sound(thinking_timer)
         reply = result.reply
+
+        if result.alert_level != "none" and not self._stopped():
+            try:
+                play_alert_sound(result.alert_level, self.config)
+            except Exception:
+                pass
 
         if self._stopped():
             self._push_status("Stopped.")

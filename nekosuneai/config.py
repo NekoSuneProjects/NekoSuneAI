@@ -45,6 +45,8 @@ def normalize_input_mode(value: str) -> str:
 
 def normalize_stt_provider(value: str) -> str:
     normalized = value.strip().lower()
+    if normalized in {"bridge", "remote", "nekoai-bridge"}:
+        return "bridge"
     if normalized in {"google", "web"}:
         return "google"
     return "faster-whisper"
@@ -141,6 +143,8 @@ def _normalize_singing_backend(value: str) -> str:
 
 def normalize_tts_provider(value: str) -> str:
     normalized = value.strip().lower()
+    if normalized in {"bridge", "remote", "nekoai-bridge"}:
+        return "bridge"
     if normalized in {"gtts", "google-tts", "google_tts", "google"}:
         return "gtts"
     return "xtts"
@@ -336,6 +340,27 @@ class Config:
     vrchat_username: str | None
     vrchat_password: str | None
     vrchat_totp_secret: str | None
+    # Remote Model Context Protocol servers.  The first server is used for
+    # automatic realtime/weather routing; JSON allows more platforms later.
+    mcp_enabled: bool
+    mcp_servers_json: str
+    mcp_timeout_seconds: float
+    mcp_auto_route: bool
+    warning_sound_path: str | None
+    danger_sound_path: str | None
+    bridge_ws_url: str | None
+    bridge_user_id: str
+    bridge_tts_voice: str | None
+    emergency_broadcast_tts: bool
+    bridge_tts_engine: str
+    bridge_tts_rate: str
+    wake_word_enabled: bool
+    wake_word_model: str
+    wake_word_threshold: float
+    home_assistant_mqtt_host: str | None
+    home_assistant_mqtt_port: int
+    home_assistant_mqtt_username: str | None
+    home_assistant_mqtt_password: str | None
 
     @classmethod
     def from_env(cls) -> "Config":
@@ -647,4 +672,23 @@ class Config:
             vrchat_username=parse_optional_str_env("VRCHAT_USERNAME"),
             vrchat_password=parse_optional_str_env("VRCHAT_PASSWORD"),
             vrchat_totp_secret=parse_optional_str_env("VRCHAT_TOTP_SECRET"),
+            mcp_enabled=parse_bool_env("MCP_ENABLED", False),
+            mcp_servers_json=os.getenv("MCP_SERVERS_JSON", "[]").strip() or "[]",
+            mcp_timeout_seconds=max(3.0, float(os.getenv("MCP_TIMEOUT_SECONDS", "30"))),
+            mcp_auto_route=parse_bool_env("MCP_AUTO_ROUTE", True),
+            warning_sound_path=parse_optional_str_env("WARNING_SOUND_PATH"),
+            danger_sound_path=parse_optional_str_env("DANGER_SOUND_PATH"),
+            bridge_ws_url=parse_optional_str_env("BRIDGE_WS_URL"),
+            bridge_user_id=os.getenv("BRIDGE_USER_ID", "nekosuneai").strip() or "nekosuneai",
+            bridge_tts_voice=parse_optional_str_env("BRIDGE_TTS_VOICE"),
+            emergency_broadcast_tts=parse_bool_env("EMERGENCY_BROADCAST_TTS", True),
+            bridge_tts_engine=os.getenv("BRIDGE_TTS_ENGINE", "edge-stream").strip().lower() or "edge-stream",
+            bridge_tts_rate=os.getenv("BRIDGE_TTS_RATE", "+10%").strip() or "+10%",
+            wake_word_enabled=parse_bool_env("WAKE_WORD_ENABLED", False),
+            wake_word_model=os.getenv("WAKE_WORD_MODEL", "hey_jarvis").strip() or "hey_jarvis",
+            wake_word_threshold=max(0.1, min(0.95, float(os.getenv("WAKE_WORD_THRESHOLD", "0.55")))),
+            home_assistant_mqtt_host=parse_optional_str_env("HA_MQTT_HOST"),
+            home_assistant_mqtt_port=int(os.getenv("HA_MQTT_PORT", "1883")),
+            home_assistant_mqtt_username=parse_optional_str_env("HA_MQTT_USERNAME"),
+            home_assistant_mqtt_password=parse_optional_str_env("HA_MQTT_PASSWORD"),
         )

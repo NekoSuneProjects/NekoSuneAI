@@ -1,4 +1,39 @@
-# NekoSuneAI — Build & CI/CD
+# NekoSuneAI — Docker-first Build & CI/CD
+
+GitHub Actions builds run only on a self-hosted Linux x64 runner labelled:
+
+```yaml
+runs-on: [self-hosted, Linux, X64]
+```
+
+Normal pushes, pull requests and version tags build Docker images only. The
+multi-platform image covers `linux/amd64` plus `linux/arm64` for Raspberry Pi
+4/5 and is published to GitHub Container Registry outside pull requests.
+
+```bash
+docker compose build
+docker compose run --rm nekosuneai
+```
+
+Persistent configuration, SQLite data and generated audio remain in the host's
+`.env`, `data/` and `audio/` paths through Compose mounts.
+
+GitHub Actions builds Docker only. There are no Windows, Wine, PyInstaller,
+Linux package, `.deb`, `.rpm`, or `.apk` jobs in the GitHub workflow.
+
+## Cutting version 1.2.1
+
+```bash
+git tag v1.2.1
+git push origin v1.2.1
+```
+
+The tag must match `VERSION`. It publishes Docker `1.2.1`, `1.2`, and `latest`
+tags and creates the GitHub release after the image is available.
+
+---
+
+## Legacy pipelines
 
 Self-hosted build pipelines for desktop bundles. Pick the file that matches
 your platform — both build the same artifacts:

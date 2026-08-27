@@ -75,6 +75,12 @@ def normalize_gtts_language(language: str) -> str:
 
 
 def should_play_audio_after_synthesis(config: Config) -> bool:
+    if config.tts_provider == "bridge":
+        try:
+            from .bridge_voice import stream_was_played
+            if stream_was_played(): return False
+        except Exception:
+            pass
     # Chat RVC needs the fully-synthesized file to convert before anything is
     # played, so it forces the non-streaming path (see _speak_text_inner) —
     # meaning playback always happens afterward, same as gTTS/non-streaming XTTS.
@@ -1011,6 +1017,9 @@ def _speak_text_inner(
     state: SessionState,
     on_amplitude: Any = None,
 ) -> Path:
+    if config.tts_provider == "bridge":
+        from .bridge_voice import synthesize
+        return synthesize(cleaned_text, config)
     if config.tts_provider == "gtts":
         output_path = AUDIO_DIR / "latest_reply.mp3"
         return synthesize_gtts_to_file(cleaned_text, config, output_path)
@@ -1272,3 +1281,11 @@ def play_audio_file(
     finally:
         if envelope_thread is not None:
             envelope_thread.join(timeout=0.1)
+
+
+def play_alert_sound(level: str, config: Config) -> None:
+    """Play a configured warning/danger cue; missing files are harmless."""
+    raw = config.danger_sound_path if level == "danger" else config.warning_sound_path if level == "warning" else None
+    path = resolve_optional_path(raw)
+    if path and path.is_file():
+        play_audio_file(path, config.speaker_device_index)

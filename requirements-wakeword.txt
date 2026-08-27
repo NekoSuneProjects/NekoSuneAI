@@ -1,0 +1,4 @@
+# Optional local wake-word support for Raspberry Pi / Kinect microphones.
+sounddevice>=0.5,<0.6
+SpeechRecognition>=3.16,<4
+openwakeword>=0.6,<0.7
