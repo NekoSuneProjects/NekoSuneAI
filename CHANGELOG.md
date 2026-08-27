@@ -10,6 +10,8 @@
   crashes, with an advanced dashboard setting for either backend.
 - Repair the dashboard Start Session control so animated stage layers cannot
   intercept clicks, keep its full button styling, and surface backend errors.
+- Pin NumPy to the 1.x ABI used by Raspberry Pi wake-word native modules and
+  verify that ABI during the Docker build.
 
 All notable changes to **NekoSuneAI** are documented here.
 
