@@ -278,6 +278,21 @@ def route_tool(user_text: str) -> tuple[str, dict[str, Any]] | None:
     explicit = __import__("re").match(r"^/mcp\s+([\w.-]+)(?:\s+(\{.*\}))?$", text, __import__("re").S)
     if explicit:
         return explicit.group(1), json.loads(explicit.group(2) or "{}")
+    # Treat an explicit military-aircraft request as a military-only lookup.
+    # Include common spelling/plural variants so it cannot fall through to the
+    # general aircraft route merely because the wording was conversational.
+    if __import__("re").search(
+        r"\bmilit(?:ary|ery)\b.*\b(?:aircraft|airplanes?|aeroplanes?|planes?|jets?)\b",
+        lowered,
+    ):
+        args: dict[str, Any] = {}
+        location_match = __import__("re").search(
+            r"\b(?:in|around|near|for)\s+([A-Za-z][A-Za-z .,'-]{2,80}?)(?=\s+(?:every|within|each|and\s+keep|until)\b|[?.!,]|$)",
+            text, __import__("re").I,
+        )
+        if location_match and location_match.group(1).strip().lower() not in {"me", "here", "home", "my area"}:
+            args["location"] = location_match.group(1).strip()
+        return "military_aircraft_nearby", args
     for words, tool in _ROUTES:
         if any(word in lowered for word in words):
             args: dict[str, Any] = {}
@@ -333,7 +348,13 @@ def fetch_mcp_context(user_text: str, config: Config) -> tuple[str | None, str]:
             lowered = serialized.lower()
             danger = any(x in lowered for x in ('"severity": "extreme"', '"severity": "severe"', 'tornado warning', 'immediate threat'))
             warning = danger or any(x in lowered for x in ("warning", "alert", "hazard", "thunderstorm"))
-            return f"Remote MCP tool `{tool}` returned this current data. Use it accurately and mention uncertainty/coverage limits:\n{serialized[:12000]}", ("danger" if danger else "warning" if warning else "none")
+            return (
+                f"Remote MCP tool `{tool}` returned current data. Answer in short, normal spoken English. "
+                "Never paste or read the JSON, field names, provider metadata, coordinates, geocoder details, "
+                "or authentication information to the user. For aircraft, say the count and useful callsign, "
+                "distance, direction, altitude, and movement details only. Mention that public coverage may be incomplete.\n"
+                f"Private tool data for summarization only:\n{serialized[:12000]}"
+            ), ("danger" if danger else "warning" if warning else "none")
         except Exception as exc:
             errors.append(f"{client.server.name}: {exc}")
     if errors:

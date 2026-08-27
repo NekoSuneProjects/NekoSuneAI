@@ -22,6 +22,8 @@
   token-exchange failures instead of an opaque HTTP exception.
 - Add a Scheduled Monitors dashboard page with individual/remove-all controls,
   a clear-all RAG memory button, reliable clear commands, and monitor TTS.
+- Present scheduled MCP results as privacy-safe natural-language summaries and
+  route explicit military-aircraft requests to the military-only tracker.
 
 All notable changes to **NekoSuneAI** are documented here.
 

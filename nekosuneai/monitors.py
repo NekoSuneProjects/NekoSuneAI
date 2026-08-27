@@ -107,32 +107,66 @@ def _summary(monitor: Monitor, result: dict[str, Any]) -> str:
     emergency = _emergency_summary(monitor, payload)
     if emergency:
         return emergency
-    content = payload.get("content") if isinstance(payload, dict) else None
-    if isinstance(content, list):
-        text = next((str(item.get("text", "")) for item in content if isinstance(item, dict) and item.get("type") == "text"), "")
-        if text:
-            try:
-                payload = json.loads(text)
-            except ValueError:
-                return f"Scheduled update [{monitor.id}] {monitor.name}: {text[:1800]}"
+    # MCP transports may wrap the useful result in content/structuredContent
+    # more than once. Unwrap text JSON before formatting it for chat and TTS.
+    for _ in range(4):
+        if isinstance(payload, dict) and payload.get("structuredContent") is not None:
+            payload = payload["structuredContent"]
+            continue
+        content = payload.get("content") if isinstance(payload, dict) else None
+        if isinstance(content, list):
+            text = next((str(item.get("text", "")) for item in content if isinstance(item, dict) and item.get("type") == "text"), "")
+            if text:
+                try:
+                    payload = json.loads(text)
+                    continue
+                except ValueError:
+                    return f"Scheduled update [{monitor.id}]: {text[:1800]}"
+        break
     if monitor.tool in {"aircraft_nearby", "military_aircraft_nearby"} and isinstance(payload, dict):
         aircraft = payload.get("aircraft") if isinstance(payload.get("aircraft"), list) else []
         location = payload.get("reference") or payload.get("location") or {}
-        place = (location.get("displayName") or location.get("name") or "your saved area") if isinstance(location, dict) else str(location or "your saved area")
+        # Use only the short area name: never echo coordinates or detailed
+        # geocoding metadata into chat/TTS.
+        place = (location.get("name") or "your saved area") if isinstance(location, dict) else str(location or "your saved area")
         count = int(payload.get("count", len(aircraft)) or 0)
+        kind = "military aircraft" if monitor.tool == "military_aircraft_nearby" else "aircraft"
         if not aircraft:
-            return f"Scheduled aircraft update [{monitor.id}] for {place}: no aircraft were detected in the selected area."
+            return f"Scheduled {kind} update [{monitor.id}] for {place}: none were detected in the selected area."
         details = []
         for plane in aircraft[:3]:
             identity = plane.get("callsign") or plane.get("registration") or plane.get("aircraftType") or "unidentified aircraft"
             distance = plane.get("distanceNm")
             movement = plane.get("movement") or plane.get("flightPhase") or ""
+            if isinstance(movement, dict):
+                movement = movement.get("note") or movement.get("phase") or ""
             details.append(f"{identity}{f', {float(distance):.1f} nautical miles away' if isinstance(distance, (int, float)) else ''}{f', {movement}' if movement else ''}")
-        return f"Scheduled aircraft update [{monitor.id}] for {place}: {count} aircraft detected. " + ". ".join(details) + "."
-    compact = json.dumps(payload, ensure_ascii=False, default=str)
-    if len(compact) > 1800:
-        compact = compact[:1800] + "…"
-    return f"Scheduled update [{monitor.id}] {monitor.name}: {compact}"
+        return f"Scheduled {kind} update [{monitor.id}] for {place}: {count} detected. " + ". ".join(details) + "."
+    if monitor.tool in {"weather_now", "weather_forecast"} and isinstance(payload, dict):
+        location = payload.get("reference") or payload.get("location") or {}
+        place = (location.get("name") or "your saved area") if isinstance(location, dict) else str(location or "your saved area")
+        weather = payload.get("current") if isinstance(payload.get("current"), dict) else payload
+        temperature = weather.get("temperature") or weather.get("temperatureC") or weather.get("temp_c")
+        condition = weather.get("condition") or weather.get("summary") or weather.get("weather")
+        wind = weather.get("windSpeed") or weather.get("windSpeedKph") or weather.get("wind_kph")
+        parts = [str(condition).strip() if condition else ""]
+        if temperature is not None: parts.append(f"temperature {temperature} degrees Celsius")
+        if wind is not None: parts.append(f"wind speed {wind} kilometres per hour")
+        spoken = ", ".join(part for part in parts if part)
+        return f"Scheduled weather update [{monitor.id}] for {place}: {spoken or 'the forecast was refreshed, but no readable conditions were returned.'}"
+    if isinstance(payload, dict):
+        readable = []
+        for key, value in payload.items():
+            if key.lower() in {"provider", "reference", "latitude", "longitude", "caveat", "source"}:
+                continue
+            if isinstance(value, (str, int, float, bool)) and value not in ("", None):
+                label = re.sub(r"(?<!^)(?=[A-Z])", " ", key).replace("_", " ")
+                readable.append(f"{label} is {value}")
+            if len(readable) >= 5:
+                break
+        if readable:
+            return f"Scheduled update [{monitor.id}]: " + "; ".join(readable) + "."
+    return f"Scheduled update [{monitor.id}]: the check completed, but it did not return a readable result."
 
 
 class MonitorManager:

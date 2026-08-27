@@ -32,14 +32,22 @@ class MonitorParsingTests(unittest.TestCase):
 
     def test_summarizes_bridge_aircraft_without_reading_raw_json(self):
         monitor = Monitor("plane1", "aircraft — North Shields", "aircraft_nearby", {}, 300)
-        payload = {
-            "content": [{"type": "text", "text": '{"reference":{"displayName":"North Shields"},"count":1,"aircraft":[{"callsign":"SHT12U","distanceNm":8.3,"movement":"passing"}]}'}]
-        }
+        payload = {"content": [{"type": "text", "text":
+            '{"provider":"adsb.lol","reference":{"name":"North Shields","displayName":"North Shields, North Tyneside, England, United Kingdom","latitude":55.01646,"longitude":-1.44925},"count":1,"aircraft":[{"callsign":"SHT12U","distanceNm":8.3,"movement":{"phase":"ground","note":"Aircraft reports itself on the ground."}}]}'}]}
         spoken = _summary(monitor, payload)
         self.assertIn("North Shields", spoken)
-        self.assertIn("1 aircraft detected", spoken)
+        self.assertIn("1 detected", spoken)
         self.assertIn("SHT12U", spoken)
+        self.assertIn("reports itself on the ground", spoken)
         self.assertNotIn('"aircraft"', spoken)
+        self.assertNotIn("55.01646", spoken)
+        self.assertNotIn("adsb.lol", spoken)
+
+    def test_labels_military_only_results(self):
+        monitor = Monitor("mil1", "military aircraft — saved area", "military_aircraft_nearby", {}, 300)
+        spoken = _summary(monitor, {"reference": {"name": "saved area"}, "count": 0, "aircraft": []})
+        self.assertIn("military aircraft update", spoken)
+        self.assertIn("none were detected", spoken)
 
     def test_cleans_government_alert_for_tts(self):
         monitor = Monitor("alert1", "UK alerts", "emergency_alerts", {"region":"GB"}, 300)

@@ -9,6 +9,7 @@ class McpRoutingTests(unittest.TestCase):
     def test_routes_realtime_requests(self):
         self.assertEqual(route_tool("show rain radar near me")[0], "weather_radar")
         self.assertEqual(route_tool("any military aircraft near me?")[0], "military_aircraft_nearby")
+        self.assertEqual(route_tool("Can you track any militery Airplanes please realtime near me")[0], "military_aircraft_nearby")
 
     def test_preserves_selected_area_and_radius(self):
         tool, args = route_tool("track aircraft within 30 miles around Newcastle upon Tyne every 5 minutes")
