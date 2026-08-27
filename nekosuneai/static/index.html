@@ -651,7 +651,7 @@ async function loadWakeStatus() {
   const el = $('d-wake-status'); if (!el || !_appReady) return;
   try {
     const s = await api().get_wake_word_status();
-    el.textContent = s.running ? `${s.model} listening · score ${s.last_score}` : s.enabled ? `Needs attention: ${s.error || 'listener stopped'}` : 'Disabled · enable in Settings';
+    el.textContent = s.running ? `${s.model} listening via ${s.framework || 'auto'} · score ${s.last_score}` : s.enabled ? `Needs attention: ${s.error || 'listener stopped'}` : 'Disabled · enable in Settings';
     el.className = s.running ? 'text-cyan-200' : 'text-nova-muted';
   } catch (_) { el.textContent = 'Status unavailable'; }
 }

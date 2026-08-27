@@ -356,6 +356,7 @@ class Config:
     bridge_tts_rate: str
     wake_word_enabled: bool
     wake_word_model: str
+    wake_word_framework: str
     wake_word_threshold: float
     home_assistant_mqtt_host: str | None
     home_assistant_mqtt_port: int
@@ -686,6 +687,11 @@ class Config:
             bridge_tts_rate=os.getenv("BRIDGE_TTS_RATE", "+10%").strip() or "+10%",
             wake_word_enabled=parse_bool_env("WAKE_WORD_ENABLED", False),
             wake_word_model=os.getenv("WAKE_WORD_MODEL", "hey_jarvis").strip() or "hey_jarvis",
+            wake_word_framework=(
+                os.getenv("WAKE_WORD_FRAMEWORK", "onnx").strip().lower()
+                if os.getenv("WAKE_WORD_FRAMEWORK", "onnx").strip().lower() in {"onnx", "tflite"}
+                else "onnx"
+            ),
             wake_word_threshold=max(0.1, min(0.95, float(os.getenv("WAKE_WORD_THRESHOLD", "0.55")))),
             home_assistant_mqtt_host=parse_optional_str_env("HA_MQTT_HOST"),
             home_assistant_mqtt_port=int(os.getenv("HA_MQTT_PORT", "1883")),

@@ -63,6 +63,7 @@ Set a long random `WEB_DASHBOARD_TOKEN`, then enable wake-word detection:
 WEB_DASHBOARD_TOKEN=replace-with-a-long-random-value
 WAKE_WORD_ENABLED=true
 WAKE_WORD_MODEL=hey_jarvis
+WAKE_WORD_FRAMEWORK=onnx
 WAKE_WORD_THRESHOLD=0.55
 ```
 
@@ -76,6 +77,8 @@ http://RASPBERRY_PI_IP:8788/?token=YOUR_TOKEN
 phrase, train/download an openWakeWord ONNX/TFLite model, mount it into the
 container, and put its path in `WAKE_WORD_MODEL`. Increase the threshold to
 reduce false activations; lower it carefully if the Kinect misses your voice.
+Use `onnx` on Raspberry Pi; `tflite` is optional and can fail when its native
+runtime wheel does not match the Pi OS/Python combination.
 
 ## 4. Home Assistant
 

@@ -30,12 +30,18 @@ class WakeWordListener:
             from openwakeword.model import Model
 
             model_name = self.config.wake_word_model
+            framework = self.config.wake_word_framework
+            suffix = Path(model_name).suffix.lower()
+            if suffix == ".onnx":
+                framework = "onnx"
+            elif suffix == ".tflite":
+                framework = "tflite"
             # The PyPI package intentionally does not include pretrained model
             # files. Download official named models once before loading them.
             # Explicit file paths are left alone for custom "Hey Neko" models.
             if not Path(model_name).expanduser().is_file():
                 openwakeword.utils.download_models(model_names=[model_name])
-            model = Model(wakeword_models=[model_name])
+            model = Model(wakeword_models=[model_name], inference_framework=framework)
             while not self.stop_event.is_set():
                 triggered = False
                 with sd.InputStream(samplerate=16000, channels=1, dtype="int16",
@@ -58,4 +64,5 @@ class WakeWordListener:
     def status(self) -> dict:
         return {"enabled": self.config.wake_word_enabled, "running": bool(self.thread and self.thread.is_alive()),
                 "model": self.config.wake_word_model, "threshold": self.config.wake_word_threshold,
+                "framework": self.config.wake_word_framework,
                 "last_score": round(self.last_score, 3), "error": self.error}

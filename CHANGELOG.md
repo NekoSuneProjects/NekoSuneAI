@@ -6,6 +6,8 @@
   fetch missing official wake-word models at runtime.
 - Expose the Raspberry Pi user's PipeWire/PulseAudio session to Docker, install
   ALSA/Pulse discovery tools, and report Kinect/Alexa device errors in Settings.
+- Default wake-word inference to ONNX to avoid Raspberry Pi TFLite native-wrapper
+  crashes, with an advanced dashboard setting for either backend.
 
 All notable changes to **NekoSuneAI** are documented here.
 

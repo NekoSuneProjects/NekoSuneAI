@@ -206,6 +206,8 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
         "fields": [
             {"key": "wake_word_enabled", "label": "Enable local wake word", "type": "bool"},
             {"key": "wake_word_model", "label": "Wake-word model/name", "type": "text"},
+            {"key": "wake_word_framework", "label": "Inference backend", "type": "select",
+             "options": ["onnx", "tflite"]},
             {"key": "wake_word_threshold", "label": "Detection threshold", "type": "float"},
             {"key": "home_assistant_mqtt_host", "label": "Home Assistant MQTT host", "type": "text"},
             {"key": "home_assistant_mqtt_port", "label": "MQTT port", "type": "int"},
