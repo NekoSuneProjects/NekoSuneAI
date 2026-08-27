@@ -1117,13 +1117,15 @@ async function doStartSession() {
 }
 
 async function doConnectMcpOAuth() {
+  const popup = window.open('', 'neko-mcp-oauth', 'popup,width=720,height=820');
   try {
     await doSaveAppSection('mcp');
     const redirect = location.origin + '/oauth/callback';
     const result = await api().start_mcp_oauth(redirect);
-    if (!result || !result.ok) { showNotification((result && result.msg) || 'Could not start OAuth.'); return; }
-    window.open(result.authorization_url, 'neko-mcp-oauth', 'popup,width=720,height=820');
-  } catch(e) { showNotification('Could not start OAuth: ' + (e.message || e)); }
+    if (!result || !result.ok) { if (popup) popup.close(); showNotification((result && result.msg) || 'Could not start OAuth.'); return; }
+    if (popup) popup.location.href = result.authorization_url;
+    else showNotification('Allow pop-ups for this dashboard, then press Connect OAuth again.');
+  } catch(e) { if (popup) popup.close(); showNotification('Could not start OAuth: ' + (e.message || e)); }
 }
 window.addEventListener('message', e => {
   if (e.origin === location.origin && e.data && e.data.type === 'neko-oauth-complete') {
