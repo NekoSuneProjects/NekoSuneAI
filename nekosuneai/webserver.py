@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import html
 import mimetypes
 import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -37,6 +38,19 @@ def serve(host: str, port: int, token: str | None = None) -> None:
 
         def do_GET(self):
             parsed = urlparse(self.path)
+            if parsed.path == "/oauth/callback":
+                query = parse_qs(parsed.query)
+                error = query.get("error", [""])[0]
+                result = ({"ok": False, "msg": error} if error else api.complete_mcp_oauth(
+                    query.get("state", [""])[0], query.get("code", [""])[0]
+                ))
+                message = html.escape(str(result.get("msg", "OAuth complete.")))
+                body = ("<!doctype html><meta charset='utf-8'><title>NekoSuneAI OAuth</title>"
+                        "<body style='background:#080914;color:#f4f2ff;font:18px system-ui;padding:40px'>"
+                        f"<h1>{'Connected' if result.get('ok') else 'Connection failed'}</h1><p>{message}</p>"
+                        "<script>if(window.opener){window.opener.postMessage({type:'neko-oauth-complete'},location.origin);setTimeout(()=>window.close(),900)}</script></body>").encode()
+                self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8")
+                self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
             if parsed.path == "/api/events":
                 if not self._authorized(): return self._json(401, {"error":"unauthorized"})
                 return self._json(200, {"events": api.get_web_events()})

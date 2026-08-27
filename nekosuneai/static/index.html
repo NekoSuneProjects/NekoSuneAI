@@ -824,7 +824,8 @@ function _renderAppSection(name, meta) {
     const step = f.type === 'float' ? ' step="0.05"' : '';
     return `<label class="flex flex-col gap-1 text-[11px] text-nova-muted"><span>${escHtml(f.label)}</span><input id="${id}" type="${itype}"${step} class="w-full" value="${escHtml(v)}" /></label>`;
   }).join('');
-  card.innerHTML = `<div class="flex items-center justify-between mb-2"><div class="text-[12px] font-bold">${escHtml(meta.label)}</div><button class="btn-primary px-3 py-1 rounded text-[11px]" onclick="doSaveAppSection('${name}')">Save</button></div><div class="grid grid-cols-2 gap-x-3 gap-y-2">${grid}</div>`;
+  const oauthButton = name === 'mcp' ? `<button class="btn-secondary px-3 py-1 rounded text-[11px]" onclick="doConnectMcpOAuth()">Connect OAuth</button>` : '';
+  card.innerHTML = `<div class="flex items-center justify-between mb-2"><div class="text-[12px] font-bold">${escHtml(meta.label)}</div><div class="flex gap-2">${oauthButton}<button class="btn-primary px-3 py-1 rounded text-[11px]" onclick="doSaveAppSection('${name}')">Save</button></div></div><div class="grid grid-cols-2 gap-x-3 gap-y-2">${grid}</div>`;
   return card;
 }
 
@@ -1114,6 +1115,22 @@ async function doStartSession() {
     btn.textContent = 'Start Session';
   }
 }
+
+async function doConnectMcpOAuth() {
+  try {
+    await doSaveAppSection('mcp');
+    const redirect = location.origin + '/oauth/callback';
+    const result = await api().start_mcp_oauth(redirect);
+    if (!result || !result.ok) { showNotification((result && result.msg) || 'Could not start OAuth.'); return; }
+    window.open(result.authorization_url, 'neko-mcp-oauth', 'popup,width=720,height=820');
+  } catch(e) { showNotification('Could not start OAuth: ' + (e.message || e)); }
+}
+window.addEventListener('message', e => {
+  if (e.origin === location.origin && e.data && e.data.type === 'neko-oauth-complete') {
+    showNotification('OAuth connected. Scheduled monitors will use it automatically.');
+    loadAppSettings();
+  }
+});
 
 async function doEndSession() {
   if (!_appReady) return;

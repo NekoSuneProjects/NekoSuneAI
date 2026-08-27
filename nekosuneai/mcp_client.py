@@ -6,7 +6,11 @@ kept on ``requests`` so it remains inexpensive on Raspberry Pi systems.
 from __future__ import annotations
 
 import json
+import base64
+import hashlib
+import secrets
 import threading
+from urllib.parse import urlencode, urlsplit
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -49,13 +53,14 @@ def load_servers(config: Config) -> list[McpServerConfig]:
 
 
 class McpClient:
-    def __init__(self, server: McpServerConfig, timeout: float = 30) -> None:
+    def __init__(self, server: McpServerConfig, timeout: float = 30, credentials_changed=None) -> None:
         self.server = server
         self.timeout = timeout
         self.session = requests.Session()
         self.session_id: str | None = None
         self._request_id = 0
         self._lock = threading.RLock()
+        self.credentials_changed = credentials_changed
 
     def _headers(self) -> dict[str, str]:
         headers = {"Accept": "application/json, text/event-stream", "Content-Type": "application/json"}
@@ -95,6 +100,8 @@ class McpClient:
         body = response.json()
         s.oauth_access_token = body["access_token"]
         s.oauth_refresh_token = body.get("refresh_token", s.oauth_refresh_token)
+        if self.credentials_changed:
+            self.credentials_changed(s)
         return True
 
     def _post(self, payload: dict[str, Any], retry_auth: bool = True) -> dict[str, Any]:
@@ -136,6 +143,97 @@ class McpClient:
 
 
 _CLIENTS: dict[str, McpClient] = {}
+_OAUTH_PENDING: dict[str, dict[str, str]] = {}
+
+
+def _persist_oauth_server(config: Config, updated: McpServerConfig) -> None:
+    raw = json.loads(config.mcp_servers_json or "[]")
+    servers = raw.get("servers", []) if isinstance(raw, dict) else raw
+    for item in servers:
+        if isinstance(item, dict) and item.get("name") == updated.name:
+            item.update({
+                "auth": "oauth",
+                "oauth_access_token": updated.oauth_access_token,
+                "oauth_refresh_token": updated.oauth_refresh_token,
+                "oauth_client_id": updated.oauth_client_id,
+                "oauth_client_secret": updated.oauth_client_secret,
+                "oauth_token_url": updated.oauth_token_url,
+            })
+            for key in ("bearer_token", "api_key", "api_key_header"):
+                item.pop(key, None)
+    config.mcp_servers_json = json.dumps(raw, separators=(",", ":"))
+    try:
+        from . import database
+        store = json.loads(database.get_state("app_settings", "{}") or "{}")
+        store["mcp_servers_json"] = config.mcp_servers_json
+        database.set_state("app_settings", json.dumps(store))
+    except Exception:
+        pass
+
+
+def begin_oauth(config: Config, server_name: str, redirect_uri: str) -> str:
+    server = next((s for s in load_servers(config) if s.name == server_name), None)
+    if not server:
+        raise RuntimeError(f"MCP server '{server_name}' was not found.")
+    parts = urlsplit(server.url)
+    origin = f"{parts.scheme}://{parts.netloc}"
+    metadata = requests.get(f"{origin}/.well-known/oauth-authorization-server", timeout=config.mcp_timeout_seconds)
+    metadata.raise_for_status()
+    oauth = metadata.json()
+    register_url = oauth.get("registration_endpoint")
+    if not register_url:
+        raise RuntimeError("MCP OAuth server does not advertise dynamic client registration.")
+    registration = requests.post(register_url, json={
+        "client_name": "NekoSuneAI",
+        "redirect_uris": [redirect_uri],
+        "grant_types": ["authorization_code", "refresh_token"],
+        "response_types": ["code"],
+        "token_endpoint_auth_method": "none",
+        "application_type": "web",
+    }, timeout=config.mcp_timeout_seconds)
+    registration.raise_for_status()
+    client = registration.json()
+    verifier = secrets.token_urlsafe(64)
+    challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+    state = secrets.token_urlsafe(32)
+    _OAUTH_PENDING[state] = {
+        "server_name": server.name, "client_id": client["client_id"],
+        "verifier": verifier, "redirect_uri": redirect_uri,
+        "token_url": oauth["token_endpoint"], "client_secret": client.get("client_secret", ""),
+    }
+    params = {
+        "response_type": "code", "client_id": client["client_id"],
+        "redirect_uri": redirect_uri, "scope": "mcp offline_access profile realtime weather aircraft emergency-alerts",
+        "state": state, "code_challenge": challenge, "code_challenge_method": "S256",
+        "resource": server.url,
+    }
+    return f"{oauth['authorization_endpoint']}?{urlencode(params)}"
+
+
+def complete_oauth(config: Config, state: str, code: str) -> None:
+    pending = _OAUTH_PENDING.pop(state, None)
+    if not pending:
+        raise RuntimeError("OAuth state is invalid or expired. Start Connect OAuth again.")
+    payload = {
+        "grant_type": "authorization_code", "code": code,
+        "redirect_uri": pending["redirect_uri"], "client_id": pending["client_id"],
+        "code_verifier": pending["verifier"],
+    }
+    if pending["client_secret"]:
+        payload["client_secret"] = pending["client_secret"]
+    response = requests.post(pending["token_url"], data=payload, timeout=config.mcp_timeout_seconds)
+    response.raise_for_status()
+    token = response.json()
+    server = McpServerConfig(
+        name=pending["server_name"], url="", auth="oauth",
+        oauth_access_token=token["access_token"], oauth_refresh_token=token.get("refresh_token"),
+        oauth_client_id=pending["client_id"], oauth_client_secret=pending["client_secret"] or None,
+        oauth_token_url=pending["token_url"],
+    )
+    _persist_oauth_server(config, server)
+    for client in _CLIENTS.values():
+        if client.server.name == server.name:
+            client.session_id = None
 
 
 def get_clients(config: Config) -> list[McpClient]:
@@ -146,7 +244,10 @@ def get_clients(config: Config) -> list[McpClient]:
         key = f"{server.name}:{server.url}"
         client = _CLIENTS.get(key)
         if client is None:
-            client = _CLIENTS[key] = McpClient(server, config.mcp_timeout_seconds)
+            client = _CLIENTS[key] = McpClient(server, config.mcp_timeout_seconds, lambda s: _persist_oauth_server(config, s))
+        else:
+            client.server = server
+            client.credentials_changed = lambda s: _persist_oauth_server(config, s)
         clients.append(client)
     return clients
 

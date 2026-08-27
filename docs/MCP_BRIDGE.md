@@ -12,6 +12,14 @@ API-key header. OAuth mode sends an OAuth access token and automatically uses a
 refresh token when the server returns 401 (when client ID and token URL are set).
 Keep tokens private and never commit real values.
 
+For an OAuth-only or mixed bridge, save the server URL in Settings and press
+**Connect OAuth**. NekoSuneAI dynamically registers its exact dashboard callback,
+opens the Bridge consent page with PKCE-S256, and stores the resulting access and
+rotating refresh tokens. Enter the desired Bridge User `nai_...` token only on
+the Bridge consent page; NekoSuneAI never receives that account token during the
+OAuth exchange. The dashboard must be opened through an address the same browser
+can return to, such as `http://RASPBERRY_PI_IP:8788`, not `0.0.0.0`.
+
 See `.env.example` for both formats. Multiple server objects may be added to the
 list. NekoSuneAI tries enabled servers in order.
 

@@ -410,6 +410,25 @@ class Api:
     def get_wake_word_status(self) -> dict[str, Any]:
         return self.wake_word.status() if self.wake_word else {"enabled": False, "running": False}
 
+    def start_mcp_oauth(self, redirect_uri: str) -> dict[str, Any]:
+        if (err := self._not_ready()): return err
+        try:
+            from .mcp_client import begin_oauth, load_servers
+            servers = load_servers(self.config)
+            if not servers:
+                return {"ok": False, "msg": "Add the MCP server URL and save it first."}
+            return {"ok": True, "authorization_url": begin_oauth(self.config, servers[0].name, redirect_uri)}
+        except Exception as exc:
+            return {"ok": False, "msg": f"Could not start OAuth: {exc}"}
+
+    def complete_mcp_oauth(self, state: str, code: str) -> dict[str, Any]:
+        try:
+            from .mcp_client import complete_oauth
+            complete_oauth(self.config, state, code)
+            return {"ok": True, "msg": "NekoAI Bridge OAuth connected."}
+        except Exception as exc:
+            return {"ok": False, "msg": str(exc)}
+
     def _monitor_notification(self, msg: str, level: str = "none") -> None:
         """Deliver background monitor updates into chat and the toast layer."""
         self._push_chat("Monitor", msg, "system")

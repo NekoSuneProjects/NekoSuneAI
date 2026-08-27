@@ -16,6 +16,8 @@
   channel to mono for wake-word detection and speech recognition.
 - Temporarily release exclusive ALSA microphones while manual/hands-free STT or
   calibration is active, then re-arm wake-word listening automatically.
+- Add a dashboard OAuth 2.1 connection flow for MCP using discovery, dynamic
+  registration, PKCE-S256, consent callback, and persistent rotating tokens.
 
 All notable changes to **NekoSuneAI** are documented here.
 
