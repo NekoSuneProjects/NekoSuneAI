@@ -358,6 +358,9 @@ class Config:
     monitor_tts_enabled: bool
     bridge_tts_engine: str
     bridge_tts_rate: str
+    bluetooth_reconnect_enabled: bool
+    bluetooth_speaker_address: str | None
+    bluetooth_reconnect_interval_seconds: float
     wake_word_enabled: bool
     wake_word_model: str
     wake_word_framework: str
@@ -693,6 +696,9 @@ class Config:
             monitor_tts_enabled=parse_bool_env("MONITOR_TTS_ENABLED", True),
             bridge_tts_engine=os.getenv("BRIDGE_TTS_ENGINE", "edge-stream").strip().lower() or "edge-stream",
             bridge_tts_rate=os.getenv("BRIDGE_TTS_RATE", "+10%").strip() or "+10%",
+            bluetooth_reconnect_enabled=parse_bool_env("BLUETOOTH_RECONNECT_ENABLED", False),
+            bluetooth_speaker_address=parse_optional_str_env("BLUETOOTH_SPEAKER_ADDRESS"),
+            bluetooth_reconnect_interval_seconds=max(3.0, float(os.getenv("BLUETOOTH_RECONNECT_INTERVAL_SECONDS", "10"))),
             wake_word_enabled=parse_bool_env("WAKE_WORD_ENABLED", False),
             wake_word_model=os.getenv("WAKE_WORD_MODEL", "hey_jarvis").strip() or "hey_jarvis",
             wake_word_framework=(

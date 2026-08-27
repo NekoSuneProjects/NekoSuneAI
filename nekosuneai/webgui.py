@@ -201,6 +201,9 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "danger_sound_path", "label": "Danger sound file", "type": "text"},
             {"key": "emergency_broadcast_tts", "label": "Read government emergency broadcasts aloud", "type": "bool"},
             {"key": "monitor_tts_enabled", "label": "Read scheduled monitor updates aloud", "type": "bool"},
+            {"key": "bluetooth_reconnect_enabled", "label": "Automatically reconnect Alexa Bluetooth", "type": "bool"},
+            {"key": "bluetooth_speaker_address", "label": "Alexa Bluetooth address (AA:BB:CC:DD:EE:FF)", "type": "text"},
+            {"key": "bluetooth_reconnect_interval_seconds", "label": "Bluetooth reconnect check (seconds)", "type": "float"},
         ],
     },
     "home": {
@@ -313,6 +316,7 @@ class Api:
         self.monitor_manager: MonitorManager | None = None
         self.wake_word: WakeWordListener | None = None
         self.home_assistant: HomeAssistantMqtt | None = None
+        self.bluetooth_watchdog: Any = None
         self._web_events: list[dict[str, Any]] = []
         self._web_events_lock = threading.Lock()
 
@@ -342,6 +346,9 @@ class Api:
         self.wake_word.start()
         self.home_assistant = HomeAssistantMqtt(self.config, self._home_assistant_command)
         self.home_assistant.start()
+        from .bluetooth_watchdog import BluetoothSpeakerWatchdog
+        self.bluetooth_watchdog = BluetoothSpeakerWatchdog(self.config, self._push_notification)
+        self.bluetooth_watchdog.start()
         # Update window title with the loaded companion name
         global _window
         if _window:
@@ -947,6 +954,15 @@ class Api:
         finally:
             self._release()
 
+    def reconnect_bluetooth_speaker(self) -> dict[str, Any]:
+        if (err := self._not_ready()):
+            return err
+        if not self.bluetooth_watchdog:
+            return {"ok": False, "msg": "Bluetooth watchdog is not ready."}
+        ok, message = self.bluetooth_watchdog.reconnect_now()
+        self._push_notification(message)
+        return {"ok": ok, "msg": message}
+
     # ── game agent ────────────────────────────────────────────────────────────
 
     def _game_narrate(self, text: str, emotion: str = "neutral") -> None:
@@ -1168,6 +1184,8 @@ class Api:
             self._reresolve_llm_url()
             if self.memory:
                 self.memory.config = self.config  # pick up new embedding settings
+        if section == "mcp" and self.bluetooth_watchdog:
+            self.bluetooth_watchdog.start()
         try:
             from . import database
 

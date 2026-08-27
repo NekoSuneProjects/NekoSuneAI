@@ -28,6 +28,8 @@
   the forecast reports an elevated lightning risk.
 - Automatically generate bundled warning and danger WAV sounds in Docker's
   mounted audio directory on first launch without external downloads.
+- Add a BlueZ watchdog that reconnects a pre-paired Alexa Bluetooth speaker and
+  restores its PulseAudio/PipeWire sink as the default output.
 
 All notable changes to **NekoSuneAI** are documented here.
 

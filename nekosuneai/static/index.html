@@ -838,7 +838,7 @@ function _renderAppSection(name, meta) {
     const step = f.type === 'float' ? ' step="0.05"' : '';
     return `<label class="flex flex-col gap-1 text-[11px] text-nova-muted"><span>${escHtml(f.label)}</span><input id="${id}" type="${itype}"${step} class="w-full" value="${escHtml(v)}" /></label>`;
   }).join('');
-  const mcpButtons = name === 'mcp' ? `<button class="btn-secondary px-3 py-1 rounded text-[11px]" onclick="doTestTtsOutput()">Test TTS / Alexa</button><button class="btn-secondary px-3 py-1 rounded text-[11px]" onclick="doConnectMcpOAuth()">Connect OAuth</button>` : '';
+  const mcpButtons = name === 'mcp' ? `<button class="btn-secondary px-3 py-1 rounded text-[11px]" onclick="doReconnectAlexa()">Reconnect Alexa</button><button class="btn-secondary px-3 py-1 rounded text-[11px]" onclick="doTestTtsOutput()">Test TTS / Alexa</button><button class="btn-secondary px-3 py-1 rounded text-[11px]" onclick="doConnectMcpOAuth()">Connect OAuth</button>` : '';
   card.innerHTML = `<div class="flex items-center justify-between mb-2"><div class="text-[12px] font-bold">${escHtml(meta.label)}</div><div class="flex gap-2">${mcpButtons}<button class="btn-primary px-3 py-1 rounded text-[11px]" onclick="doSaveAppSection('${name}')">Save</button></div></div><div class="grid grid-cols-2 gap-x-3 gap-y-2">${grid}</div>`;
   return card;
 }
@@ -1176,6 +1176,14 @@ async function doTestTtsOutput() {
     const result = await api().test_tts_output();
     showNotification((result && result.msg) || 'TTS test finished.');
   } catch(e) { showNotification('TTS test failed: ' + (e.message || e)); }
+}
+
+async function doReconnectAlexa() {
+  try {
+    await doSaveAppSection('mcp');
+    const result = await api().reconnect_bluetooth_speaker();
+    showNotification((result && result.msg) || 'Alexa reconnect finished.');
+  } catch(e) { showNotification('Alexa reconnect failed: ' + (e.message || e)); }
 }
 window.addEventListener('message', e => {
   if (e.origin === location.origin && e.data && e.data.type === 'neko-oauth-complete') {
