@@ -146,6 +146,17 @@ _CLIENTS: dict[str, McpClient] = {}
 _OAUTH_PENDING: dict[str, dict[str, str]] = {}
 
 
+def _oauth_response_error(response: requests.Response, action: str) -> None:
+    if response.status_code < 400:
+        return
+    try:
+        body = response.json()
+        detail = body.get("error_description") or body.get("error") or response.text
+    except (ValueError, AttributeError):
+        detail = response.text
+    raise RuntimeError(f"OAuth {action} failed (HTTP {response.status_code}): {str(detail).strip()[:500]}")
+
+
 def _persist_oauth_server(config: Config, updated: McpServerConfig) -> None:
     raw = json.loads(config.mcp_servers_json or "[]")
     servers = raw.get("servers", []) if isinstance(raw, dict) else raw
@@ -178,7 +189,7 @@ def begin_oauth(config: Config, server_name: str, redirect_uri: str) -> str:
     parts = urlsplit(server.url)
     origin = f"{parts.scheme}://{parts.netloc}"
     metadata = requests.get(f"{origin}/.well-known/oauth-authorization-server", timeout=config.mcp_timeout_seconds)
-    metadata.raise_for_status()
+    _oauth_response_error(metadata, "discovery")
     oauth = metadata.json()
     register_url = oauth.get("registration_endpoint")
     if not register_url:
@@ -191,7 +202,7 @@ def begin_oauth(config: Config, server_name: str, redirect_uri: str) -> str:
         "token_endpoint_auth_method": "none",
         "application_type": "web",
     }, timeout=config.mcp_timeout_seconds)
-    registration.raise_for_status()
+    _oauth_response_error(registration, "client registration")
     client = registration.json()
     verifier = secrets.token_urlsafe(64)
     challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
@@ -222,7 +233,7 @@ def complete_oauth(config: Config, state: str, code: str) -> None:
     if pending["client_secret"]:
         payload["client_secret"] = pending["client_secret"]
     response = requests.post(pending["token_url"], data=payload, timeout=config.mcp_timeout_seconds)
-    response.raise_for_status()
+    _oauth_response_error(response, "token exchange")
     token = response.json()
     server = McpServerConfig(
         name=pending["server_name"], url="", auth="oauth",

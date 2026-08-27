@@ -18,6 +18,8 @@
   calibration is active, then re-arm wake-word listening automatically.
 - Add a dashboard OAuth 2.1 connection flow for MCP using discovery, dynamic
   registration, PKCE-S256, consent callback, and persistent rotating tokens.
+- Show the Bridge's OAuth error description for discovery, registration and
+  token-exchange failures instead of an opaque HTTP exception.
 
 All notable changes to **NekoSuneAI** are documented here.
 
