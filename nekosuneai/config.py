@@ -49,6 +49,8 @@ def normalize_stt_provider(value: str) -> str:
         return "bridge"
     if normalized in {"google", "web"}:
         return "google"
+    if normalized in {"vosk", "local-lite", "local_light", "pi"}:
+        return "vosk"
     return "faster-whisper"
 
 
@@ -282,6 +284,7 @@ class Config:
     stt_provider: str
     stt_use_gpu: bool
     stt_model: str
+    vosk_model_path: str
     stt_compute_type: str
     stt_beam_size: int
     stt_best_of: int
@@ -611,6 +614,9 @@ class Config:
             ),
             stt_use_gpu=stt_use_gpu,
             stt_model=stt_model,
+            vosk_model_path=os.getenv(
+                "VOSK_MODEL_PATH", "/app/models/vosk-model-small-en-us-0.15"
+            ).strip() or "/app/models/vosk-model-small-en-us-0.15",
             stt_compute_type=stt_compute_type,
             stt_beam_size=stt_beam_size,
             stt_best_of=stt_best_of,

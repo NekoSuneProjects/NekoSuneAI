@@ -16,6 +16,10 @@ RUN python -m pip install -r requirements-wakeword.txt \
     && python -c "import numpy; assert int(numpy.__version__.split('.')[0]) == 1, numpy.__version__" \
     && python -c "import openwakeword.utils; openwakeword.utils.download_models(model_names=['hey_jarvis'])"
 COPY . .
+RUN mkdir -p /app/models /tmp/vosk-model \
+    && curl -fL --retry 5 --retry-delay 2 -o /tmp/vosk-model/model.zip https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip \
+    && python -c "import zipfile; zipfile.ZipFile('/tmp/vosk-model/model.zip').extractall('/app/models')" \
+    && rm -rf /tmp/vosk-model
 RUN mkdir -p /app/data /app/audio && touch /app/.setup-complete
 VOLUME ["/app/data", "/app/audio"]
 EXPOSE 8788

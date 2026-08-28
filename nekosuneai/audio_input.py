@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import re
+from pathlib import Path
 from typing import Any, TYPE_CHECKING
 
 import numpy as np
@@ -379,13 +381,30 @@ def ensure_speech_recognizer(config: Config, state: SessionState) -> sr.Recogniz
 def get_stt_model_signature(config: Config) -> tuple[Any, ...]:
     return (
         config.stt_provider,
-        config.stt_model,
+        config.vosk_model_path if config.stt_provider == "vosk" else config.stt_model,
         get_stt_device(config),
         get_stt_compute_type(config),
     )
 
 
 def ensure_stt_model(config: Config, state: SessionState) -> Any:
+    if config.stt_provider == "vosk":
+        signature = get_stt_model_signature(config)
+        if state.stt_model_instance is not None and state.stt_model_signature == signature:
+            return state.stt_model_instance
+        try:
+            from vosk import Model
+        except ImportError as exc:
+            raise RuntimeError("Vosk local STT is not installed in this image.") from exc
+        model_path = Path(config.vosk_model_path).expanduser()
+        if not model_path.is_dir():
+            raise RuntimeError(
+                f"Vosk model was not found at '{model_path}'. Pull the latest Docker image "
+                "or set VOSK_MODEL_PATH to the extracted small model folder."
+            )
+        state.stt_model_instance = Model(str(model_path))
+        state.stt_model_signature = signature
+        return state.stt_model_instance
     if config.stt_provider != "faster-whisper":
         return None
 
@@ -463,6 +482,10 @@ def print_input_devices() -> None:
 
 
 def describe_stt_backend(config: Config) -> str:
+    if config.stt_provider == "vosk":
+        return "Vosk small (local/offline)"
+    if config.stt_provider == "bridge":
+        return "NekoAI Bridge Whisper (remote)"
     if config.stt_provider == "google":
         return "google"
     return (
@@ -526,6 +549,24 @@ def transcribe_audio_with_google(
     return text, config.stt_language
 
 
+def transcribe_audio_with_vosk(
+    audio: sr.AudioData,
+    config: Config,
+    state: SessionState,
+) -> tuple[str, str]:
+    from vosk import KaldiRecognizer, SetLogLevel
+
+    SetLogLevel(-1)
+    model = ensure_stt_model(config, state)
+    raw = audio.get_raw_data(convert_rate=16000, convert_width=2)
+    recognizer = KaldiRecognizer(model, 16000)
+    recognizer.SetWords(False)
+    for offset in range(0, len(raw), 8000):
+        recognizer.AcceptWaveform(raw[offset:offset + 8000])
+    result = json.loads(recognizer.FinalResult())
+    return str(result.get("text", "")).strip(), "en"
+
+
 def recognize_speech(
     config: Config,
     state: SessionState,
@@ -556,7 +597,9 @@ def recognize_speech(
             )
 
     try:
-        if config.stt_provider == "bridge":
+        if config.stt_provider == "vosk":
+            text, detected_language = transcribe_audio_with_vosk(audio, config, state)
+        elif config.stt_provider == "bridge":
             from .bridge_voice import transcribe
             text, detected_language = transcribe(audio.get_wav_data(), config)
         elif config.stt_provider == "google":

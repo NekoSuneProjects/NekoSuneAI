@@ -163,9 +163,10 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
         "label": "Speech-to-Text",
         "fields": [
             {"key": "stt_provider", "label": "STT engine", "type": "select",
-             "options": ["bridge", "faster-whisper", "google"]},
+             "options": ["vosk", "bridge", "faster-whisper", "google"]},
             {"key": "stt_model", "label": "Whisper model", "type": "select",
              "options": ["tiny.en", "base.en", "small.en", "medium.en", "large-v3", "distil-large-v3"]},
+            {"key": "vosk_model_path", "label": "Vosk lightweight model path", "type": "text"},
             {"key": "stt_language", "label": "Language (Whisper base code, e.g. en)", "type": "text"},
             {"key": "stt_pause_threshold_seconds", "label": "Stop recording after silence (seconds)", "type": "float"},
             {"key": "stt_phrase_time_limit_seconds", "label": "Maximum command length (seconds)", "type": "float"},

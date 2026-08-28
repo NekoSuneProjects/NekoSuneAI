@@ -6,9 +6,14 @@ from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 from nekosuneai import bridge_voice
+from nekosuneai.config import normalize_stt_provider
 
 
 class BridgeVoiceTests(unittest.TestCase):
+    def test_vosk_aliases_select_local_light_stt(self):
+        self.assertEqual(normalize_stt_provider("vosk"), "vosk")
+        self.assertEqual(normalize_stt_provider("local-lite"), "vosk")
+
     def test_voice_timeout_is_bounded_below_long_llm_timeout(self):
         config = SimpleNamespace(request_timeout=300, mcp_timeout_seconds=30)
         self.assertEqual(bridge_voice._voice_timeout(config), 30)
