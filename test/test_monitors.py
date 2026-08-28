@@ -11,6 +11,7 @@ class MonitorParsingTests(unittest.TestCase):
         self.assertEqual(action, "create")
         self.assertIsInstance(monitor, Monitor)
         self.assertEqual(monitor.tool, "aircraft_nearby")
+        self.assertEqual(monitor.name, "Aircraft nearby")
         self.assertEqual(monitor.arguments["location"], "Newcastle upon Tyne")
         self.assertEqual(monitor.interval_seconds, 300)
 
@@ -35,7 +36,7 @@ class MonitorParsingTests(unittest.TestCase):
         payload = {"content": [{"type": "text", "text":
             '{"provider":"adsb.lol","reference":{"name":"North Shields","displayName":"North Shields, North Tyneside, England, United Kingdom","latitude":55.01646,"longitude":-1.44925},"count":1,"aircraft":[{"callsign":"SHT12U","distanceNm":8.3,"movement":{"phase":"ground","note":"Aircraft reports itself on the ground."}}]}'}]}
         spoken = _summary(monitor, payload)
-        self.assertIn("North Shields", spoken)
+        self.assertNotIn("North Shields", spoken)
         self.assertIn("1 detected", spoken)
         self.assertIn("SHT12U", spoken)
         self.assertIn("reports itself on the ground", spoken)
@@ -48,6 +49,7 @@ class MonitorParsingTests(unittest.TestCase):
         spoken = _summary(monitor, {"reference": {"name": "saved area"}, "count": 0, "aircraft": []})
         self.assertIn("military aircraft update", spoken)
         self.assertIn("none were detected", spoken)
+        self.assertNotIn("saved area", spoken)
 
     def test_warns_when_rain_is_due_within_fifteen_minutes(self):
         monitor = Monitor("rain1", "weather — saved area", "weather_now", {}, 300)

@@ -1850,7 +1850,7 @@ class Api:
 
     def clear_history(self) -> dict[str, Any]:
         reset_history()
-        self._push_chat("System", "History cleared.", "system")
+        self._push_status("Chat history cleared.")
         return {"ok": True, "msg": "History cleared."}
 
 

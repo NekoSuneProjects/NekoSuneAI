@@ -305,6 +305,10 @@ tailwind.config = {
       <!-- PAGE: Chat -->
       <!-- ═══════════════════════════════════════════════════════════════ -->
       <div id="page-chat" class="page flex-col h-full">
+        <div class="flex items-center justify-between px-4 py-3 border-b border-nova-border bg-nova-surface/70">
+          <div><div class="text-[13px] font-bold">Private Chat</div><div class="text-[10px] text-nova-muted">Scheduled updates hide your configured location.</div></div>
+          <button onclick="doClearHistory()" class="btn-danger px-3 py-1.5 rounded-lg text-[11px]">Clear Chat History</button>
+        </div>
         <div id="chat-log" class="flex-1 overflow-y-auto p-4 space-y-2"></div>
         <div class="flex gap-2 p-4 border-t border-nova-border bg-nova-surface">
           <input id="chat-input" type="text" placeholder="Type a message..." class="flex-1" onkeydown="if(event.key==='Enter')doSend()" />
@@ -1302,11 +1306,12 @@ async function doRecalibrate() {
 }
 
 async function doClearHistory() {
-  if (!confirm('Clear all conversation history?')) return;
+  if (!confirm('Permanently clear all stored conversation history and remove it from this chat?')) return;
   try {
-    await api().clear_history();
+    const result = await api().clear_history();
     $('chat-log').innerHTML = '';
-  } catch(e) { console.error(e); }
+    showNotification((result && result.msg) || 'Chat history cleared.');
+  } catch(e) { showNotification('Could not clear chat history.'); }
 }
 
 async function doPerformance() {

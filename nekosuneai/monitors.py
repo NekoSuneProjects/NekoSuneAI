@@ -17,6 +17,19 @@ from .mcp_client import call_first_available, route_tool
 
 STATE_KEY = "mcp_monitors_v1"
 
+PRIVATE_MONITOR_NAMES = {
+    "aircraft_nearby": "Aircraft nearby",
+    "military_aircraft_nearby": "Military aircraft nearby",
+    "weather_now": "Weather forecast",
+    "weather_forecast": "Weather forecast",
+    "weather_warnings": "Weather warnings",
+    "emergency_alerts": "Government emergency alerts",
+}
+
+
+def _private_monitor_name(tool: str) -> str:
+    return PRIVATE_MONITOR_NAMES.get(tool, "Scheduled monitor")
+
 
 @dataclass
 class Monitor:
@@ -68,8 +81,9 @@ def parse_monitor_request(text: str) -> tuple[str, Any] | None:
         interval = count * (3600 if unit.startswith(("hour", "hr")) else 60 if unit.startswith(("minute", "min")) else 1)
     interval = max(30, interval)
     tool, arguments = routed
-    area = arguments.get("location", "my saved area")
-    return "create", Monitor(id=uuid.uuid4().hex[:8], name=f"{tool} — {area}", tool=tool,
+    # The location stays only in private tool arguments. Never copy it into the
+    # monitor name because names are shown in chat and the dashboard.
+    return "create", Monitor(id=uuid.uuid4().hex[:8], name=_private_monitor_name(tool), tool=tool,
                               arguments=arguments, interval_seconds=interval, next_run_epoch=0)
 
 
@@ -154,14 +168,10 @@ def _summary(monitor: Monitor, result: dict[str, Any]) -> str:
         return f"Scheduled update [{monitor.id}]: {payload[:1800]}"
     if monitor.tool in {"aircraft_nearby", "military_aircraft_nearby"} and isinstance(payload, dict):
         aircraft = payload.get("aircraft") if isinstance(payload.get("aircraft"), list) else []
-        location = payload.get("reference") or payload.get("location") or {}
-        # Use only the short area name: never echo coordinates or detailed
-        # geocoding metadata into chat/TTS.
-        place = (location.get("name") or "your saved area") if isinstance(location, dict) else str(location or "your saved area")
         count = int(payload.get("count", len(aircraft)) or 0)
         kind = "military aircraft" if monitor.tool == "military_aircraft_nearby" else "aircraft"
         if not aircraft:
-            return f"Scheduled {kind} update [{monitor.id}] for {place}: none were detected in the selected area."
+            return f"Scheduled {kind} update [{monitor.id}]: none were detected."
         details = []
         for plane in aircraft[:3]:
             identity = plane.get("callsign") or plane.get("registration") or plane.get("aircraftType") or "unidentified aircraft"
@@ -170,10 +180,8 @@ def _summary(monitor: Monitor, result: dict[str, Any]) -> str:
             if isinstance(movement, dict):
                 movement = movement.get("note") or movement.get("phase") or ""
             details.append(f"{identity}{f', {float(distance):.1f} nautical miles away' if isinstance(distance, (int, float)) else ''}{f', {movement}' if movement else ''}")
-        return f"Scheduled {kind} update [{monitor.id}] for {place}: {count} detected. " + ". ".join(details) + "."
+        return f"Scheduled {kind} update [{monitor.id}]: {count} detected. " + ". ".join(details) + "."
     if monitor.tool in {"weather_now", "weather_forecast"} and isinstance(payload, dict):
-        location = payload.get("reference") or payload.get("location") or {}
-        place = (location.get("name") or "your saved area") if isinstance(location, dict) else str(location or "your saved area")
         weather = payload.get("current") if isinstance(payload.get("current"), dict) else payload
         temperature = weather.get("temperature") or weather.get("temperatureC") or weather.get("temp_c")
         condition = weather.get("condition") or weather.get("summary") or weather.get("weather")
@@ -195,7 +203,7 @@ def _summary(monitor: Monitor, result: dict[str, Any]) -> str:
         if lightning_risk and lightning_risk.lower() != "low":
             parts.append(f"lightning risk is {lightning_risk}")
         spoken = ", ".join(part for part in parts if part)
-        return f"Scheduled weather update [{monitor.id}] for {place}: {spoken or 'the forecast was refreshed, but no readable conditions were returned.'}"
+        return f"Scheduled weather update [{monitor.id}]: {spoken or 'the forecast was refreshed, but no readable conditions were returned.'}"
     if isinstance(payload, dict):
         readable = []
         for key, value in payload.items():
@@ -239,14 +247,22 @@ class MonitorManager:
             if action == "stop":
                 found = next((item for item in items if item.id == value), None)
                 if not found: return f"I couldn't find monitor {value}."
-                found.active = False; _save(items); return f"Stopped monitor {found.id}: {found.name}."
+                found.active = False; _save(items); return f"Stopped monitor {found.id}: {_private_monitor_name(found.tool)}."
             active = [item for item in items if item.active]
             if not active: return "There are no active scheduled monitors."
-            return "Active scheduled monitors:\n" + "\n".join(f"- {x.id}: {x.name}, every {x.interval_seconds}s" for x in active)
+            return "Active scheduled monitors:\n" + "\n".join(f"- {x.id}: {_private_monitor_name(x.tool)}, every {x.interval_seconds}s" for x in active)
 
     def list_all(self) -> list[dict[str, Any]]:
         with self._lock:
-            return [asdict(item) for item in _load()]
+            rows = []
+            for item in _load():
+                row = asdict(item)
+                row["name"] = _private_monitor_name(item.tool)
+                # Tool arguments may contain the private saved location and are
+                # not required by the management page.
+                row.pop("arguments", None)
+                rows.append(row)
+            return rows
 
     def remove(self, monitor_id: str) -> bool:
         with self._lock:

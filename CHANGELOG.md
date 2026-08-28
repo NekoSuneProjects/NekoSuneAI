@@ -34,6 +34,8 @@
   does not yet recognize the fast `tts-stream` action.
 - Redesign Settings as a searchable, categorized control centre and separate
   stored MCP, Alexa Bluetooth, alert, voice, home, memory and media controls.
+- Hide configured location names from monitor names, chat updates and TTS, and
+  add a visible Clear Chat History control to the Chat page.
 
 All notable changes to **NekoSuneAI** are documented here.
 

@@ -351,7 +351,7 @@ def fetch_mcp_context(user_text: str, config: Config) -> tuple[str | None, str]:
             return (
                 f"Remote MCP tool `{tool}` returned current data. Answer in short, normal spoken English. "
                 "Never paste or read the JSON, field names, provider metadata, coordinates, geocoder details, "
-                "or authentication information to the user. For aircraft, say the count and useful callsign, "
+                "authentication information, or the configured/saved location name to the user. For aircraft, say the count and useful callsign, "
                 "distance, direction, altitude, and movement details only. Mention that public coverage may be incomplete.\n"
                 f"Private tool data for summarization only:\n{serialized[:12000]}"
             ), ("danger" if danger else "warning" if warning else "none")
