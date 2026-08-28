@@ -228,6 +228,8 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "wake_word_framework", "label": "Inference backend", "type": "select",
              "options": ["onnx", "tflite"]},
             {"key": "wake_word_threshold", "label": "Detection threshold", "type": "float"},
+            {"key": "wake_word_confirmation_frames", "label": "Matching audio frames required", "type": "int"},
+            {"key": "wake_word_cooldown_seconds", "label": "Cooldown after each command (seconds)", "type": "float"},
             {"key": "wake_word_sound_enabled", "label": "Play acknowledgement sound after wake word", "type": "bool"},
             {"key": "wake_word_sound_path", "label": "Wake acknowledgement sound file", "type": "text"},
             {"key": "home_assistant_mqtt_host", "label": "Home Assistant MQTT host", "type": "text"},
@@ -331,6 +333,7 @@ class Api:
         self._vrchat_friends: Any = None
         self.monitor_manager: MonitorManager | None = None
         self.wake_word: WakeWordListener | None = None
+        self._wake_activation_lock = threading.Lock()
         self.home_assistant: HomeAssistantMqtt | None = None
         self.bluetooth_watchdog: Any = None
         self._web_events: list[dict[str, Any]] = []
@@ -423,11 +426,23 @@ class Api:
         return events
 
     def _wake_detected(self) -> None:
-        self._push_notification(f"Wake word detected: {self.config.wake_word_model}")
-        if self.config.wake_word_sound_enabled:
-            self._play_wake_sound()
-        if not self.session_started: self.start_session()
-        if not self.mic_muted and not self.busy: self.start_listen()
+        # A noisy microphone or speaker echo can produce more than one model
+        # hit for a single phrase. Only one activation may own the command
+        # lifecycle at a time.
+        if not self._wake_activation_lock.acquire(blocking=False):
+            return
+        try:
+            if self.busy or self.mic_muted:
+                return
+            self._push_notification(f"Wake word detected: {self.config.wake_word_model}")
+            if self.config.wake_word_sound_enabled:
+                self._play_wake_sound()
+            if not self.session_started:
+                self.start_session()
+            if not self.mic_muted and not self.busy:
+                self.start_listen()
+        finally:
+            self._wake_activation_lock.release()
 
     def _wake_word_gates_commands(self) -> bool:
         """True when every voice command must begin with the wake phrase."""

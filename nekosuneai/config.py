@@ -365,6 +365,8 @@ class Config:
     wake_word_model: str
     wake_word_framework: str
     wake_word_threshold: float
+    wake_word_confirmation_frames: int
+    wake_word_cooldown_seconds: float
     wake_word_sound_enabled: bool
     wake_word_sound_path: str | None
     home_assistant_mqtt_host: str | None
@@ -709,6 +711,8 @@ class Config:
                 else "onnx"
             ),
             wake_word_threshold=max(0.1, min(0.95, float(os.getenv("WAKE_WORD_THRESHOLD", "0.55")))),
+            wake_word_confirmation_frames=max(1, min(10, int(os.getenv("WAKE_WORD_CONFIRMATION_FRAMES", "3")))),
+            wake_word_cooldown_seconds=max(1.0, float(os.getenv("WAKE_WORD_COOLDOWN_SECONDS", "5"))),
             wake_word_sound_enabled=parse_bool_env("WAKE_WORD_SOUND_ENABLED", True),
             wake_word_sound_path=parse_optional_str_env("WAKE_WORD_SOUND_PATH"),
             home_assistant_mqtt_host=parse_optional_str_env("HA_MQTT_HOST"),

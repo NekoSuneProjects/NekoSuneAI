@@ -65,6 +65,7 @@ class WakeWordListener:
                     self.stop_event.wait(0.1)
                     continue
                 triggered = False
+                matching_frames = 0
                 self.stream_idle.clear()
                 try:
                     with sd.InputStream(samplerate=16000, channels=input_channels, dtype="int16",
@@ -76,15 +77,34 @@ class WakeWordListener:
                             prediction = model.predict(np.ascontiguousarray(mono))
                             self.last_score = max((float(v) for v in prediction.values()), default=0.0)
                             if self.last_score >= self.config.wake_word_threshold:
-                                triggered = True
-                                break
+                                matching_frames += 1
+                                if matching_frames >= self.config.wake_word_confirmation_frames:
+                                    triggered = True
+                                    break
+                            else:
+                                matching_frames = 0
                 finally:
                     self.stream_idle.set()
                 # Kinect/ALSA devices are often exclusive. Invoke listening
                 # only after the wake stream has closed, then reopen afterward.
                 if triggered and not self.pause_event.is_set():
                     self.detected()
-                    time.sleep(2.0)
+                    # openWakeWord retains rolling feature/model buffers. Reset
+                    # them so the last "Hey Jarvis" cannot be rediscovered when
+                    # the stream reopens, then leave time for acknowledgement and
+                    # remote-speaker audio tails to go quiet.
+                    reset = getattr(model, "reset", None)
+                    if callable(reset):
+                        try:
+                            reset()
+                        except Exception:
+                            # Older openWakeWord backends do not all expose a
+                            # fully compatible reset implementation. The
+                            # cooldown and confirmation gate still protect the
+                            # listener on those versions.
+                            pass
+                    self.last_score = 0.0
+                    self.stop_event.wait(self.config.wake_word_cooldown_seconds)
         except Exception as exc:
             self.error = str(exc)
 
@@ -92,4 +112,6 @@ class WakeWordListener:
         return {"enabled": self.config.wake_word_enabled, "running": bool(self.thread and self.thread.is_alive()),
                 "model": self.config.wake_word_model, "threshold": self.config.wake_word_threshold,
                 "framework": self.config.wake_word_framework,
+                "confirmation_frames": self.config.wake_word_confirmation_frames,
+                "cooldown_seconds": self.config.wake_word_cooldown_seconds,
                 "last_score": round(self.last_score, 3), "error": self.error}
