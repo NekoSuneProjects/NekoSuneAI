@@ -221,17 +221,37 @@ if [ "$(id -u)" = "0" ] && [ -n "$selected_audio_uid" ] && [ "$selected_audio_ui
     chown -R "$selected_audio_uid:$selected_audio_gid" /app/data /app/audio 2>/dev/null || true
 
     group_list="$selected_audio_gid"
+
+    add_group_id() {
+        extra_gid="$1"
+        [ -n "$extra_gid" ] || return 0
+        # Do not grant host root-group access simply because a device happens to
+        # be root-owned. Non-zero device groups are enough for audio/USB access.
+        [ "$extra_gid" != "0" ] || return 0
+        case ",$group_list," in
+            *,$extra_gid,*) ;;
+            *) group_list="$group_list,$extra_gid" ;;
+        esac
+    }
+
+    # Discover the actual host sound-device groups instead of assuming gid 29.
     for device_path in /dev/snd/*; do
         [ -e "$device_path" ] || continue
-        device_gid="$(stat -c '%g' "$device_path" 2>/dev/null || true)"
-        [ -n "$device_gid" ] || continue
-        case ",$group_list," in
-            *,$device_gid,*) ;;
-            *) group_list="$group_list,$device_gid" ;;
-        esac
+        add_group_id "$(stat -c '%g' "$device_path" 2>/dev/null || true)"
     done
 
-    echo "[startup] Running NekoSuneAI as detected host audio UID:GID $selected_audio_uid:$selected_audio_gid"
+    # Kinect and other USB microphones can be owned by a non-root device group.
+    for device_path in /dev/bus/usb/*/*; do
+        [ -e "$device_path" ] || continue
+        add_group_id "$(stat -c '%g' "$device_path" 2>/dev/null || true)"
+    done
+
+    # Keep old explicit overrides working for unusual hosts.
+    add_group_id "${AUDIO_GID:-}"
+    add_group_id "${VIDEO_GID:-}"
+    add_group_id "${BLUETOOTH_GID:-}"
+
+    echo "[startup] Running NekoSuneAI as detected host audio UID:GID $selected_audio_uid:$selected_audio_gid (groups: $group_list)"
     exec setpriv \
         --reuid "$selected_audio_uid" \
         --regid "$selected_audio_gid" \
