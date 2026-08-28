@@ -167,6 +167,10 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "stt_model", "label": "Whisper model", "type": "select",
              "options": ["tiny.en", "base.en", "small.en", "medium.en", "large-v3", "distil-large-v3"]},
             {"key": "stt_language", "label": "Language (Whisper base code, e.g. en)", "type": "text"},
+            {"key": "stt_pause_threshold_seconds", "label": "Stop recording after silence (seconds)", "type": "float"},
+            {"key": "stt_phrase_time_limit_seconds", "label": "Maximum command length (seconds)", "type": "float"},
+            {"key": "stt_energy_threshold", "label": "Microphone speech threshold", "type": "int"},
+            {"key": "stt_dynamic_energy_threshold", "label": "Automatically adapt to room noise", "type": "bool"},
         ],
     },
     "web": {
@@ -425,6 +429,10 @@ class Api:
         if not self.session_started: self.start_session()
         if not self.mic_muted and not self.busy: self.start_listen()
 
+    def _wake_word_gates_commands(self) -> bool:
+        """True when every voice command must begin with the wake phrase."""
+        return bool(self.config and self.config.wake_word_enabled and self.wake_word)
+
     def _play_wake_sound(self) -> tuple[bool, str]:
         try:
             from .paths import AUDIO_DIR
@@ -528,7 +536,7 @@ class Api:
         self.session_started = True
         self._push_state()
         self._push_chat("System", "Session started. You can now chat and use voice controls.", "system")
-        if self.hands_free_enabled and not self.mic_muted:
+        if self.hands_free_enabled and not self.mic_muted and not self._wake_word_gates_commands():
             threading.Thread(target=self._auto_listen, daemon=True).start()
         return {"ok": True, "msg": "Session started."}
 
@@ -678,6 +686,7 @@ class Api:
                 and not self.mic_muted
                 and self.session_started
                 and not self._stopped()
+                and not self._wake_word_gates_commands()
             ):
                 threading.Thread(target=self._auto_listen, daemon=True).start()
 
@@ -861,7 +870,7 @@ class Api:
 
         # Hands-free re-listen is re-armed by start_listen()'s finally block so
         # it fires on every exit path (including errors), not just here.
-        if from_voice and self.hands_free_enabled and not self.mic_muted:
+        if from_voice and self.hands_free_enabled and not self.mic_muted and not self._wake_word_gates_commands():
             self._push_status("Listening...")
             return "Hands-free listening."
 

@@ -629,7 +629,7 @@ class Config:
             stt_pause_threshold_seconds=float(
                 os.getenv(
                     "STT_PAUSE_THRESHOLD_SECONDS",
-                    str(max(1.8, pause_threshold_ms / 1000)),
+                    str(max(0.5, pause_threshold_ms / 1000)),
                 )
             ),
             stt_non_speaking_duration_seconds=float(

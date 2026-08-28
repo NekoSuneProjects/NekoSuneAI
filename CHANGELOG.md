@@ -44,6 +44,8 @@
   has not installed its `edge-tts-universal` Node dependency yet.
 - Normalize regional STT locales such as `en-GB` and `en_US` to Whisper's base
   language codes without changing regional TTS voice settings.
+- Restore sub-second end-of-speech detection and make enabled wake-word mode
+  gate every voice command instead of hands-free mode re-listening on its own.
 
 All notable changes to **NekoSuneAI** are documented here.
 
