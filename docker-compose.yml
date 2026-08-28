@@ -32,7 +32,8 @@ services:
       - "${BLUETOOTH_GID:-113}"
     environment:
       XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-/run/user/1000}
-      PULSE_SERVER: ${PULSE_SERVER:-unix:${XDG_RUNTIME_DIR:-/run/user/1000}/pulse/native}
+      # Leave blank to let the entrypoint derive unix:$XDG_RUNTIME_DIR/pulse/native.
+      PULSE_SERVER: ${PULSE_SERVER:-}
       PIPEWIRE_REMOTE: ${PIPEWIRE_REMOTE:-pipewire-0}
       WEB_DASHBOARD_HOST: 0.0.0.0
       WEB_DASHBOARD_PORT: 8788
