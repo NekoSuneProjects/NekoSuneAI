@@ -13,6 +13,13 @@ class BridgeVoiceTests(unittest.TestCase):
         config = SimpleNamespace(request_timeout=300, mcp_timeout_seconds=30)
         self.assertEqual(bridge_voice._voice_timeout(config), 30)
 
+    @patch("nekosuneai.bridge_voice._request")
+    def test_transcription_uses_dedicated_long_timeout(self, request):
+        request.return_value = {"type": "done", "text": "hello", "language": "en"}
+        config = SimpleNamespace(stt_language="en-GB", bridge_stt_timeout_seconds=90)
+        bridge_voice.transcribe(b"wav", config)
+        self.assertEqual(request.call_args.kwargs["timeout"], 90)
+
     def test_missing_edge_package_is_a_safe_fallback_condition(self):
         error = RuntimeError("Cannot find package 'edge-tts-universal' imported from /root/nekoai-bridge/lib/providers/edge-tts.js")
         self.assertTrue(bridge_voice._stream_route_unavailable(error))

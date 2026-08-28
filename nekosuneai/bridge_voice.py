@@ -41,7 +41,12 @@ def _bridge_token(config: Config) -> str:
     )
 
 
-def _request(config: Config, payload: dict[str, Any], on_audio=None) -> dict[str, Any]:
+def _request(
+    config: Config,
+    payload: dict[str, Any],
+    on_audio=None,
+    timeout: float | None = None,
+) -> dict[str, Any]:
     if not config.bridge_ws_url:
         raise RuntimeError("Set BRIDGE_WS_URL (for example wss://bridge.example/ws).")
     try:
@@ -50,24 +55,39 @@ def _request(config: Config, payload: dict[str, Any], on_audio=None) -> dict[str
         raise RuntimeError("websocket-client is required for remote bridge voice.") from exc
     request_id = str(uuid.uuid4())
     payload = {**payload, "requestId": request_id, "discordUserId": config.bridge_user_id}
-    ws = websocket.create_connection(
-        config.bridge_ws_url,
-        header=[f"Authorization: Bearer {_bridge_token(config)}"],
-        timeout=_voice_timeout(config),
-    )
+    request_timeout = timeout if timeout is not None else _voice_timeout(config)
+    try:
+        ws = websocket.create_connection(
+            config.bridge_ws_url,
+            header=[f"Authorization: Bearer {_bridge_token(config)}"],
+            timeout=request_timeout,
+        )
+    except Exception as exc:
+        raise RuntimeError(
+            f"Could not connect to the Bridge voice service at {config.bridge_ws_url}. {exc}"
+        ) from exc
     try:
         ws.send(json.dumps(payload))
-        while True:
-            result = json.loads(ws.recv())
-            if result.get("requestId") not in {None, request_id}:
-                continue
-            if result.get("type") == "error":
-                raise RuntimeError(result.get("message", "Bridge voice request failed."))
-            if result.get("type") == "audio-chunk" and on_audio:
-                on_audio(base64.b64decode(result["contentBase64"]))
-                continue
-            if result.get("type") == "done":
-                return result
+        try:
+            while True:
+                result = json.loads(ws.recv())
+                if result.get("requestId") not in {None, request_id}:
+                    continue
+                if result.get("type") == "error":
+                    raise RuntimeError(result.get("message", "Bridge voice request failed."))
+                if result.get("type") == "audio-chunk" and on_audio:
+                    on_audio(base64.b64decode(result["contentBase64"]))
+                    continue
+                if result.get("type") == "done":
+                    return result
+        except RuntimeError:
+            raise
+        except Exception as exc:
+            operation = "Whisper transcription" if payload.get("type") == "transcribe" else "voice request"
+            raise RuntimeError(
+                f"Bridge {operation} timed out after {request_timeout:g} seconds. "
+                "The remote voice service may still be loading its model."
+            ) from exc
     finally:
         ws.close()
 
@@ -143,6 +163,7 @@ def transcribe(wav_bytes: bytes, config: Config) -> tuple[str, str]:
     whisper_language = normalize_stt_language_for_whisper(config.stt_language)
     result = _request(config, {"type": "transcribe", "language": whisper_language,
         "files": [{"name": "speech.wav", "contentType": "audio/wav", "size": len(wav_bytes),
-                   "contentBase64": base64.b64encode(wav_bytes).decode("ascii")} ]})
+                   "contentBase64": base64.b64encode(wav_bytes).decode("ascii")} ]},
+        timeout=float(getattr(config, "bridge_stt_timeout_seconds", 90.0)))
     detected = str(result.get("language") or whisper_language or "").strip()
     return str(result.get("text", "")).strip(), detected

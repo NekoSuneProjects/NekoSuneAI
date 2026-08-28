@@ -201,6 +201,7 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "bridge_tts_voice", "label": "Remote voice (Edge example: en-GB-SoniaNeural)", "type": "text"},
             {"key": "bridge_tts_engine", "label": "Remote TTS engine", "type": "select", "options": ["edge-stream", "piper"]},
             {"key": "bridge_tts_rate", "label": "Fast TTS speech rate (e.g. +10%)", "type": "text"},
+            {"key": "bridge_stt_timeout_seconds", "label": "Remote Whisper timeout (seconds)", "type": "float"},
         ],
     },
     "alerts": {
