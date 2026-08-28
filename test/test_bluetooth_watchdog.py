@@ -84,6 +84,37 @@ class BluetoothWatchdogTests(unittest.TestCase):
 
         self.assertEqual(target, ("20:20:20:20:20:20", "Kitchen Echo"))
 
+    def test_ignores_nearby_unpaired_audio_device(self):
+        watchdog = self._watchdog()
+        device_list = SimpleNamespace(
+            returncode=0,
+            stdout="Device 30:30:30:30:30:30 Nearby Echo\n",
+            stderr="",
+        )
+        info_unpaired = (
+            "Device 30:30:30:30:30:30\n"
+            "\tName: Nearby Echo\n"
+            "\tAlias: Nearby Echo\n"
+            "\tPaired: no\n"
+            "\tBonded: no\n"
+            "\tTrusted: no\n"
+            "\tConnected: no\n"
+            "\tUUID: Audio Sink (0000110b-0000-1000-8000-00805f9b34fb)\n"
+        )
+
+        def fake_run(args):
+            if args == ["bluetoothctl", "devices"]:
+                return device_list
+            if args[-1] == "30:30:30:30:30:30":
+                return SimpleNamespace(returncode=0, stdout=info_unpaired, stderr="")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        watchdog._run = Mock(side_effect=fake_run)
+        with patch("nekosuneai.bluetooth_watchdog.shutil.which", return_value="/usr/bin/bluetoothctl"):
+            target = watchdog._discover_paired_audio_device()
+
+        self.assertIsNone(target)
+
     def test_reconnects_then_waits_for_a2dp_sink(self):
         watchdog = self._watchdog()
         watchdog._resolve_target = Mock(
