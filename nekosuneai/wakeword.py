@@ -21,9 +21,12 @@ class WakeWordListener:
         self.thread: threading.Thread | None = None
         self.last_score = 0.0
         self.error = ""
+        self.device_index: int | None = None
+        self.device_name = ""
 
     def start(self) -> None:
-        if not self.config.wake_word_enabled or (self.thread and self.thread.is_alive()): return
+        if not self.config.wake_word_enabled or (self.thread and self.thread.is_alive()):
+            return
         self.thread = threading.Thread(target=self._run, daemon=True, name="wake-word")
         self.thread.start()
 
@@ -54,11 +57,31 @@ class WakeWordListener:
             if not Path(model_name).expanduser().is_file():
                 openwakeword.utils.download_models(model_names=[model_name])
             model = Model(wakeword_models=[model_name], inference_framework=framework)
+
+            # Resolve the microphone once and keep the concrete PortAudio device
+            # index.  Using config.mic_device_index directly is wrong when it is
+            # intentionally blank/None for auto-detection: after a Bluetooth
+            # speaker becomes the host default output, PortAudio can reshuffle
+            # its default devices and wake-word capture may silently open the
+            # wrong input.  STT already resolves the actual Kinect/USB device;
+            # wake-word capture must use that same resolved index too.
             device_info = resolve_input_device_info(self.config.mic_device_index)
+            resolved_device_index = device_info["index"]
+            self.device_index = resolved_device_index
+            self.device_name = device_info["name"]
+
             max_channels = device_info["max_input_channels"]
-            auto_channels = 4 if "kinect" in device_info["name"].lower() and max_channels >= 4 else 1
-            input_channels = max(1, min(self.config.mic_input_channels or auto_channels, max_channels))
+            auto_channels = (
+                4
+                if "kinect" in device_info["name"].lower() and max_channels >= 4
+                else 1
+            )
+            input_channels = max(
+                1,
+                min(self.config.mic_input_channels or auto_channels, max_channels),
+            )
             channel_index = min(self.config.mic_channel_index, input_channels - 1)
+
             while not self.stop_event.is_set():
                 if self.pause_event.is_set():
                     self.stream_idle.set()
@@ -68,14 +91,26 @@ class WakeWordListener:
                 matching_frames = 0
                 self.stream_idle.clear()
                 try:
-                    with sd.InputStream(samplerate=16000, channels=input_channels, dtype="int16",
-                                        blocksize=1280, device=self.config.mic_device_index) as stream:
+                    with sd.InputStream(
+                        samplerate=16000,
+                        channels=input_channels,
+                        dtype="int16",
+                        blocksize=1280,
+                        device=resolved_device_index,
+                    ) as stream:
                         while not self.stop_event.is_set() and not self.pause_event.is_set():
                             audio, _overflowed = stream.read(1280)
                             samples = np.asarray(audio, dtype=np.int16)
-                            mono = samples[:, channel_index] if samples.ndim > 1 else samples.reshape(-1)
+                            mono = (
+                                samples[:, channel_index]
+                                if samples.ndim > 1
+                                else samples.reshape(-1)
+                            )
                             prediction = model.predict(np.ascontiguousarray(mono))
-                            self.last_score = max((float(v) for v in prediction.values()), default=0.0)
+                            self.last_score = max(
+                                (float(v) for v in prediction.values()),
+                                default=0.0,
+                            )
                             if self.last_score >= self.config.wake_word_threshold:
                                 matching_frames += 1
                                 if matching_frames >= self.config.wake_word_confirmation_frames:
@@ -109,9 +144,16 @@ class WakeWordListener:
             self.error = str(exc)
 
     def status(self) -> dict:
-        return {"enabled": self.config.wake_word_enabled, "running": bool(self.thread and self.thread.is_alive()),
-                "model": self.config.wake_word_model, "threshold": self.config.wake_word_threshold,
-                "framework": self.config.wake_word_framework,
-                "confirmation_frames": self.config.wake_word_confirmation_frames,
-                "cooldown_seconds": self.config.wake_word_cooldown_seconds,
-                "last_score": round(self.last_score, 3), "error": self.error}
+        return {
+            "enabled": self.config.wake_word_enabled,
+            "running": bool(self.thread and self.thread.is_alive()),
+            "model": self.config.wake_word_model,
+            "threshold": self.config.wake_word_threshold,
+            "framework": self.config.wake_word_framework,
+            "confirmation_frames": self.config.wake_word_confirmation_frames,
+            "cooldown_seconds": self.config.wake_word_cooldown_seconds,
+            "last_score": round(self.last_score, 3),
+            "device_index": self.device_index,
+            "device_name": self.device_name,
+            "error": self.error,
+        }
