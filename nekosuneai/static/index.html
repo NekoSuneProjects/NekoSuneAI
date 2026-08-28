@@ -427,21 +427,29 @@ tailwind.config = {
       <!-- ═══════════════════════════════════════════════════════════════ -->
       <div id="page-settings" class="page flex-col h-full overflow-y-auto p-6 gap-5">
 
+        <div class="card p-5 bg-gradient-to-r from-violet-500/10 to-cyan-300/5">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div><div class="text-[16px] font-bold">NekoSuneAI Control Centre</div><div class="text-[11px] text-nova-muted mt-1">Settings saved here override Docker environment values and remain stored between restarts.</div></div>
+            <div class="flex items-center gap-2"><span id="settings-save-state" class="px-3 py-1 rounded-full border border-emerald-400/25 bg-emerald-400/10 text-emerald-200 text-[10px] tracking-wider">SAVED LOCALLY</span><button onclick="doRestartApp()" class="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1.5 rounded-lg text-[11px] font-semibold">Restart App</button></div>
+          </div>
+          <div id="settings-tabs" class="flex flex-wrap gap-2 mt-4"></div>
+          <input id="settings-search" oninput="filterSettings(this.value)" class="w-full mt-3" placeholder="Search settings, for example Alexa, OAuth, wake word, memory..." />
+        </div>
+
         <!-- Editable configuration (models / voice / media / singing) -->
         <div class="card p-5">
           <div class="flex items-center justify-between mb-3">
             <div class="text-[13px] font-bold">Configuration</div>
             <div class="flex gap-2">
               <button onclick="loadAppSettings()" class="btn-secondary px-3 py-1 rounded text-[11px]">Detect models / Reload</button>
-              <button onclick="doRestartApp()" class="bg-amber-600 hover:bg-amber-500 text-white px-3 py-1 rounded text-[11px] font-semibold">Restart NekoSuneAI</button>
             </div>
           </div>
           <div class="text-[11px] text-nova-muted mb-3">Edit live — saved to NekoSuneAI and overrides .env. Model boxes auto-suggest detected models (Ollama / OpenAI / LiteLLM).</div>
-          <div id="app-settings" class="space-y-4"></div>
+          <div id="app-settings" class="grid grid-cols-1 xl:grid-cols-2 gap-4"></div>
         </div>
 
         <!-- Voice & Input -->
-        <div class="card p-5">
+        <div class="card p-5" data-settings-quick="voice">
           <div class="text-[13px] font-bold mb-4">Voice & Input</div>
           <div class="space-y-3">
             <label class="flex items-center gap-3 cursor-pointer">
@@ -460,7 +468,7 @@ tailwind.config = {
         </div>
 
         <!-- Audio Devices -->
-        <div class="card p-5">
+        <div class="card p-5" data-settings-quick="voice">
           <div class="flex items-center justify-between mb-4">
             <div class="text-[13px] font-bold">Audio Devices</div>
             <button onclick="doRefreshAudio()" class="btn-secondary px-3 py-1 rounded text-[11px]">Refresh</button>
@@ -480,7 +488,7 @@ tailwind.config = {
         </div>
 
         <!-- Web Search -->
-        <div class="card p-5">
+        <div class="card p-5" data-settings-quick="ai">
           <div class="text-[13px] font-bold mb-4">Web Search</div>
           <div class="space-y-3">
             <label class="flex items-center gap-3 cursor-pointer">
@@ -499,7 +507,7 @@ tailwind.config = {
         </div>
 
         <!-- LLM -->
-        <div class="card p-5">
+        <div class="card p-5" data-settings-quick="ai">
           <div class="text-[13px] font-bold mb-3">LLM / Model</div>
           <div class="grid grid-cols-2 gap-y-2 gap-x-6 text-[12px]">
             <div class="text-nova-muted">Provider</div><div id="set-llm-provider" class="text-nova-text">--</div>
@@ -510,7 +518,7 @@ tailwind.config = {
         </div>
 
         <!-- TTS / STT -->
-        <div class="card p-5">
+        <div class="card p-5" data-settings-quick="voice">
           <div class="text-[13px] font-bold mb-3">TTS / STT</div>
           <div class="grid grid-cols-2 gap-y-2 gap-x-6 text-[12px]">
             <div class="text-nova-muted">TTS</div><div id="set-tts" class="text-nova-text">--</div>
@@ -800,6 +808,45 @@ function syncSettings() {
 
 let _appSections = null;
 let _appModels = { chat: [], vision: [], embedding: [] };
+let _settingsCategory = 'all';
+const SETTINGS_CATEGORIES = {
+  all:         {label:'All Settings', sections:[]},
+  ai:          {label:'AI & Search', sections:['llm','web','rag']},
+  voice:       {label:'Voice & Audio', sections:['voice','stt','bluetooth','alerts']},
+  connections: {label:'MCP & Home', sections:['mcp','home']},
+  media:       {label:'Media & VTuber', sections:['media','singing','vrchat_friends']},
+};
+
+function renderSettingsTabs() {
+  const tabs = $('settings-tabs');
+  if (!tabs) return;
+  tabs.innerHTML = Object.entries(SETTINGS_CATEGORIES).map(([key, item]) =>
+    `<button onclick="setSettingsCategory('${key}')" class="px-3 py-1.5 rounded-lg border text-[11px] ${key===_settingsCategory?'border-cyan-300/50 bg-cyan-300/15 text-cyan-100':'border-nova-border bg-white/[.025] text-nova-muted2'}">${item.label}</button>`
+  ).join('');
+}
+
+function setSettingsCategory(category) {
+  _settingsCategory = SETTINGS_CATEGORIES[category] ? category : 'all';
+  if ($('settings-search')) $('settings-search').value = '';
+  renderSettingsTabs();
+  filterSettings('');
+}
+
+function filterSettings(query) {
+  const wanted = String(query || '').trim().toLowerCase();
+  const allowed = SETTINGS_CATEGORIES[_settingsCategory].sections;
+  document.querySelectorAll('#app-settings [data-settings-section]').forEach(card => {
+    const categoryMatch = !allowed.length || allowed.includes(card.dataset.settingsSection);
+    const searchMatch = !wanted || card.textContent.toLowerCase().includes(wanted);
+    card.classList.toggle('hidden', !(categoryMatch && searchMatch));
+  });
+  document.querySelectorAll('#page-settings [data-settings-quick]').forEach(card => {
+    const group = card.dataset.settingsQuick;
+    const categoryMatch = _settingsCategory === 'all' || _settingsCategory === group;
+    const searchMatch = !wanted || card.textContent.toLowerCase().includes(wanted);
+    card.classList.toggle('hidden', !(categoryMatch && searchMatch));
+  });
+}
 
 async function loadAppSettings() {
   const wrap = $('app-settings');
@@ -809,6 +856,7 @@ async function loadAppSettings() {
   try { data = await api().get_app_settings(); } catch(e) { console.error(e); return; }
   _appSections = data.sections || {};
   wrap.innerHTML = '';
+  renderSettingsTabs();
   ['chat', 'vision', 'embedding'].forEach(cat => {
     const dl = document.createElement('datalist');
     dl.id = 'dl-' + cat;
@@ -816,11 +864,13 @@ async function loadAppSettings() {
     wrap.appendChild(dl);
   });
   Object.entries(_appSections).forEach(([name, meta]) => wrap.appendChild(_renderAppSection(name, meta)));
+  filterSettings($('settings-search') ? $('settings-search').value : '');
 }
 
 function _renderAppSection(name, meta) {
   const card = document.createElement('div');
-  card.className = 'border border-nova-border rounded-lg p-4';
+  card.className = 'border border-nova-border rounded-xl p-4 bg-white/[.018] self-start';
+  card.dataset.settingsSection = name;
   const grid = (meta.fields || []).map(f => {
     const id = 'aset__' + name + '__' + f.key;
     const v = f.value != null ? String(f.value) : '';
@@ -834,12 +884,18 @@ function _renderAppSection(name, meta) {
     if (f.type === 'model') {
       return `<label class="flex flex-col gap-1 text-[11px] text-nova-muted"><span>${escHtml(f.label)}</span><input id="${id}" list="dl-${f.category || 'chat'}" class="w-full" value="${escHtml(v)}" /></label>`;
     }
+    if (f.type === 'textarea') {
+      return `<label class="flex flex-col gap-1 text-[11px] text-nova-muted col-span-2"><span>${escHtml(f.label)}</span><textarea id="${id}" rows="5" spellcheck="false" class="w-full font-mono text-[11px] resize-y">${escHtml(v)}</textarea></label>`;
+    }
     const itype = f.type === 'password' ? 'password' : ((f.type === 'float' || f.type === 'int') ? 'number' : 'text');
     const step = f.type === 'float' ? ' step="0.05"' : '';
     return `<label class="flex flex-col gap-1 text-[11px] text-nova-muted"><span>${escHtml(f.label)}</span><input id="${id}" type="${itype}"${step} class="w-full" value="${escHtml(v)}" /></label>`;
   }).join('');
-  const mcpButtons = name === 'mcp' ? `<button class="btn-secondary px-3 py-1 rounded text-[11px]" onclick="doReconnectAlexa()">Reconnect Alexa</button><button class="btn-secondary px-3 py-1 rounded text-[11px]" onclick="doTestTtsOutput()">Test TTS / Alexa</button><button class="btn-secondary px-3 py-1 rounded text-[11px]" onclick="doConnectMcpOAuth()">Connect OAuth</button>` : '';
-  card.innerHTML = `<div class="flex items-center justify-between mb-2"><div class="text-[12px] font-bold">${escHtml(meta.label)}</div><div class="flex gap-2">${mcpButtons}<button class="btn-primary px-3 py-1 rounded text-[11px]" onclick="doSaveAppSection('${name}')">Save</button></div></div><div class="grid grid-cols-2 gap-x-3 gap-y-2">${grid}</div>`;
+  const sectionButtons = name === 'mcp'
+    ? `<button class="btn-secondary px-2 py-1 rounded text-[10px]" onclick="doConnectMcpOAuth()">Connect OAuth</button>`
+    : name === 'bluetooth'
+      ? `<button class="btn-secondary px-2 py-1 rounded text-[10px]" onclick="doReconnectAlexa()">Reconnect</button><button class="btn-secondary px-2 py-1 rounded text-[10px]" onclick="doTestTtsOutput()">Test Audio</button>` : '';
+  card.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-2 mb-3"><div class="text-[12px] font-bold">${escHtml(meta.label)}</div><div class="flex flex-wrap gap-2">${sectionButtons}<button class="btn-primary px-3 py-1 rounded text-[10px]" onclick="doSaveAppSection('${name}')">Save Section</button></div></div><div class="grid grid-cols-2 gap-x-3 gap-y-2">${grid}</div>`;
   return card;
 }
 
@@ -862,8 +918,11 @@ async function doRestartApp() {
 
 async function doSaveAppSection(name) {
   try {
+    const saveState = $('settings-save-state');
+    if (saveState) saveState.textContent = 'SAVING...';
     const r = await api().save_app_settings(name, collectAppSection(name));
-    if (r && !r.ok && r.msg) { showNotification(r.msg); return; }
+    if (r && !r.ok && r.msg) { if (saveState) saveState.textContent = 'SAVE FAILED'; showNotification(r.msg); return; }
+    if (saveState) saveState.textContent = 'SAVED LOCALLY';
     showNotification('Saved.');
     if (name === 'llm') await loadAppSettings();   // refresh detected models
   } catch(e) { console.error(e); }

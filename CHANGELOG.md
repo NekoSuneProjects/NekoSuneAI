@@ -32,6 +32,8 @@
   restores its PulseAudio/PipeWire sink as the default output.
 - Fall back to the Bridge's compatible gTTS action when an older deployment
   does not yet recognize the fast `tts-stream` action.
+- Redesign Settings as a searchable, categorized control centre and separate
+  stored MCP, Alexa Bluetooth, alert, voice, home, memory and media controls.
 
 All notable changes to **NekoSuneAI** are documented here.
 

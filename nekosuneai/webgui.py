@@ -189,7 +189,7 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
         "fields": [
             {"key": "mcp_enabled", "label": "Enable MCP tools", "type": "bool"},
             {"key": "mcp_auto_route", "label": "Automatically use tools for weather, aircraft and alerts", "type": "bool"},
-            {"key": "mcp_servers_json", "label": "MCP servers (JSON; supports API key or OAuth)", "type": "text"},
+            {"key": "mcp_servers_json", "label": "MCP servers (JSON; supports API key or OAuth)", "type": "textarea"},
             {"key": "mcp_timeout_seconds", "label": "MCP timeout (sec)", "type": "float"},
             {"key": "bridge_ws_url", "label": "NekoAI Bridge voice WebSocket URL", "type": "text"},
             {"key": "bridge_auth_token", "label": "Bridge voice bearer token (nai_...)", "type": "password"},
@@ -197,10 +197,20 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "bridge_tts_voice", "label": "Remote voice (Edge example: en-GB-SoniaNeural)", "type": "text"},
             {"key": "bridge_tts_engine", "label": "Remote TTS engine", "type": "select", "options": ["edge-stream", "piper"]},
             {"key": "bridge_tts_rate", "label": "Fast TTS speech rate (e.g. +10%)", "type": "text"},
+        ],
+    },
+    "alerts": {
+        "label": "Weather, Monitor & Emergency Alerts",
+        "fields": [
             {"key": "warning_sound_path", "label": "Warning sound file", "type": "text"},
             {"key": "danger_sound_path", "label": "Danger sound file", "type": "text"},
             {"key": "emergency_broadcast_tts", "label": "Read government emergency broadcasts aloud", "type": "bool"},
             {"key": "monitor_tts_enabled", "label": "Read scheduled monitor updates aloud", "type": "bool"},
+        ],
+    },
+    "bluetooth": {
+        "label": "Alexa Bluetooth Output",
+        "fields": [
             {"key": "bluetooth_reconnect_enabled", "label": "Automatically reconnect Alexa Bluetooth", "type": "bool"},
             {"key": "bluetooth_speaker_address", "label": "Alexa Bluetooth address (AA:BB:CC:DD:EE:FF)", "type": "text"},
             {"key": "bluetooth_reconnect_interval_seconds", "label": "Bluetooth reconnect check (seconds)", "type": "float"},
@@ -1184,7 +1194,7 @@ class Api:
             self._reresolve_llm_url()
             if self.memory:
                 self.memory.config = self.config  # pick up new embedding settings
-        if section == "mcp" and self.bluetooth_watchdog:
+        if section == "bluetooth" and self.bluetooth_watchdog:
             self.bluetooth_watchdog.start()
         try:
             from . import database
