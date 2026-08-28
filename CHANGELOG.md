@@ -38,6 +38,8 @@
   add a visible Clear Chat History control to the Chat page.
 - Release the dashboard Busy state before speaking monitor confirmations and
   cap remote Bridge voice requests at 30 seconds.
+- Generate and play a configurable wake acknowledgement chime after the local
+  wake word is detected, with a Settings test control.
 
 All notable changes to **NekoSuneAI** are documented here.
 

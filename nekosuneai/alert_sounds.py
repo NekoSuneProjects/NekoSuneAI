@@ -31,6 +31,13 @@ def ensure_default_alert_sounds(audio_dir: Path) -> None:
     audio_dir.mkdir(parents=True, exist_ok=True)
     warning = audio_dir / "warning.wav"
     danger = audio_dir / "danger.wav"
+    wake = audio_dir / "wake.wav"
+    if not wake.exists() or wake.stat().st_size == 0:
+        # Short rising acknowledgement: clearly audible without sounding like
+        # an alert or being long enough to delay command capture.
+        _write_tone_sequence(wake, [
+            (784, 0.10, 0.28), (0, 0.025, 0), (1047, 0.16, 0.30),
+        ])
     if not warning.exists() or warning.stat().st_size == 0:
         _write_tone_sequence(warning, [
             (660, 0.20, 0.34), (0, 0.08, 0), (880, 0.28, 0.34),

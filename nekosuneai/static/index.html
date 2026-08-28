@@ -898,7 +898,8 @@ function _renderAppSection(name, meta) {
   const sectionButtons = name === 'mcp'
     ? `<button class="btn-secondary px-2 py-1 rounded text-[10px]" onclick="doConnectMcpOAuth()">Connect OAuth</button>`
     : name === 'bluetooth'
-      ? `<button class="btn-secondary px-2 py-1 rounded text-[10px]" onclick="doReconnectAlexa()">Reconnect</button><button class="btn-secondary px-2 py-1 rounded text-[10px]" onclick="doTestTtsOutput()">Test Audio</button>` : '';
+      ? `<button class="btn-secondary px-2 py-1 rounded text-[10px]" onclick="doReconnectAlexa()">Reconnect</button><button class="btn-secondary px-2 py-1 rounded text-[10px]" onclick="doTestTtsOutput()">Test Audio</button>`
+      : name === 'home' ? `<button class="btn-secondary px-2 py-1 rounded text-[10px]" onclick="doTestWakeSound()">Test Wake Sound</button>` : '';
   card.innerHTML = `<div class="flex flex-wrap items-center justify-between gap-2 mb-3"><div class="text-[12px] font-bold">${escHtml(meta.label)}</div><div class="flex flex-wrap gap-2">${sectionButtons}<button class="btn-primary px-3 py-1 rounded text-[10px]" onclick="doSaveAppSection('${name}')">Save Section</button></div></div><div class="grid grid-cols-2 gap-x-3 gap-y-2">${grid}</div>`;
   return card;
 }
@@ -1247,6 +1248,14 @@ async function doReconnectAlexa() {
     const result = await api().reconnect_bluetooth_speaker();
     showNotification((result && result.msg) || 'Alexa reconnect finished.');
   } catch(e) { showNotification('Alexa reconnect failed: ' + (e.message || e)); }
+}
+
+async function doTestWakeSound() {
+  try {
+    await doSaveAppSection('home');
+    const result = await api().test_wake_word_sound();
+    showNotification((result && result.msg) || 'Wake sound test finished.');
+  } catch(e) { showNotification('Wake sound test failed: ' + (e.message || e)); }
 }
 window.addEventListener('message', e => {
   if (e.origin === location.origin && e.data && e.data.type === 'neko-oauth-complete') {

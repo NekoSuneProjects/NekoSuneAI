@@ -11,7 +11,7 @@ class AlertSoundTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             ensure_default_alert_sounds(root)
-            for name in ("warning.wav", "danger.wav"):
+            for name in ("wake.wav", "warning.wav", "danger.wav"):
                 path = root / name
                 self.assertGreater(path.stat().st_size, 1_000)
                 with wave.open(str(path), "rb") as audio:

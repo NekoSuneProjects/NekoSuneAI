@@ -224,6 +224,8 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "wake_word_framework", "label": "Inference backend", "type": "select",
              "options": ["onnx", "tflite"]},
             {"key": "wake_word_threshold", "label": "Detection threshold", "type": "float"},
+            {"key": "wake_word_sound_enabled", "label": "Play acknowledgement sound after wake word", "type": "bool"},
+            {"key": "wake_word_sound_path", "label": "Wake acknowledgement sound file", "type": "text"},
             {"key": "home_assistant_mqtt_host", "label": "Home Assistant MQTT host", "type": "text"},
             {"key": "home_assistant_mqtt_port", "label": "MQTT port", "type": "int"},
             {"key": "home_assistant_mqtt_username", "label": "MQTT username", "type": "text"},
@@ -418,8 +420,28 @@ class Api:
 
     def _wake_detected(self) -> None:
         self._push_notification(f"Wake word detected: {self.config.wake_word_model}")
+        if self.config.wake_word_sound_enabled:
+            self._play_wake_sound()
         if not self.session_started: self.start_session()
         if not self.mic_muted and not self.busy: self.start_listen()
+
+    def _play_wake_sound(self) -> tuple[bool, str]:
+        try:
+            from .paths import AUDIO_DIR
+            wake_path = Path(self.config.wake_word_sound_path or (AUDIO_DIR / "wake.wav"))
+            if not wake_path.is_file():
+                return False, f"Wake sound was not found: {wake_path}"
+            play_audio_file(wake_path, self.config.speaker_device_index)
+            return True, "Wake acknowledgement sound played."
+        except Exception as exc:
+            self._push_status(f"Wake sound error: {exc}")
+            return False, f"Wake sound failed: {exc}"
+
+    def test_wake_word_sound(self) -> dict[str, Any]:
+        if (err := self._not_ready()):
+            return err
+        ok, message = self._play_wake_sound()
+        return {"ok": ok, "msg": message}
 
     def _home_assistant_command(self, text: str) -> None:
         if text == "WAKE": self._wake_detected(); return
