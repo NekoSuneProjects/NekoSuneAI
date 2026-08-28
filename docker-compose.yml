@@ -7,7 +7,7 @@ services:
     image: ghcr.io/nekosuneprojects/nekosuneai:1.2.1
     restart: unless-stopped
     # Match the desktop audio-session owner so PipeWire/PulseAudio accepts the
-    # container through its Unix socket. Set PUID/PGID in .env if not 1000.
+    # container through its Unix sockets. Set PUID/PGID in .env if not 1000.
     user: "${PUID:-1000}:${PGID:-1000}"
     stdin_open: true
     tty: true
@@ -20,7 +20,9 @@ services:
       - ./audio:/app/audio
       - nekosuneai-models:/app/models
       - /dev/bus/usb:/dev/bus/usb
-      - ${XDG_RUNTIME_DIR:-/run/user/1000}/pulse:${XDG_RUNTIME_DIR:-/run/user/1000}/pulse
+      # Mount the whole per-user runtime directory, not just pulse/. Modern
+      # Raspberry Pi OS may expose both pulse/native and pipewire-0 here.
+      - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}
       - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
     devices:
       - /dev/snd:/dev/snd
@@ -30,7 +32,9 @@ services:
       - "${BLUETOOTH_GID:-113}"
     environment:
       XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-/run/user/1000}
-      PULSE_SERVER: unix:${XDG_RUNTIME_DIR:-/run/user/1000}/pulse/native
+      # Leave blank to let the entrypoint derive unix:$XDG_RUNTIME_DIR/pulse/native.
+      PULSE_SERVER: ${PULSE_SERVER:-}
+      PIPEWIRE_REMOTE: ${PIPEWIRE_REMOTE:-pipewire-0}
       WEB_DASHBOARD_HOST: 0.0.0.0
       WEB_DASHBOARD_PORT: 8788
 
