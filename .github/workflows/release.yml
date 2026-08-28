@@ -20,52 +20,25 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  sync_release_tag:
-    name: Sync v1.2.1 tag to main
+  smoke_test:
+    name: Local smoke test amd64 + arm64
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Move v1.2.1 to this main commit
-        run: |
-          git tag -f v1.2.1 "$GITHUB_SHA"
-          git push --force origin refs/tags/v1.2.1
-
-      # Tag pushes made with GITHUB_TOKEN do not start another workflow run,
-      # so explicitly dispatch this workflow at the version tag. The Docker
-      # job below only runs when github.ref is refs/tags/v*.
-      - name: Start v1.2.1 Docker build
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh workflow run release.yml --ref v1.2.1
-
-  docker:
-    name: Test then publish Docker amd64 + Raspberry Pi arm64
-    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Read release version
+      - name: Read version
         id: version
         shell: bash
-        run: |
-          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
-
-      - name: Verify release version
-        run: test "${GITHUB_REF_NAME#v}" = "$(cat VERSION)"
+        run: echo "version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      # Build each architecture locally first. Nothing is pushed to GHCR until
-      # both local smoke builds and runtime checks succeed.
       - name: Local smoke build linux/amd64
         shell: bash
         run: |
+          set -euo pipefail
           docker buildx build \
             --platform linux/amd64 \
             --load \
@@ -79,11 +52,21 @@ jobs:
             --platform linux/amd64 \
             --entrypoint python \
             nekosuneai-smoke:amd64 \
-            -c "import vosk; import nekosuneai.launcher; print('amd64 smoke test OK')"
+            -c "import platform; import vosk; import nekosuneai.launcher; assert platform.machine() in ('x86_64','amd64'); print('amd64 Python/Vosk smoke test OK')"
+
+          docker run --rm \
+            --platform linux/amd64 \
+            -e STT_PROVIDER=bridge \
+            nekosuneai-smoke:amd64 \
+            --help >/tmp/nekosuneai-amd64-help.txt
+
+          grep -q "Run NekoSuneAI" /tmp/nekosuneai-amd64-help.txt
+          echo "amd64 container startup smoke test OK"
 
       - name: Local smoke build linux/arm64
         shell: bash
         run: |
+          set -euo pipefail
           docker buildx build \
             --platform linux/arm64 \
             --load \
@@ -97,12 +80,69 @@ jobs:
             --platform linux/arm64 \
             --entrypoint python \
             nekosuneai-smoke:arm64 \
-            -c "import vosk; import nekosuneai.launcher; print('arm64 smoke test OK')"
+            -c "import platform; import vosk; import nekosuneai.launcher; assert platform.machine() in ('aarch64','arm64'); print('arm64 Python/Vosk smoke test OK')"
+
+          docker run --rm \
+            --platform linux/arm64 \
+            -e STT_PROVIDER=bridge \
+            nekosuneai-smoke:arm64 \
+            --help >/tmp/nekosuneai-arm64-help.txt
+
+          grep -q "Run NekoSuneAI" /tmp/nekosuneai-arm64-help.txt
+          echo "arm64 container startup smoke test OK"
 
       - name: Clean local smoke images
         if: always()
         run: |
           docker image rm -f nekosuneai-smoke:amd64 nekosuneai-smoke:arm64 2>/dev/null || true
+          rm -f /tmp/nekosuneai-amd64-help.txt /tmp/nekosuneai-arm64-help.txt
+
+  sync_release_tag:
+    name: Update version tag after smoke tests
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: smoke_test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Move version tag to tested main commit
+        id: release_tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          release_tag="v$(cat VERSION)"
+          echo "tag=$release_tag" >> "$GITHUB_OUTPUT"
+          git tag -f "$release_tag" "$GITHUB_SHA"
+          git push --force origin "refs/tags/$release_tag"
+          echo "Moved $release_tag to tested commit $GITHUB_SHA"
+
+      # A tag push made with GITHUB_TOKEN does not automatically trigger a
+      # second workflow, so explicitly dispatch this workflow at the tested tag.
+      - name: Start version Docker publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
+        run: gh workflow run release.yml --ref "$RELEASE_TAG"
+
+  docker:
+    name: Publish Docker amd64 + Raspberry Pi arm64
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read release version
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify release version
+        run: test "${GITHUB_REF_NAME#v}" = "$(cat VERSION)"
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -121,7 +161,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
             type=raw,value=latest
 
-      - name: Build and publish Docker image
+      - name: Build and publish tested Docker image
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -151,7 +191,7 @@ jobs:
             Registry: `ghcr.io/${{ github.repository }}`
             Version: `${{ github.ref_name }}`
             Platforms: `linux/amd64` and `linux/arm64` for Raspberry Pi 4/5.
-            Both architectures are locally smoke-built and runtime-tested before publishing.
+            This release tag is updated only after both architectures pass local smoke tests on `main`.
 
             Copy `.env.docker.example` to `.env`, replace the placeholder
             values, then start with `docker compose up -d`.
