@@ -4,12 +4,14 @@ ARG APP_VERSION=1.2.1
 LABEL org.opencontainers.image.title="NekoSuneAI" org.opencontainers.image.version="${APP_VERSION}" org.opencontainers.image.source="https://github.com/NekoSuneProjects/NekoSuneAI"
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 AUTO_UPDATE_CHECK=false AUTO_UPDATE_INSTALL=false AUTO_TUNE_PERFORMANCE=true XTTS_USE_GPU=false STT_USE_GPU=false
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    alsa-utils bluez ca-certificates curl ffmpeg libasound2-plugins libportaudio2 \
+    alsa-utils bluez ca-certificates curl ffmpeg libasound2-plugins libatomic1 libportaudio2 \
     pulseaudio-utils usbutils \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY requirements.txt ./
-RUN python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+RUN python -m pip install --upgrade pip \
+    && python -m pip install -r requirements.txt \
+    && python -c "import vosk; print('Vosk native library OK')"
 COPY requirements-wakeword.txt ./
 RUN python -m pip install -r requirements-wakeword.txt \
     && python -m pip install "numpy>=1.24,<2" \
