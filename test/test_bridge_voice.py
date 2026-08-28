@@ -13,6 +13,11 @@ class BridgeVoiceTests(unittest.TestCase):
         config = SimpleNamespace(request_timeout=300, mcp_timeout_seconds=30)
         self.assertEqual(bridge_voice._voice_timeout(config), 30)
 
+    def test_missing_edge_package_is_a_safe_fallback_condition(self):
+        error = RuntimeError("Cannot find package 'edge-tts-universal' imported from /root/nekoai-bridge/lib/providers/edge-tts.js")
+        self.assertTrue(bridge_voice._stream_route_unavailable(error))
+        self.assertFalse(bridge_voice._stream_route_unavailable(RuntimeError("unauthorized bridge token")))
+
     def test_old_bridge_falls_back_from_stream_to_builtin_piper(self):
         config = SimpleNamespace(
             bridge_tts_engine="edge-stream", tts_language="en", bridge_tts_voice="en-GB-SoniaNeural",

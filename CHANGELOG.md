@@ -40,6 +40,8 @@
   cap remote Bridge voice requests at 30 seconds.
 - Generate and play a configurable wake acknowledgement chime after the local
   wake word is detected, with a Settings test control.
+- Fall back to Piper when a Bridge deployment has the Edge streaming route but
+  has not installed its `edge-tts-universal` Node dependency yet.
 
 All notable changes to **NekoSuneAI** are documented here.
 

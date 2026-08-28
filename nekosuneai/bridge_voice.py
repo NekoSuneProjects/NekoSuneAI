@@ -19,6 +19,16 @@ def _voice_timeout(config: Config) -> float:
     return max(5.0, min(30.0, float(getattr(config, "mcp_timeout_seconds", 30.0))))
 
 
+def _stream_route_unavailable(error: Exception) -> bool:
+    """Identify deployment/version problems that can safely use Piper."""
+    message = str(error).lower()
+    return (
+        'unsupported payload type "tts-stream"' in message
+        or ("cannot find package" in message and "edge-tts-universal" in message)
+        or ("cannot find module" in message and "edge-tts" in message)
+    )
+
+
 def _bridge_token(config: Config) -> str:
     if config.bridge_auth_token:
         return config.bridge_auth_token
@@ -97,7 +107,7 @@ def synthesize(text: str, config: Config) -> Path:
         # built-in Piper route instead of requiring the optional Python gTTS
         # package. Do not pass the Edge voice name to Piper: the Bridge will use
         # its configured default Piper voice.
-        if not fast or 'Unsupported payload type "tts-stream"' not in str(exc):
+        if not fast or not _stream_route_unavailable(exc):
             raise
         if player and player.stdin:
             player.stdin.close()
