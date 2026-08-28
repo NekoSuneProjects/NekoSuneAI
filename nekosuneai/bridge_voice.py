@@ -93,9 +93,10 @@ def synthesize(text: str, config: Config) -> Path:
     try:
         result = _request(config, payload, on_audio=receive_audio if fast else None)
     except RuntimeError as exc:
-        # Older Bridge deployments predate tts-stream. Fall back to their fast
-        # gTTS route instead of leaving voice completely silent while the Bridge
-        # image is being upgraded.
+        # Older Bridge deployments predate tts-stream. Fall back to their
+        # built-in Piper route instead of requiring the optional Python gTTS
+        # package. Do not pass the Edge voice name to Piper: the Bridge will use
+        # its configured default Piper voice.
         if not fast or 'Unsupported payload type "tts-stream"' not in str(exc):
             raise
         if player and player.stdin:
@@ -107,7 +108,8 @@ def synthesize(text: str, config: Config) -> Path:
         player = None
         chunks.clear()
         fast = False
-        result = _request(config, {**payload, "type": "tts", "provider": "gtts"})
+        fallback_payload = {key: value for key, value in payload.items() if key not in {"voice", "rate"}}
+        result = _request(config, {**fallback_payload, "type": "tts", "provider": "piper"})
     if fast:
         output_path.write_bytes(b"".join(chunks))
         if player and player.stdin:

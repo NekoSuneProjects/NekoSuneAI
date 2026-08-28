@@ -30,8 +30,8 @@
   mounted audio directory on first launch without external downloads.
 - Add a BlueZ watchdog that reconnects a pre-paired Alexa Bluetooth speaker and
   restores its PulseAudio/PipeWire sink as the default output.
-- Fall back to the Bridge's compatible gTTS action when an older deployment
-  does not yet recognize the fast `tts-stream` action.
+- Fall back to the Bridge's built-in Piper action when an older deployment does
+  not recognize `tts-stream`, without requiring the optional Python gTTS package.
 - Redesign Settings as a searchable, categorized control centre and separate
   stored MCP, Alexa Bluetooth, alert, voice, home, memory and media controls.
 - Hide configured location names from monitor names, chat updates and TTS, and
