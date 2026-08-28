@@ -1,6 +1,51 @@
 #!/bin/sh
 set -eu
 
+# Docker runs as the desktop-session UID so it can connect to the host user's
+# PipeWire/PulseAudio sockets. Derive the conventional runtime directory when
+# it was not explicitly supplied and report the backend before NekoSuneAI starts.
+XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+export XDG_RUNTIME_DIR
+
+pulse_socket="$XDG_RUNTIME_DIR/pulse/native"
+pipewire_socket="$XDG_RUNTIME_DIR/${PIPEWIRE_REMOTE:-pipewire-0}"
+
+if [ -z "${PULSE_SERVER:-}" ] && [ -S "$pulse_socket" ]; then
+    PULSE_SERVER="unix:$pulse_socket"
+    export PULSE_SERVER
+fi
+
+host_audio_ready=false
+if [ -S "$pulse_socket" ] && command -v pactl >/dev/null 2>&1; then
+    if pactl info >/tmp/nekosuneai-pactl-info.txt 2>/tmp/nekosuneai-pactl-error.txt; then
+        host_audio_ready=true
+        SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-pulseaudio}"
+        export SDL_AUDIODRIVER
+        default_sink="$(sed -n 's/^Default Sink: //p' /tmp/nekosuneai-pactl-info.txt | head -n 1)"
+        echo "[startup] Host PulseAudio/PipeWire audio connected${default_sink:+; default sink: $default_sink}"
+    else
+        pulse_error="$(tr '\n' ' ' </tmp/nekosuneai-pactl-error.txt | sed 's/[[:space:]]\+/ /g')"
+        echo "[startup] WARNING: pulse socket exists but pactl cannot connect: ${pulse_error:-unknown error}"
+    fi
+fi
+
+if [ "$host_audio_ready" = "false" ] && [ -S "$pipewire_socket" ]; then
+    host_audio_ready=true
+    PIPEWIRE_REMOTE="${PIPEWIRE_REMOTE:-pipewire-0}"
+    SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-pipewire}"
+    export PIPEWIRE_REMOTE SDL_AUDIODRIVER
+    echo "[startup] Host native PipeWire socket connected: $pipewire_socket"
+fi
+
+if [ "$host_audio_ready" = "false" ]; then
+    echo "[startup] WARNING: no usable host audio session socket was found."
+    echo "[startup]          XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
+    echo "[startup]          Expected $pulse_socket or $pipewire_socket"
+    echo "[startup]          Check PUID/PGID and rebuild/recreate the Compose container."
+fi
+
+rm -f /tmp/nekosuneai-pactl-info.txt /tmp/nekosuneai-pactl-error.txt
+
 VOSK_MODEL_PATH="${VOSK_MODEL_PATH:-/app/models/vosk-model-small-en-us-0.15}"
 VOSK_MODEL_URL="${VOSK_MODEL_URL:-https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip}"
 STT_PROVIDER_NORMALIZED="$(printf '%s' "${STT_PROVIDER:-vosk}" | tr '[:upper:]' '[:lower:]')"
