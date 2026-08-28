@@ -18,6 +18,7 @@ services:
     volumes:
       - ./data:/app/data
       - ./audio:/app/audio
+      - nekosuneai-models:/app/models
       - /dev/bus/usb:/dev/bus/usb
       - ${XDG_RUNTIME_DIR:-/run/user/1000}/pulse:${XDG_RUNTIME_DIR:-/run/user/1000}/pulse
       - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
@@ -32,3 +33,6 @@ services:
       PULSE_SERVER: unix:${XDG_RUNTIME_DIR:-/run/user/1000}/pulse/native
       WEB_DASHBOARD_HOST: 0.0.0.0
       WEB_DASHBOARD_PORT: 8788
+
+volumes:
+  nekosuneai-models:
