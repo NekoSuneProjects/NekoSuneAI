@@ -14,6 +14,11 @@ from .mcp_client import load_servers
 from .paths import AUDIO_DIR
 
 
+def _voice_timeout(config: Config) -> float:
+    """Voice must never inherit a multi-minute LLM generation timeout."""
+    return max(5.0, min(30.0, float(getattr(config, "mcp_timeout_seconds", 30.0))))
+
+
 def _bridge_token(config: Config) -> str:
     if config.bridge_auth_token:
         return config.bridge_auth_token
@@ -38,7 +43,7 @@ def _request(config: Config, payload: dict[str, Any], on_audio=None) -> dict[str
     ws = websocket.create_connection(
         config.bridge_ws_url,
         header=[f"Authorization: Bearer {_bridge_token(config)}"],
-        timeout=config.request_timeout,
+        timeout=_voice_timeout(config),
     )
     try:
         ws.send(json.dumps(payload))
@@ -106,7 +111,7 @@ def synthesize(text: str, config: Config) -> Path:
     if fast:
         output_path.write_bytes(b"".join(chunks))
         if player and player.stdin:
-            player.stdin.close(); player.wait(timeout=max(10, config.request_timeout))
+            player.stdin.close(); player.wait(timeout=max(10, _voice_timeout(config)))
             _LAST_STREAM_PLAYED = True
         return output_path
     files = result.get("files") or []

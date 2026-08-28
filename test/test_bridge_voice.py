@@ -9,6 +9,10 @@ from nekosuneai import bridge_voice
 
 
 class BridgeVoiceTests(unittest.TestCase):
+    def test_voice_timeout_is_bounded_below_long_llm_timeout(self):
+        config = SimpleNamespace(request_timeout=300, mcp_timeout_seconds=30)
+        self.assertEqual(bridge_voice._voice_timeout(config), 30)
+
     def test_old_bridge_falls_back_from_stream_to_gtts(self):
         config = SimpleNamespace(
             bridge_tts_engine="edge-stream", tts_language="en", bridge_tts_voice="en-GB-SoniaNeural",

@@ -695,9 +695,12 @@ class Api:
                 append_history("user", user_text)
                 append_history("assistant", monitor_reply)
                 self._push_chat(companion, monitor_reply, "assistant")
-                if self.state.voice_enabled and not self._stopped():
-                    self._speak(monitor_reply, "neutral")
                 self._push_status("Ready.")
+                if self.state.voice_enabled and not self._stopped():
+                    # Monitor setup/list/stop confirmations should never hold
+                    # the global Busy lock while a remote speaker or Bridge TTS
+                    # connection recovers.
+                    self._speak_async(monitor_reply, "neutral")
                 return monitor_reply
 
         # Sticky wake-instructions + reset/clear — checked before anything else
@@ -952,6 +955,15 @@ class Api:
             self._push_status(f"TTS error: {exc}")
             self._push_notification(f"TTS error: {exc}")
             return False
+
+    def _speak_async(self, text: str, emotion: str = "neutral") -> None:
+        """Speak without keeping an API request or the dashboard Busy lock open."""
+        threading.Thread(
+            target=self._speak,
+            args=(text, emotion),
+            daemon=True,
+            name="neko-background-tts",
+        ).start()
 
     def test_tts_output(self) -> dict[str, Any]:
         if (err := self._not_ready()):
