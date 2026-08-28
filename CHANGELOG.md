@@ -42,6 +42,8 @@
   wake word is detected, with a Settings test control.
 - Fall back to Piper when a Bridge deployment has the Edge streaming route but
   has not installed its `edge-tts-universal` Node dependency yet.
+- Normalize regional STT locales such as `en-GB` and `en_US` to Whisper's base
+  language codes without changing regional TTS voice settings.
 
 All notable changes to **NekoSuneAI** are documented here.
 

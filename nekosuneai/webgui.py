@@ -166,7 +166,7 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
              "options": ["bridge", "faster-whisper", "google"]},
             {"key": "stt_model", "label": "Whisper model", "type": "select",
              "options": ["tiny.en", "base.en", "small.en", "medium.en", "large-v3", "distil-large-v3"]},
-            {"key": "stt_language", "label": "Language", "type": "text"},
+            {"key": "stt_language", "label": "Language (Whisper base code, e.g. en)", "type": "text"},
         ],
     },
     "web": {

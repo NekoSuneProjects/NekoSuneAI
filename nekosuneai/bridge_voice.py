@@ -137,7 +137,12 @@ def synthesize(text: str, config: Config) -> Path:
 
 
 def transcribe(wav_bytes: bytes, config: Config) -> tuple[str, str]:
-    result = _request(config, {"type": "transcribe", "language": config.stt_language,
+    # Whisper accepts ISO-639 base codes such as "en", not regional TTS/locale
+    # values such as "en-GB" or "en_US".
+    from .audio_input import normalize_stt_language_for_whisper
+    whisper_language = normalize_stt_language_for_whisper(config.stt_language)
+    result = _request(config, {"type": "transcribe", "language": whisper_language,
         "files": [{"name": "speech.wav", "contentType": "audio/wav", "size": len(wav_bytes),
                    "contentBase64": base64.b64encode(wav_bytes).decode("ascii")} ]})
-    return str(result.get("text", "")).strip(), config.stt_language
+    detected = str(result.get("language") or whisper_language or "").strip()
+    return str(result.get("text", "")).strip(), detected

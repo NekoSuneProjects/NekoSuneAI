@@ -18,6 +18,14 @@ class BridgeVoiceTests(unittest.TestCase):
         self.assertTrue(bridge_voice._stream_route_unavailable(error))
         self.assertFalse(bridge_voice._stream_route_unavailable(RuntimeError("unauthorized bridge token")))
 
+    def test_bridge_transcription_normalizes_regional_language_for_whisper(self):
+        config = SimpleNamespace(stt_language="en-GB")
+        with patch.object(bridge_voice, "_request", return_value={"text": "hello"}) as request:
+            text, language = bridge_voice.transcribe(b"wav", config)
+        self.assertEqual(text, "hello")
+        self.assertEqual(language, "en")
+        self.assertEqual(request.call_args.args[1]["language"], "en")
+
     def test_old_bridge_falls_back_from_stream_to_builtin_piper(self):
         config = SimpleNamespace(
             bridge_tts_engine="edge-stream", tts_language="en", bridge_tts_voice="en-GB-SoniaNeural",

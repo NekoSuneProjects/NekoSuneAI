@@ -472,7 +472,7 @@ def describe_stt_backend(config: Config) -> str:
 
 
 def normalize_stt_language_for_whisper(language: str) -> str | None:
-    normalized = language.strip().lower()
+    normalized = language.strip().lower().replace("_", "-")
     if not normalized or normalized == "auto":
         return None
     if "-" in normalized:
