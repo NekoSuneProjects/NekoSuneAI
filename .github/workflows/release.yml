@@ -43,7 +43,7 @@ jobs:
         run: gh workflow run release.yml --ref v1.2.1
 
   docker:
-    name: Build Docker amd64 + Raspberry Pi arm64
+    name: Test then publish Docker amd64 + Raspberry Pi arm64
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: [self-hosted, Linux, X64]
     steps:
@@ -60,6 +60,49 @@ jobs:
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
+
+      # Build each architecture locally first. Nothing is pushed to GHCR until
+      # both local smoke builds and runtime checks succeed.
+      - name: Local smoke build linux/amd64
+        shell: bash
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --load \
+            --tag nekosuneai-smoke:amd64 \
+            --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
+            .
+
+          test "$(docker image inspect nekosuneai-smoke:amd64 --format '{{.Architecture}}')" = "amd64"
+
+          docker run --rm \
+            --platform linux/amd64 \
+            --entrypoint python \
+            nekosuneai-smoke:amd64 \
+            -c "import vosk; import nekosuneai.launcher; print('amd64 smoke test OK')"
+
+      - name: Local smoke build linux/arm64
+        shell: bash
+        run: |
+          docker buildx build \
+            --platform linux/arm64 \
+            --load \
+            --tag nekosuneai-smoke:arm64 \
+            --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
+            .
+
+          test "$(docker image inspect nekosuneai-smoke:arm64 --format '{{.Architecture}}')" = "arm64"
+
+          docker run --rm \
+            --platform linux/arm64 \
+            --entrypoint python \
+            nekosuneai-smoke:arm64 \
+            -c "import vosk; import nekosuneai.launcher; print('arm64 smoke test OK')"
+
+      - name: Clean local smoke images
+        if: always()
+        run: |
+          docker image rm -f nekosuneai-smoke:amd64 nekosuneai-smoke:arm64 2>/dev/null || true
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -108,6 +151,7 @@ jobs:
             Registry: `ghcr.io/${{ github.repository }}`
             Version: `${{ github.ref_name }}`
             Platforms: `linux/amd64` and `linux/arm64` for Raspberry Pi 4/5.
+            Both architectures are locally smoke-built and runtime-tested before publishing.
 
             Copy `.env.docker.example` to `.env`, replace the placeholder
             values, then start with `docker compose up -d`.
