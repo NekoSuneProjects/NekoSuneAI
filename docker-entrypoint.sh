@@ -139,6 +139,49 @@ else
     echo "[startup]          NekoSuneAI will still start; audio can appear after the host session is restored and the container is recreated."
 fi
 
+# ---------------------------------------------------------------------------
+# Paired Bluetooth speaker auto-connect
+# ---------------------------------------------------------------------------
+# The first audio pass above finds the host session, not necessarily a sleeping
+# Bluetooth speaker.  If BlueZ and the host audio session are available, run a
+# one-shot discovery as the session owner before the application starts.  The
+# in-app watchdog repeats this later, so Alexa can recover after disconnects.
+bluetooth_auto="$(printf '%s' "${BLUETOOTH_RECONNECT_ENABLED:-true}" | tr '[:upper:]' '[:lower:]')"
+if [ -n "$selected_audio_runtime" ] \
+   && [ "$bluetooth_auto" != "false" ] \
+   && [ "$bluetooth_auto" != "0" ] \
+   && [ "$bluetooth_auto" != "no" ] \
+   && command -v bluetoothctl >/dev/null 2>&1 \
+   && [ -S /run/dbus/system_bus_socket ]; then
+    echo "[startup] Looking for a paired Bluetooth audio speaker (Alexa/Echo preferred)..."
+    if XDG_RUNTIME_DIR="$selected_audio_runtime" \
+       PULSE_SERVER="${PULSE_SERVER:-}" \
+       PIPEWIRE_REMOTE="${PIPEWIRE_REMOTE:-pipewire-0}" \
+       BLUETOOTH_SPEAKER_ADDRESS="${BLUETOOTH_SPEAKER_ADDRESS:-}" \
+       run_as_ids "$selected_audio_uid" "$selected_audio_gid" \
+       python - <<'PY'
+import os
+from types import SimpleNamespace
+
+from nekosuneai.bluetooth_watchdog import BluetoothSpeakerWatchdog
+
+config = SimpleNamespace(
+    bluetooth_reconnect_enabled=True,
+    bluetooth_speaker_address=(os.getenv("BLUETOOTH_SPEAKER_ADDRESS") or "").strip() or None,
+    bluetooth_reconnect_interval_seconds=10.0,
+)
+watchdog = BluetoothSpeakerWatchdog(config, print)
+ok, message = watchdog.reconnect_now()
+print(f"[startup] {message}")
+raise SystemExit(0 if ok else 1)
+PY
+    then
+        :
+    else
+        echo "[startup] Bluetooth speaker was not ready at boot; the background watchdog will keep trying."
+    fi
+fi
+
 rm -f /tmp/nekosuneai-pactl-info.txt /tmp/nekosuneai-pactl-error.txt
 
 # ---------------------------------------------------------------------------
