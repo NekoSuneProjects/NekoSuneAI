@@ -6,9 +6,9 @@ services:
         APP_VERSION: "1.2.1"
     image: ghcr.io/nekosuneprojects/nekosuneai:1.2.1
     restart: unless-stopped
-    # Match the desktop audio-session owner so PipeWire/PulseAudio accepts the
-    # container through its Unix sockets. Set PUID/PGID in .env if not 1000.
-    user: "${PUID:-1000}:${PGID:-1000}"
+    # Start as root only for the entrypoint. It scans the host runtime sessions,
+    # finds the owner of a working PulseAudio/PipeWire socket, then drops to that
+    # UID/GID before NekoSuneAI starts. No PUID/PGID setup is normally required.
     stdin_open: true
     tty: true
     network_mode: host
@@ -20,20 +20,14 @@ services:
       - ./audio:/app/audio
       - nekosuneai-models:/app/models
       - /dev/bus/usb:/dev/bus/usb
-      # Mount the whole per-user runtime directory, not just pulse/. Modern
-      # Raspberry Pi OS may expose both pulse/native and pipewire-0 here.
-      - ${XDG_RUNTIME_DIR:-/run/user/1000}:${XDG_RUNTIME_DIR:-/run/user/1000}
+      # Read all desktop runtime sessions so startup can locate the real audio
+      # owner automatically instead of assuming /run/user/1000.
+      - /run/user:/run/user:ro
       - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
     devices:
       - /dev/snd:/dev/snd
-    group_add:
-      - "${AUDIO_GID:-29}"
-      - "${VIDEO_GID:-44}"
-      - "${BLUETOOTH_GID:-113}"
     environment:
-      XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-/run/user/1000}
-      # Leave blank to let the entrypoint derive unix:$XDG_RUNTIME_DIR/pulse/native.
-      PULSE_SERVER: ${PULSE_SERVER:-}
+      NEKOSUNEAI_AUTO_AUDIO: ${NEKOSUNEAI_AUTO_AUDIO:-true}
       PIPEWIRE_REMOTE: ${PIPEWIRE_REMOTE:-pipewire-0}
       WEB_DASHBOARD_HOST: 0.0.0.0
       WEB_DASHBOARD_PORT: 8788

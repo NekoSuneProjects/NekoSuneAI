@@ -1,51 +1,149 @@
 #!/bin/sh
 set -eu
 
-# Docker runs as the desktop-session UID so it can connect to the host user's
-# PipeWire/PulseAudio sockets. Derive the conventional runtime directory when
-# it was not explicitly supplied and report the backend before NekoSuneAI starts.
-XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
-export XDG_RUNTIME_DIR
+# ---------------------------------------------------------------------------
+# Host audio auto-detection
+# ---------------------------------------------------------------------------
+# Compose mounts /run/user read-only. We scan every host desktop session,
+# probe PulseAudio/PipeWire compatibility as the socket owner, and then run
+# NekoSuneAI as that same UID/GID. This removes the normal need for PUID, PGID,
+# XDG_RUNTIME_DIR, PULSE_SERVER, AUDIO_GID, or a hard-coded speaker index.
 
-pulse_socket="$XDG_RUNTIME_DIR/pulse/native"
-pipewire_socket="$XDG_RUNTIME_DIR/${PIPEWIRE_REMOTE:-pipewire-0}"
+auto_audio="$(printf '%s' "${NEKOSUNEAI_AUTO_AUDIO:-true}" | tr '[:upper:]' '[:lower:]')"
+selected_audio_uid=""
+selected_audio_gid=""
+selected_audio_runtime=""
+selected_audio_backend=""
 
-if [ -z "${PULSE_SERVER:-}" ] && [ -S "$pulse_socket" ]; then
-    PULSE_SERVER="unix:$pulse_socket"
-    export PULSE_SERVER
-fi
+run_as_ids() {
+    target_uid="$1"
+    target_gid="$2"
+    shift 2
 
-host_audio_ready=false
-if [ -S "$pulse_socket" ] && command -v pactl >/dev/null 2>&1; then
-    if pactl info >/tmp/nekosuneai-pactl-info.txt 2>/tmp/nekosuneai-pactl-error.txt; then
-        host_audio_ready=true
-        SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-pulseaudio}"
-        export SDL_AUDIODRIVER
-        default_sink="$(sed -n 's/^Default Sink: //p' /tmp/nekosuneai-pactl-info.txt | head -n 1)"
-        echo "[startup] Host PulseAudio/PipeWire audio connected${default_sink:+; default sink: $default_sink}"
+    if [ "$(id -u)" = "0" ] && [ "$target_uid" != "0" ] && command -v setpriv >/dev/null 2>&1; then
+        setpriv --reuid "$target_uid" --regid "$target_gid" --clear-groups "$@"
     else
-        pulse_error="$(tr '\n' ' ' </tmp/nekosuneai-pactl-error.txt | sed 's/[[:space:]]\+/ /g')"
-        echo "[startup] WARNING: pulse socket exists but pactl cannot connect: ${pulse_error:-unknown error}"
+        "$@"
     fi
+}
+
+probe_pulse_runtime() {
+    candidate_runtime="$1"
+    candidate_socket="$candidate_runtime/pulse/native"
+    [ -S "$candidate_socket" ] || return 1
+
+    candidate_uid="$(stat -c '%u' "$candidate_runtime" 2>/dev/null || true)"
+    candidate_gid="$(stat -c '%g' "$candidate_runtime" 2>/dev/null || true)"
+    [ -n "$candidate_uid" ] || return 1
+    [ -n "$candidate_gid" ] || return 1
+
+    # Optional legacy override: when PUID/PGID are present, use them only as a
+    # preference/filter. Normal installs do not need either setting anymore.
+    if [ -n "${PUID:-}" ] && [ "$candidate_uid" != "$PUID" ]; then
+        return 1
+    fi
+
+    if XDG_RUNTIME_DIR="$candidate_runtime" \
+       PULSE_SERVER="unix:$candidate_socket" \
+       run_as_ids "$candidate_uid" "$candidate_gid" \
+       pactl info >/tmp/nekosuneai-pactl-info.txt 2>/tmp/nekosuneai-pactl-error.txt; then
+        selected_audio_uid="$candidate_uid"
+        selected_audio_gid="${PGID:-$candidate_gid}"
+        selected_audio_runtime="$candidate_runtime"
+        selected_audio_backend="pulse"
+        return 0
+    fi
+
+    return 1
+}
+
+probe_pipewire_runtime() {
+    candidate_runtime="$1"
+    candidate_remote="${PIPEWIRE_REMOTE:-pipewire-0}"
+    candidate_socket="$candidate_runtime/$candidate_remote"
+    [ -S "$candidate_socket" ] || return 1
+
+    candidate_uid="$(stat -c '%u' "$candidate_runtime" 2>/dev/null || true)"
+    candidate_gid="$(stat -c '%g' "$candidate_runtime" 2>/dev/null || true)"
+    [ -n "$candidate_uid" ] || return 1
+    [ -n "$candidate_gid" ] || return 1
+
+    if [ -n "${PUID:-}" ] && [ "$candidate_uid" != "$PUID" ]; then
+        return 1
+    fi
+
+    # Native PipeWire is a fallback for hosts without pipewire-pulse. We do not
+    # need a server query here; socket ownership is enough for ffplay/PipeWire.
+    selected_audio_uid="$candidate_uid"
+    selected_audio_gid="${PGID:-$candidate_gid}"
+    selected_audio_runtime="$candidate_runtime"
+    selected_audio_backend="pipewire"
+    return 0
+}
+
+if [ "$auto_audio" != "false" ] && [ "$auto_audio" != "0" ] && [ "$auto_audio" != "no" ]; then
+    # Try an explicitly configured runtime first for backwards compatibility.
+    if [ -n "${XDG_RUNTIME_DIR:-}" ]; then
+        probe_pulse_runtime "$XDG_RUNTIME_DIR" || true
+    fi
+
+    # Then scan every host desktop session. Retry briefly because PipeWire may
+    # start a moment after Docker during boot.
+    detect_attempt=1
+    while [ -z "$selected_audio_runtime" ] && [ "$detect_attempt" -le 6 ]; do
+        for audio_runtime in /run/user/*; do
+            [ -d "$audio_runtime" ] || continue
+            if probe_pulse_runtime "$audio_runtime"; then
+                break
+            fi
+        done
+
+        if [ -z "$selected_audio_runtime" ]; then
+            for audio_runtime in /run/user/*; do
+                [ -d "$audio_runtime" ] || continue
+                if probe_pipewire_runtime "$audio_runtime"; then
+                    break
+                fi
+            done
+        fi
+
+        if [ -z "$selected_audio_runtime" ] && [ "$detect_attempt" -lt 6 ]; then
+            sleep 2
+        fi
+        detect_attempt=$((detect_attempt + 1))
+    done
 fi
 
-if [ "$host_audio_ready" = "false" ] && [ -S "$pipewire_socket" ]; then
-    host_audio_ready=true
-    PIPEWIRE_REMOTE="${PIPEWIRE_REMOTE:-pipewire-0}"
-    SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-pipewire}"
-    export PIPEWIRE_REMOTE SDL_AUDIODRIVER
-    echo "[startup] Host native PipeWire socket connected: $pipewire_socket"
-fi
+if [ -n "$selected_audio_runtime" ]; then
+    XDG_RUNTIME_DIR="$selected_audio_runtime"
+    export XDG_RUNTIME_DIR
 
-if [ "$host_audio_ready" = "false" ]; then
-    echo "[startup] WARNING: no usable host audio session socket was found."
-    echo "[startup]          XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR"
-    echo "[startup]          Expected $pulse_socket or $pipewire_socket"
-    echo "[startup]          Check PUID/PGID and rebuild/recreate the Compose container."
+    if [ "$selected_audio_backend" = "pulse" ]; then
+        PULSE_SERVER="unix:$selected_audio_runtime/pulse/native"
+        SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-pulseaudio}"
+        export PULSE_SERVER SDL_AUDIODRIVER
+
+        default_sink="$(sed -n 's/^Default Sink: //p' /tmp/nekosuneai-pactl-info.txt 2>/dev/null | head -n 1)"
+        if [ -z "$default_sink" ]; then
+            default_sink="$(XDG_RUNTIME_DIR="$selected_audio_runtime" PULSE_SERVER="$PULSE_SERVER" run_as_ids "$selected_audio_uid" "$selected_audio_gid" pactl get-default-sink 2>/dev/null || true)"
+        fi
+        echo "[startup] Auto-detected host audio: PulseAudio/PipeWire session UID $selected_audio_uid${default_sink:+; default sink: $default_sink}"
+    else
+        PIPEWIRE_REMOTE="${PIPEWIRE_REMOTE:-pipewire-0}"
+        SDL_AUDIODRIVER="${SDL_AUDIODRIVER:-pipewire}"
+        export PIPEWIRE_REMOTE SDL_AUDIODRIVER
+        echo "[startup] Auto-detected host audio: native PipeWire session UID $selected_audio_uid"
+    fi
+else
+    echo "[startup] WARNING: no active host PulseAudio/PipeWire session was found automatically."
+    echo "[startup]          NekoSuneAI will still start; audio can appear after the host session is restored and the container is recreated."
 fi
 
 rm -f /tmp/nekosuneai-pactl-info.txt /tmp/nekosuneai-pactl-error.txt
 
+# ---------------------------------------------------------------------------
+# Vosk model bootstrap
+# ---------------------------------------------------------------------------
 VOSK_MODEL_PATH="${VOSK_MODEL_PATH:-/app/models/vosk-model-small-en-us-0.15}"
 VOSK_MODEL_URL="${VOSK_MODEL_URL:-https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip}"
 STT_PROVIDER_NORMALIZED="$(printf '%s' "${STT_PROVIDER:-vosk}" | tr '[:upper:]' '[:lower:]')"
@@ -109,6 +207,57 @@ PY
     fi
 else
     echo "[startup] STT provider '$STT_PROVIDER_NORMALIZED' does not use Vosk; skipping model download."
+fi
+
+# ---------------------------------------------------------------------------
+# Drop from root to the detected desktop-session owner
+# ---------------------------------------------------------------------------
+if [ "$(id -u)" = "0" ] && [ -n "$selected_audio_uid" ] && [ "$selected_audio_uid" != "0" ]; then
+    app_home="/app/data/.home"
+    mkdir -p "$app_home" /app/audio /app/data
+    # These bind mounts contain small mutable application state/audio. Matching
+    # them to the detected desktop UID prevents old root-owned files from
+    # breaking TTS output after the automatic privilege drop.
+    chown -R "$selected_audio_uid:$selected_audio_gid" /app/data /app/audio 2>/dev/null || true
+
+    group_list="$selected_audio_gid"
+
+    add_group_id() {
+        extra_gid="$1"
+        [ -n "$extra_gid" ] || return 0
+        # Do not grant host root-group access simply because a device happens to
+        # be root-owned. Non-zero device groups are enough for audio/USB access.
+        [ "$extra_gid" != "0" ] || return 0
+        case ",$group_list," in
+            *,$extra_gid,*) ;;
+            *) group_list="$group_list,$extra_gid" ;;
+        esac
+    }
+
+    # Discover the actual host sound-device groups instead of assuming gid 29.
+    for device_path in /dev/snd/*; do
+        [ -e "$device_path" ] || continue
+        add_group_id "$(stat -c '%g' "$device_path" 2>/dev/null || true)"
+    done
+
+    # Kinect and other USB microphones can be owned by a non-root device group.
+    for device_path in /dev/bus/usb/*/*; do
+        [ -e "$device_path" ] || continue
+        add_group_id "$(stat -c '%g' "$device_path" 2>/dev/null || true)"
+    done
+
+    # Keep old explicit overrides working for unusual hosts.
+    add_group_id "${AUDIO_GID:-}"
+    add_group_id "${VIDEO_GID:-}"
+    add_group_id "${BLUETOOTH_GID:-}"
+
+    echo "[startup] Running NekoSuneAI as detected host audio UID:GID $selected_audio_uid:$selected_audio_gid (groups: $group_list)"
+    exec setpriv \
+        --reuid "$selected_audio_uid" \
+        --regid "$selected_audio_gid" \
+        --groups "$group_list" \
+        env HOME="$app_home" USER=nekosuneai LOGNAME=nekosuneai \
+        python app.py "$@"
 fi
 
 exec python app.py "$@"

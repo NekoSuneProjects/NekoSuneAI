@@ -17,23 +17,44 @@ trust AA:BB:CC:DD:EE:FF
 connect AA:BB:CC:DD:EE:FF
 ```
 
-Select its A2DP output using the Raspberry Pi audio panel or `pactl`. Verify it
-with `speaker-test` before starting Docker. Docker receives the host's
-PulseAudio-compatible PipeWire socket; Bluetooth pairing remains managed by the
-host so the container does not need privileged access to BlueZ or D-Bus.
+Select Alexa as the Raspberry Pi host output in the normal audio panel. After
+that, NekoSuneAI handles the Docker side automatically.
 
-Put the host user's IDs and audio group IDs in `.env` before starting Compose:
+On startup Docker mounts the host `/run/user` sessions read-only. The entrypoint:
 
-```bash
-echo "PUID=$(id -u)" >> .env
-echo "PGID=$(id -g)" >> .env
-echo "AUDIO_GID=$(getent group audio | cut -d: -f3)" >> .env
-echo "VIDEO_GID=$(getent group video | cut -d: -f3)" >> .env
-echo "XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/run/user/$(id -u)}" >> .env
+1. scans all active user sessions,
+2. finds a working PulseAudio/PipeWire socket,
+3. detects the socket owner's UID/GID,
+4. reads the host default sink,
+5. configures `XDG_RUNTIME_DIR`, `PULSE_SERVER`/`PIPEWIRE_REMOTE`, and ffplay,
+6. drops the app to the detected host audio user, and
+7. lets PortAudio follow the host default speaker.
+
+You normally **do not** need to set `PUID`, `PGID`, `AUDIO_GID`, `VIDEO_GID`,
+`XDG_RUNTIME_DIR`, `PULSE_SERVER`, or `SPEAKER_DEVICE_INDEX` anymore.
+
+Keep this enabled in `.env`:
+
+```env
+NEKOSUNEAI_AUTO_AUDIO=true
+SPEAKER_DEVICE_INDEX=
+MIC_DEVICE_INDEX=
 ```
 
-The dashboard shows the host default source/sink names. If Alexa is the host
-default sink, leave Speaker on that named **System default** entry.
+The startup log should contain something like:
+
+```text
+[startup] Auto-detected host audio: PulseAudio/PipeWire session UID 1000; default sink: bluez_output....
+[startup] Running NekoSuneAI as detected host audio UID:GID 1000:1000
+```
+
+If you intentionally need to override detection for an unusual host, the old
+`PUID`, `PGID`, `XDG_RUNTIME_DIR`, `PULSE_SERVER`, and `PIPEWIRE_REMOTE`
+variables remain optional compatibility overrides.
+
+The dashboard shows the host default source/sink names. Leaving Speaker on
+**System default** means Bluetooth reconnects and host default-sink changes are
+followed without editing NekoSuneAI settings.
 
 ## 2. Kinect 360 microphone
 
@@ -60,8 +81,7 @@ MIC_INPUT_CHANNELS=4
 MIC_CHANNEL_INDEX=0
 ```
 
-Use `MIC_DEVICE_INDEX` after checking NekoSuneAI's audio-device list. The
-Compose file passes `/dev/snd` and `/dev/bus/usb` through. Kinect 360 is a
+The Compose file passes `/dev/snd` and `/dev/bus/usb` through. Kinect 360 is a
 libfreenect device; do not install libfreenect2, which is for Kinect v2.
 
 ## 3. Wake word and dashboard
