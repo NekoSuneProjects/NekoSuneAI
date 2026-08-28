@@ -1,9 +1,9 @@
 """Auto-detect and keep a pre-paired Bluetooth speaker connected on Linux.
 
-The host owns BlueZ and PipeWire/PulseAudio.  In Docker we talk to those host
+The host owns BlueZ and PipeWire/PulseAudio. In Docker we talk to those host
 services through the mounted system D-Bus and audio-session sockets; the
-container does not pair devices itself.  A speaker only needs to be paired (and
-ideally trusted) on the host once.  After that NekoSuneAI can discover it,
+container does not pair devices itself. A speaker only needs to be paired (and
+ideally trusted) on the host once. After that NekoSuneAI can discover it,
 reconnect it and make its BlueZ sink the default output automatically.
 """
 from __future__ import annotations
@@ -59,7 +59,7 @@ class BluetoothSpeakerWatchdog:
         )
 
     def start(self) -> None:
-        # Address is deliberately optional.  When it is blank (or still contains
+        # Address is deliberately optional. When it is blank (or still contains
         # the example AA:BB:... value) the watchdog discovers a paired audio
         # device automatically, preferring Amazon Alexa/Echo names.
         if not self.config.bluetooth_reconnect_enabled:
@@ -109,7 +109,27 @@ class BluetoothSpeakerWatchdog:
         if any(marker in lowered for marker in _AUDIO_UUID_MARKERS):
             return True
         # BlueZ commonly labels Bluetooth speakers/headsets as audio-card.
-        return bool(re.search(r"^\s*Icon:\s*audio-(?:card|headset)\s*$", info, re.I | re.M))
+        return bool(
+            re.search(
+                r"^\s*Icon:\s*audio-(?:card|headset)\s*$",
+                info,
+                re.I | re.M,
+            )
+        )
+
+    @staticmethod
+    def _is_paired_or_trusted_info(info: str) -> bool:
+        # BlueZ versions differ in whether they expose Paired, Bonded, or both.
+        # Trust is also sufficient evidence that this is a host-known device.
+        return any(
+            BluetoothSpeakerWatchdog._info_flag(info, key)
+            for key in ("Paired", "Bonded", "Trusted")
+        )
+
+    def _ensure_adapter_powered(self) -> None:
+        """Best-effort power-on of the host Bluetooth adapter through BlueZ."""
+        if shutil.which("bluetoothctl"):
+            self._run(["bluetoothctl", "power", "on"])
 
     def _device_info(self, address: str) -> str:
         if not shutil.which("bluetoothctl"):
@@ -133,12 +153,13 @@ class BluetoothSpeakerWatchdog:
         """Find the best host-paired Bluetooth audio device.
 
         Alexa/Echo/Amazon names win first, then already-connected devices, then
-        trusted/paired audio devices.  Keyboards, controllers and other
+        trusted/paired audio devices. Keyboards, controllers and other
         Bluetooth devices are ignored because they do not expose an audio-sink
         UUID/icon.
         """
         if not shutil.which("bluetoothctl"):
             return None
+        self._ensure_adapter_powered()
         result = self._run(["bluetoothctl", "devices"])
         if result.returncode != 0:
             return None
@@ -146,7 +167,11 @@ class BluetoothSpeakerWatchdog:
         candidates: list[tuple[tuple[int, int, int, int, str], str, str]] = []
         for address, listed_name in _DEVICE_LINE_RE.findall(result.stdout):
             info = self._device_info(address)
-            if not info or not self._is_audio_device_info(info):
+            if (
+                not info
+                or not self._is_audio_device_info(info)
+                or not self._is_paired_or_trusted_info(info)
+            ):
                 continue
             name = (
                 self._info_value(info, "Alias")
@@ -155,7 +180,11 @@ class BluetoothSpeakerWatchdog:
                 or address
             )
             lowered_name = name.lower()
-            preferred = 0 if any(x in lowered_name for x in _PREFERRED_SPEAKER_NAMES) else 1
+            preferred = (
+                0
+                if any(x in lowered_name for x in _PREFERRED_SPEAKER_NAMES)
+                else 1
+            )
             connected = 0 if self._info_flag(info, "Connected") else 1
             trusted = 0 if self._info_flag(info, "Trusted") else 1
             paired = 0 if self._info_flag(info, "Paired") else 1
@@ -210,9 +239,14 @@ class BluetoothSpeakerWatchdog:
         configured = (self.config.bluetooth_speaker_address or "").strip()
         if _MAC_RE.fullmatch(configured):
             info = self._device_info(configured)
-            # Only pin to a configured MAC when BlueZ actually knows it.  This
+            # Only pin to a configured MAC when BlueZ knows it, it is an audio
+            # device, and it is already paired/bonded/trusted on the host. This
             # intentionally ignores the AA:BB:CC:DD:EE:FF example placeholder.
-            if info and self._is_audio_device_info(info):
+            if (
+                info
+                and self._is_audio_device_info(info)
+                and self._is_paired_or_trusted_info(info)
+            ):
                 name = (
                     self._info_value(info, "Alias")
                     or self._info_value(info, "Name")
@@ -236,7 +270,11 @@ class BluetoothSpeakerWatchdog:
         card = ""
         for line in result.stdout.splitlines():
             columns = line.split()
-            if len(columns) >= 2 and "bluez" in columns[1].lower() and address_key in columns[1].lower():
+            if (
+                len(columns) >= 2
+                and "bluez" in columns[1].lower()
+                and address_key in columns[1].lower()
+            ):
                 card = columns[1]
                 break
         if not card:
@@ -266,7 +304,7 @@ class BluetoothSpeakerWatchdog:
             return None
 
         # BlueZ can report Connected=yes before PipeWire has finished creating
-        # the A2DP sink.  Give it a few seconds instead of declaring success too
+        # the A2DP sink. Give it a few seconds instead of declaring success too
         # early and sending TTS to the previous default output.
         selected: str | None = None
         for attempt in range(20):
@@ -284,7 +322,7 @@ class BluetoothSpeakerWatchdog:
         if changed.returncode != 0:
             return None
 
-        # Move any already-open players to the new Bluetooth sink too.  New TTS
+        # Move any already-open players to the new Bluetooth sink too. New TTS
         # streams will automatically follow the new default sink.
         inputs = self._run(["pactl", "list", "short", "sink-inputs"])
         if inputs.returncode == 0:
@@ -299,6 +337,7 @@ class BluetoothSpeakerWatchdog:
 
     def reconnect_now(self) -> tuple[bool, str]:
         try:
+            self._ensure_adapter_powered()
             target = self._resolve_target()
             if not target:
                 self._last_connected = False
