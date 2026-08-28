@@ -119,12 +119,24 @@ jobs:
           echo "Moved $release_tag to tested commit $GITHUB_SHA"
 
       # A tag push made with GITHUB_TOKEN does not automatically trigger a
-      # second workflow, so explicitly dispatch this workflow at the tested tag.
+      # second workflow. Use the GitHub API directly via github-script so the
+      # self-hosted runner does not need the `gh` CLI installed.
       - name: Start version Docker publish
+        uses: actions/github-script@v7
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
-        run: gh workflow run release.yml --ref "$RELEASE_TAG"
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const releaseTag = process.env.RELEASE_TAG;
+            core.info(`Dispatching release.yml at ${releaseTag}`);
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'release.yml',
+              ref: releaseTag,
+            });
+            core.info(`Started Docker publish workflow for ${releaseTag}`);
 
   docker:
     name: Publish Docker amd64 + Raspberry Pi arm64
