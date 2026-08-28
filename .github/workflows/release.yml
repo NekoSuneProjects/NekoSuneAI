@@ -20,19 +20,24 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
+  sync_release_tag:
+    name: Sync v1.2.1 tag to main
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Move v1.2.1 to this main commit
+        run: |
+          git tag -f v1.2.1 "$GITHUB_SHA"
+          git push --force origin refs/tags/v1.2.1
+
   docker:
     name: Build Docker amd64 + Raspberry Pi arm64
     runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Sync v1.2.1 tag to main
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        run: |
-          git tag -f v1.2.1 "$GITHUB_SHA"
-          git push --force origin refs/tags/v1.2.1
 
       - name: Verify release version
         if: startsWith(github.ref, 'refs/tags/v')
