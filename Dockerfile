@@ -5,7 +5,7 @@ LABEL org.opencontainers.image.title="NekoSuneAI" org.opencontainers.image.versi
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 AUTO_UPDATE_CHECK=false AUTO_UPDATE_INSTALL=false AUTO_TUNE_PERFORMANCE=true XTTS_USE_GPU=false STT_USE_GPU=false
 RUN apt-get update && apt-get install -y --no-install-recommends \
     alsa-utils bluez ca-certificates curl ffmpeg libasound2-plugins libatomic1 libportaudio2 \
-    pipewire-bin pulseaudio-utils usbutils \
+    pipewire-bin pulseaudio-utils usbutils util-linux \
     && rm -rf /var/lib/apt/lists/* \
     && printf '%s\n' \
       'pcm.pulse {' \
