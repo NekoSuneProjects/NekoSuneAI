@@ -30,6 +30,8 @@
   mounted audio directory on first launch without external downloads.
 - Add a BlueZ watchdog that reconnects a pre-paired Alexa Bluetooth speaker and
   restores its PulseAudio/PipeWire sink as the default output.
+- Fall back to the Bridge's compatible gTTS action when an older deployment
+  does not yet recognize the fast `tts-stream` action.
 
 All notable changes to **NekoSuneAI** are documented here.
 

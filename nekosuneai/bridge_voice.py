@@ -82,9 +82,27 @@ def synthesize(text: str, config: Config) -> Path:
             try: player.stdin.write(chunk); player.stdin.flush()
             except (BrokenPipeError, OSError): player = None
 
-    result = _request(config, {"type": "tts-stream" if fast else "tts", "text": text,
+    payload = {"type": "tts-stream" if fast else "tts", "text": text,
         "language": config.tts_language, "voice": config.bridge_tts_voice,
-        "rate": config.bridge_tts_rate, "provider": "piper"}, on_audio=receive_audio if fast else None)
+        "rate": config.bridge_tts_rate, "provider": "piper"}
+    try:
+        result = _request(config, payload, on_audio=receive_audio if fast else None)
+    except RuntimeError as exc:
+        # Older Bridge deployments predate tts-stream. Fall back to their fast
+        # gTTS route instead of leaving voice completely silent while the Bridge
+        # image is being upgraded.
+        if not fast or 'Unsupported payload type "tts-stream"' not in str(exc):
+            raise
+        if player and player.stdin:
+            player.stdin.close()
+            try:
+                player.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                player.kill()
+        player = None
+        chunks.clear()
+        fast = False
+        result = _request(config, {**payload, "type": "tts", "provider": "gtts"})
     if fast:
         output_path.write_bytes(b"".join(chunks))
         if player and player.stdin:
