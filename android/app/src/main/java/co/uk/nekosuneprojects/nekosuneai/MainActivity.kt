@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -12,11 +13,9 @@ import android.speech.tts.TextToSpeech
 import android.text.InputType
 import android.view.Gravity
 import android.view.View
-import android.view.ViewGroup
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.EditText
-import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -25,8 +24,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.card.MaterialCardView
 import java.net.URLEncoder
 import java.util.Locale
 import kotlin.concurrent.thread
@@ -34,11 +31,27 @@ import kotlin.concurrent.thread
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var api: ApiClient
     private lateinit var prefs: android.content.SharedPreferences
+    private lateinit var discovery: DiscoveryManager
     private lateinit var web: WebView
     private lateinit var chatInput: EditText
     private lateinit var replyView: TextView
     private lateinit var connectionStatus: TextView
+    private lateinit var serverInput: EditText
+    private lateinit var tokenInput: EditText
+    private lateinit var advancedBox: LinearLayout
+    private lateinit var discoveredBox: LinearLayout
     private var tts: TextToSpeech? = null
+    @Volatile private var pairingBusy = false
+    private val foundServers = linkedSetOf<String>()
+
+    private val bg = Color.parseColor("#080914")
+    private val surface = Color.parseColor("#111329")
+    private val surface2 = Color.parseColor("#181B38")
+    private val border = Color.parseColor("#292D55")
+    private val textColor = Color.parseColor("#F4F2FF")
+    private val muted = Color.parseColor("#B3B7DC")
+    private val violet = Color.parseColor("#A78BFA")
+    private val cyan = Color.parseColor("#67E8F9")
 
     private val bg = Color.rgb(13, 11, 18)
     private val surface = Color.rgb(23, 19, 31)
@@ -75,228 +88,191 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         window.navigationBarColor = bg
         api = ApiClient(this)
         prefs = getSharedPreferences("neko", MODE_PRIVATE)
+        discovery = DiscoveryManager(this)
         tts = TextToSpeech(this, this)
 
-        val content = LinearLayout(this).apply {
+        val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(36))
+            setPadding(dp(16), dp(18), dp(16), dp(40))
             setBackgroundColor(bg)
         }
-        val scroll = ScrollView(this).apply {
-            isFillViewport = true
-            setBackgroundColor(bg)
-            addView(content)
-        }
+        val scroll = ScrollView(this).apply { setBackgroundColor(bg); addView(root) }
 
-        content.addView(hero())
-        content.addView(space(14))
-
-        val server = styledInput("Pi address", "https://neko.example.com", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI).apply {
-            setText(prefs.getString("server_url", ""))
-        }
-        val token = styledInput("Dashboard token", "WEB_DASHBOARD_TOKEN", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD).apply {
-            setText(prefs.getString("token", ""))
-        }
-
-        content.addView(card("Connection", "Secure link to your Raspberry Pi") { body ->
-            body.addView(server)
-            body.addView(space(10))
-            body.addView(token)
-            body.addView(space(12))
-            body.addView(primaryButton("Connect to Pi") {
-                api.save(server.text.toString(), token.text.toString())
-                ContextCompat.startForegroundService(this@MainActivity, Intent(this@MainActivity, CompanionService::class.java))
-                if (Build.VERSION.SDK_INT >= 33) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
-                connectionStatus.text = "● Connected"
-                connectionStatus.setTextColor(success)
-                loadAvatarFromPi()
+        root.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.ic_neko_logo)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                contentDescription = "NekoSuneAI"
+            }, LinearLayout.LayoutParams(dp(48), dp(48)))
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), 0, 0, 0)
+                addView(TextView(this@MainActivity).apply { text = "NekoSuneAI"; textSize = 22f; setTextColor(textColor); typeface = Typeface.DEFAULT_BOLD })
+                addView(TextView(this@MainActivity).apply { text = "ANDROID COMPANION STUDIO"; textSize = 10f; setTextColor(violet); letterSpacing = .12f })
             })
         })
 
-        content.addView(space(14))
-        content.addView(card("Talk to Neko", "Voice, text and camera companion controls") { body ->
-            replyView = TextView(this).apply {
-                text = "Ready when you are."
-                textSize = 15f
-                setTextColor(text)
-                setPadding(dp(14), dp(12), dp(14), dp(12))
-                setBackgroundColor(surface2)
-            }
-            body.addView(replyView, matchWrap())
-            body.addView(space(12))
-
-            chatInput = styledInput("Message Neko", "Ask me anything…", InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_MULTI_LINE).apply {
-                minLines = 2
-                maxLines = 5
-            }
-            body.addView(chatInput)
-            body.addView(space(10))
-            body.addView(primaryButton("Send message") { sendChat(chatInput.text.toString()) })
-            body.addView(space(8))
-            body.addView(secondaryButton("🎤  Talk to Neko") {
-                val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
-                    putExtra(RecognizerIntent.EXTRA_PROMPT, "Talk to NekoSuneAI")
-                }
-                speechLauncher.launch(intent)
-            })
-            body.addView(space(8))
-            body.addView(secondaryButton("📷  Share phone camera") {
-                if (!api.configured()) replyView.text = "Connect to the Pi first."
-                else startActivity(Intent(this@MainActivity, CameraVisionActivity::class.java))
-            })
-            body.addView(TextView(this).apply {
-                text = "Camera sharing is opt-in and stops as soon as you leave the camera screen."
-                textSize = 12f
-                setTextColor(muted)
-                setPadding(0, dp(10), 0, 0)
-            })
-        })
-
-        content.addView(space(14))
-        content.addView(card("Neko avatar", "Live VRM rendered from your Pi") { body ->
-            val avatarFrame = FrameLayout(this).apply {
-                setBackgroundColor(Color.BLACK)
-                clipToOutline = true
-            }
-            web = WebView(this).apply {
-                layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(420))
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                setBackgroundColor(Color.TRANSPARENT)
-                webViewClient = WebViewClient()
-            }
-            avatarFrame.addView(web)
-            body.addView(avatarFrame, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(420)))
-            body.addView(space(10))
-            body.addView(secondaryButton("↻  Reload avatar") { loadAvatarFromPi() })
-        })
-
-        content.addView(space(14))
-        content.addView(card("Phone tools", "Useful remote companion features") { body ->
-            body.addView(secondaryButton("🔔  Notification access") {
-                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-            })
-            body.addView(space(8))
-            body.addView(secondaryButton("📱  Test Find My Phone") {
-                ContextCompat.startForegroundService(this@MainActivity, Intent(this@MainActivity, FindPhoneService::class.java).apply { action = FindPhoneService.ACTION_START })
-            })
-            body.addView(space(8))
-            body.addView(secondaryButton("■  Stop ringing") {
-                startService(Intent(this@MainActivity, FindPhoneService::class.java).apply { action = FindPhoneService.ACTION_STOP })
-            })
-        })
-
-        content.addView(TextView(this).apply {
-            text = "For remote use, connect through Tailscale/VPN or authenticated HTTPS. The VRM renderer pauses when this screen is closed so background monitoring stays lightweight."
+        connectionStatus = TextView(this).apply {
+            setPadding(dp(12), dp(8), dp(12), dp(8))
+            setTextColor(cyan)
             textSize = 12f
-            setTextColor(muted)
-            setPadding(dp(4), dp(18), dp(4), dp(8))
-        })
-
-        setContentView(scroll)
-        if (api.configured()) {
-            connectionStatus.text = "● Saved connection"
-            connectionStatus.setTextColor(success)
-            loadAvatarFromPi()
+            background = pill(Color.parseColor("#17213A"), Color.parseColor("#345D77"), 14f)
+            text = if (api.configured()) "● Connected to ${api.serverUrl}" else "● Not paired"
         }
-    }
+        root.addView(connectionStatus, marginTop(16))
 
-    private fun hero(): View = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(4), dp(8), dp(4), dp(4))
-
-        addView(ImageView(this@MainActivity).apply {
-            setImageResource(R.drawable.ic_neko_logo)
-            contentDescription = "NekoSuneAI"
-        }, LinearLayout.LayoutParams(dp(66), dp(66)))
-
-        addView(LinearLayout(this@MainActivity).apply {
+        root.addView(sectionTitle("Dashboard"), marginTop(18))
+        val pairCard = card()
+        pairCard.addView(kicker("QUICK CONNECT"))
+        pairCard.addView(title("Pair this phone"))
+        pairCard.addView(body("No URL or dashboard token needed. Search this Wi-Fi, choose your NekoSuneAI server, then approve the phone from that Docker dashboard."))
+        pairCard.addView(primaryButton("Find NekoSuneAI servers", "⌁") { startDiscovery() }, marginTop(12))
+        discoveredBox = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(12), 0, 0, 0)
-            addView(TextView(this@MainActivity).apply {
-                text = "NekoSuneAI"
-                textSize = 26f
-                setTextColor(text)
-                setTypeface(typeface, Typeface.BOLD)
-            })
-            addView(TextView(this@MainActivity).apply {
-                text = "Android Companion"
-                textSize = 14f
-                setTextColor(primary)
-            })
-            connectionStatus = TextView(this@MainActivity).apply {
-                text = "● Not connected"
-                textSize = 12f
-                setTextColor(muted)
-                setPadding(0, dp(4), 0, 0)
+            visibility = View.GONE
+            setPadding(0, dp(10), 0, 0)
+        }
+        pairCard.addView(discoveredBox)
+        pairCard.addView(secondaryButton("Advanced manual connection") {
+            advancedBox.visibility = if (advancedBox.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+        }, marginTop(8))
+        advancedBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, dp(10), 0, 0)
+        }
+        serverInput = field("Pi URL, e.g. https://neko.example.com", prefs.getString("server_url", "").orEmpty())
+        tokenInput = field("WEB_DASHBOARD_TOKEN", prefs.getString("token", "").orEmpty()).apply {
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        advancedBox.addView(serverInput)
+        advancedBox.addView(tokenInput, marginTop(8))
+        advancedBox.addView(secondaryButton("Save manual connection") {
+            api.save(serverInput.text.toString(), tokenInput.text.toString())
+            onConnected()
+        }, marginTop(8))
+        pairCard.addView(advancedBox)
+        root.addView(pairCard, marginTop(8))
+
+        root.addView(sectionTitle("Chat"), marginTop(18))
+        val chatCard = card()
+        chatCard.addView(kicker("TALK TO NEKO"))
+        replyView = body(if (api.configured()) "Ready. Ask me anything." else "Pair this phone with your Pi to start chatting.")
+        chatCard.addView(replyView)
+        chatInput = field("Ask NekoSuneAI anything…", "").apply { minLines = 2 }
+        chatCard.addView(chatInput, marginTop(10))
+        chatCard.addView(primaryButton("Send message", "➤") { sendChat(chatInput.text.toString()) }, marginTop(10))
+        chatCard.addView(secondaryButton("🎤  Talk to Neko") {
+            val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+                putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+                putExtra(RecognizerIntent.EXTRA_PROMPT, "Talk to NekoSuneAI")
             }
-            addView(connectionStatus)
-        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            speechLauncher.launch(intent)
+        }, marginTop(8))
+        root.addView(chatCard, marginTop(8))
+
+        root.addView(sectionTitle("Vision & Avatar"), marginTop(18))
+        val avatarCard = card()
+        avatarCard.addView(kicker("LIVE COMPANION"))
+        avatarCard.addView(title("VRM Avatar"))
+        web = WebView(this).apply {
+            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(390))
+            setBackgroundColor(Color.TRANSPARENT)
+            settings.javaScriptEnabled = true
+            settings.domStorageEnabled = true
+            webViewClient = WebViewClient()
+        }
+        avatarCard.addView(web, marginTop(8))
+        avatarCard.addView(primaryButton("📷  Let Neko see through phone camera") {
+            if (!api.configured()) replyView.text = "Pair to the Pi first."
+            else startActivity(Intent(this@MainActivity, CameraVisionActivity::class.java))
+        }, marginTop(10))
+        avatarCard.addView(secondaryButton("Reload avatar") { loadAvatarFromPi() }, marginTop(8))
+        avatarCard.addView(body("Camera vision is opt-in and foreground-only. It stops sharing when you leave the camera preview."), marginTop(8))
+        root.addView(avatarCard, marginTop(8))
+
+        root.addView(sectionTitle("Phone Tools"), marginTop(18))
+        val toolsCard = card()
+        toolsCard.addView(secondaryButton("Allow notification / SMS-style alerts") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) })
+        toolsCard.addView(secondaryButton("Test Find My Phone") {
+            ContextCompat.startForegroundService(this@MainActivity, Intent(this@MainActivity, FindPhoneService::class.java).apply { action = FindPhoneService.ACTION_START })
+        }, marginTop(8))
+        toolsCard.addView(secondaryButton("Stop ringing") {
+            startService(Intent(this@MainActivity, FindPhoneService::class.java).apply { action = FindPhoneService.ACTION_STOP })
+        }, marginTop(8))
+        root.addView(toolsCard, marginTop(8))
+
+        root.addView(body("Remote access can still use Tailscale/VPN or authenticated HTTPS. Automatic pairing is intentionally local-network only by default."), marginTop(18))
+        setContentView(scroll)
+        if (api.configured()) onConnected()
     }
 
-    private fun card(title: String, subtitle: String, build: (LinearLayout) -> Unit): MaterialCardView {
-        val card = MaterialCardView(this).apply {
-            radius = dp(20).toFloat()
-            cardElevation = 0f
-            setCardBackgroundColor(surface)
-            strokeColor = Color.rgb(48, 39, 63)
-            strokeWidth = dp(1)
-        }
-        val body = LinearLayout(this).apply {
+    private fun startDiscovery() {
+        if (pairingBusy) return
+        foundServers.clear()
+        discoveredBox.removeAllViews()
+        discoveredBox.visibility = View.VISIBLE
+        discoveredBox.addView(body("Searching… found servers will appear here."))
+        connectionStatus.text = "● Searching for NekoSuneAI on this Wi-Fi…"
+        discovery.discover(onFound = { url, name ->
+            runOnUiThread { addDiscoveredServer(url, name) }
+        }, onStatus = { status -> connectionStatus.post { connectionStatus.text = "● $status" } })
+    }
+
+    private fun addDiscoveredServer(url: String, name: String) {
+        if (!foundServers.add(url)) return
+        if (foundServers.size == 1) discoveredBox.removeAllViews()
+        val serverCard = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(18), dp(18), dp(18))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = pill(surface2, Color.parseColor("#3C4275"), 12f)
+            addView(TextView(this@MainActivity).apply { text = name; setTextColor(textColor); textSize = 14f; typeface = Typeface.DEFAULT_BOLD })
+            addView(TextView(this@MainActivity).apply { text = url; setTextColor(muted); textSize = 11f; setPadding(0, dp(3), 0, dp(8)) })
+            addView(primaryButton("Request pairing") { requestPairing(url, name) })
         }
-        body.addView(TextView(this).apply {
-            text = title
-            textSize = 20f
-            setTextColor(text)
-            setTypeface(typeface, Typeface.BOLD)
-        })
-        body.addView(TextView(this).apply {
-            text = subtitle
-            textSize = 13f
-            setTextColor(muted)
-            setPadding(0, dp(3), 0, dp(14))
-        })
-        build(body)
-        card.addView(body)
-        return card
+        discoveredBox.addView(serverCard, if (foundServers.size == 1) LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT) else marginTop(8))
+        connectionStatus.text = "● Found ${foundServers.size} NekoSuneAI server${if (foundServers.size == 1) "" else "s"}"
     }
 
-    private fun styledInput(label: String, hintText: String, inputTypeValue: Int): EditText = EditText(this).apply {
-        hint = "$label · $hintText"
-        inputType = inputTypeValue
-        textSize = 15f
-        setTextColor(text)
-        setHintTextColor(Color.rgb(130, 119, 147))
-        setPadding(dp(14), dp(12), dp(14), dp(12))
-        setSingleLine(inputTypeValue and InputType.TYPE_TEXT_FLAG_MULTI_LINE == 0)
-        backgroundTintList = android.content.res.ColorStateList.valueOf(primary)
+    private fun requestPairing(url: String, name: String) {
+        if (pairingBusy) return
+        pairingBusy = true
+        discovery.stop()
+        connectionStatus.text = "● Sending pairing request to $name…"
+        thread(name = "NekoPairing") {
+            try {
+                val pairing = api.requestPairing(url)
+                runOnUiThread { connectionStatus.text = "● Waiting for approval on $name dashboard…" }
+                var result = PairingResult("pending")
+                var attempts = 0
+                while (attempts < 75 && !result.connected && result.status !in setOf("rejected", "expired")) {
+                    Thread.sleep(1600)
+                    result = api.pollPairing(pairing)
+                    attempts++
+                }
+                runOnUiThread {
+                    pairingBusy = false
+                    when {
+                        result.connected -> onConnected()
+                        result.status == "rejected" -> connectionStatus.text = "● Pairing rejected on dashboard"
+                        else -> connectionStatus.text = "● Pairing timed out — search again to retry"
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { pairingBusy = false; connectionStatus.text = "● Pairing failed: ${e.message}" }
+            }
+        }
     }
 
-    private fun primaryButton(label: String, onClick: () -> Unit): MaterialButton = MaterialButton(this).apply {
-        text = label
-        textSize = 14f
-        isAllCaps = false
-        setTextColor(bg)
-        setBackgroundColor(primary)
-        cornerRadius = dp(14)
-        layoutParams = matchWrap()
-        setOnClickListener { onClick() }
-    }
-
-    private fun secondaryButton(label: String, onClick: () -> Unit): MaterialButton = MaterialButton(this).apply {
-        text = label
-        textSize = 14f
-        isAllCaps = false
-        setTextColor(text)
-        setBackgroundColor(surface2)
-        cornerRadius = dp(14)
-        layoutParams = matchWrap()
-        setOnClickListener { onClick() }
+    private fun onConnected(startService: Boolean = true) {
+        discovery.stop()
+        connectionStatus.text = "● Connected to ${api.serverUrl}"
+        if (startService) ContextCompat.startForegroundService(this, Intent(this, CompanionService::class.java))
+        if (Build.VERSION.SDK_INT >= 33) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        loadAvatarFromPi()
     }
 
     private fun loadAvatarFromPi() {
@@ -311,12 +287,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun sendChat(value: String) {
-        val message = value.trim()
-        if (message.isBlank()) return
-        if (!api.configured()) {
-            replyView.text = "Connect to the Pi first."
-            return
-        }
+        val message = value.trim(); if (message.isBlank()) return
+        if (!api.configured()) { replyView.text = "Pair this phone with your Pi first."; return }
         replyView.text = "Neko is thinking…"
         web.evaluateJavascript("window.setNekoEmotion('neutral');window.setNekoGesture('idle');window.setNekoSpeaking(false);", null)
         thread(name = "NekoRemoteChat") {
@@ -335,7 +307,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val vowels = value.lowercase().filter { it in "aeiouy" }.take(180)
         if (vowels.isEmpty()) return
         val duration = (value.length * 55L).coerceIn(1000L, 14000L)
-        val step = (duration / vowels.length.coerceAtLeast(1)).coerceIn(55L, 150L)
+        val step = (duration / vowels.size.coerceAtLeast(1)).coerceIn(55L, 150L)
         web.evaluateJavascript("window.setNekoSpeaking(true);", null)
         vowels.forEachIndexed { i, c ->
             val vis = when (c) { 'a' -> "aa"; 'e' -> "ee"; 'i','y' -> "ih"; 'o' -> "oh"; else -> "ou" }
@@ -344,12 +316,32 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         web.postDelayed({ web.evaluateJavascript("window.setNekoViseme('',0);window.setNekoSpeaking(false);window.setNekoGesture('idle');", null) }, duration)
     }
 
+    private fun card() = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(16), dp(16), dp(16), dp(16))
+        background = pill(surface, border, 16f)
+    }
+    private fun kicker(value: String) = TextView(this).apply { text = value; textSize = 10f; setTextColor(violet); typeface = Typeface.DEFAULT_BOLD; letterSpacing = .13f }
+    private fun title(value: String) = TextView(this).apply { text = value; textSize = 19f; setTextColor(textColor); typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(4), 0, dp(5)) }
+    private fun sectionTitle(value: String) = TextView(this).apply { text = value; textSize = 13f; setTextColor(muted); typeface = Typeface.DEFAULT_BOLD; letterSpacing = .06f }
+    private fun body(value: String) = TextView(this).apply { text = value; textSize = 13f; setTextColor(muted); setLineSpacing(0f, 1.12f) }
+    private fun field(hintText: String, value: String) = EditText(this).apply {
+        hint = hintText; setText(value); setTextColor(textColor); setHintTextColor(Color.parseColor("#777DA9")); textSize = 14f
+        setPadding(dp(12), dp(10), dp(12), dp(10)); background = pill(Color.parseColor("#0D0F24"), Color.parseColor("#343961"), 10f)
+    }
+    private fun primaryButton(label: String, icon: String = "", action: () -> Unit) = Button(this).apply {
+        text = if (icon.isBlank()) label else "$icon  $label"; isAllCaps = false; textSize = 14f; setTextColor(Color.parseColor("#111329")); typeface = Typeface.DEFAULT_BOLD
+        background = pill(violet, cyan, 12f); setOnClickListener { action() }
+    }
+    private fun secondaryButton(label: String, action: () -> Unit) = Button(this).apply {
+        text = label; isAllCaps = false; textSize = 14f; setTextColor(textColor); background = pill(surface2, Color.parseColor("#3C4275"), 12f); setOnClickListener { action() }
+    }
+    private fun pill(fill: Int, stroke: Int, radius: Float) = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; setColor(fill); cornerRadius = dp(radius.toInt()).toFloat(); setStroke(dp(1), stroke) }
+    private fun marginTop(top: Int) = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(top) }
     private fun safeJs(value: String): String = value.replace("'", "").replace("\\", "").take(24)
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-    private fun space(height: Int): View = View(this).apply { layoutParams = LinearLayout.LayoutParams(1, dp(height)) }
-    private fun matchWrap() = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
-    override fun onPause() { if (::web.isInitialized) web.onPause(); super.onPause() }
-    override fun onResume() { super.onResume(); if (::web.isInitialized) web.onResume() }
-    override fun onDestroy() { tts?.stop(); tts?.shutdown(); if (::web.isInitialized) web.destroy(); super.onDestroy() }
+    override fun onPause() { web.onPause(); super.onPause() }
+    override fun onResume() { super.onResume(); web.onResume() }
+    override fun onDestroy() { discovery.stop(); tts?.stop(); tts?.shutdown(); web.destroy(); super.onDestroy() }
 }

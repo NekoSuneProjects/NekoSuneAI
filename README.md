@@ -4,657 +4,735 @@
 
 # NekoSuneAI
 
-### *Your brutally honest AI companion that actually talks back.*
+### *A local-first AI companion that talks, remembers, learns, watches, listens, plays music, and can follow you onto Android.*
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://python.org)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-1.2.1-violet)](VERSION)
-[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078D6?logo=windows&logoColor=white)](https://microsoft.com)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20ARM64%20%7C%20Android-0078D6)](https://github.com/NekoSuneProjects/NekoSuneAI)
 
-NekoSuneAI is a voice-powered desktop companion built with Python. It listens through your mic, thinks with local or cloud LLMs, and speaks back with a cloned voice — all wrapped in a slick dark-themed UI.
+NekoSuneAI is a voice-powered AI companion built with Python. It can run on a desktop, a headless Linux server, or a Raspberry Pi, connect to an Android companion app, use local or cloud LLMs, speak with TTS, remember conversations, learn owner preferences, play music, monitor things, interact with VRChat, use camera/Kinect context, and present itself through a VRM avatar.
 
-Think Alexa, but with *attitude* and zero cloud lock-in. 🔥
+The project is **local-first**: Ollama, local STT, local embeddings, lightweight local affect detection, SQLite storage, and Pi-hosted services can all be used without cloud lock-in. Cloud/CLI providers remain optional fallbacks where useful.
 
 ---
 
 ## ✨ Features at a Glance
 
 | | Feature | Details |
-|---|---------|---------|
-| 🧠 | **LLM Chat** | Ollama, OpenAI, OpenRouter, LM Studio, or the Claude/Codex CLI — your pick |
-| 🎙️ | **Voice Input** | Local `faster-whisper` STT — no audio leaves your machine |
-| 🔊 | **Voice Output** | XTTS-v2 streamed synthesis with cloned voices (or Google TTS lite) |
-| 🧬 | **Memory / Learning** | RAG long-term memory — remembers facts across sessions and gets better |
-| 🎮 | **VRChat Integration** | Plays/hangs out in VRChat via the official OSC API — walk, look, chat, emote, greet people by name, and *see* the world through an optional vision model |
-| 👁️ | **Watch & React** | NekoSuneAI periodically glances at your screen (game/video) and reacts live in-character |
-| 🌐 | **Per-language Voice** | Auto-detects each reply's language and speaks it in that language (Japanese line → Japanese voice, etc.) |
-| 🎤 | **Singing** | Sings songs in its own voice over an auto-found YouTube instrumental |
-| 🌐 | **Web Search** | Manual or auto-triggered lookups via SearXNG / DuckDuckGo |
-| 🎵 | **Music** | SoundCloud search, in-app playback |
-| 👤 | **Profiles** | Multiple companion personalities — create, clone, switch, import/export, delete |
-| ⚡ | **Auto-Tune** | Detects your hardware, adjusts models and GPU usage |
-| 🔄 | **Self-Update** | Checks GitHub for new versions on startup |
-| 🗄️ | **SQLite Storage** | Everything in one clean database — no scattered JSON |
+|---|---|---|
+| 🧠 | **LLM Chat** | Ollama, OpenAI-compatible APIs, OpenRouter, LM Studio, Claude/Codex CLI and custom endpoints |
+| 🎙️ | **Voice Input** | Local `faster-whisper`, Vosk, Google or bridge STT |
+| 🔊 | **Voice Output** | XTTS-v2 streamed synthesis with cloned voices or lightweight gTTS fallback |
+| 🧬 | **RAG Memory** | Long-term memory across sessions with local MiniLM, Ollama or OpenAI-compatible embeddings |
+| 👤 | **Owner Learning** | Starts blank and gradually learns explicit likes, dislikes, hobbies, favourites and comfort activities |
+| 💗 | **Companion Mood** | Persistent simulated valence/arousal/trust/caution state drives avatar presentation and response style |
+| 🎧 | **Voice-Tone Cues** | Lightweight acoustic cues such as quiet/subdued or energetic/animated, treated as uncertain context only |
+| 👁️ | **Camera / Vision** | Android camera, screen vision and Kinect/external-camera support |
+| 🪶 | **Low-power Pi Affect Fallback** | Optional FER+ ONNX + OpenCV fallback for visible facial-expression cues without a full VLM |
+| 🤝 | **Gentle Check-ins** | Multiple consistent cues can trigger a cooldown-limited, non-diagnostic check-in |
+| 🎵 | **YouTube Music** | `yt-dlp` + `ffplay`, playlists, pause/resume/skip/previous/volume controls |
+| ⏰ | **Reminders / Timers / Alarms** | Persistent reminders, timers and alarms on the Pi |
+| 📡 | **Scheduled Monitoring** | Run aircraft/weather/etc. monitors only inside selected time windows |
+| 📱 | **Android Companion** | Remote chat/voice, telemetry, notification forwarding, Find My Phone, camera vision and shared VRM |
+| 🌐 | **Mobile PWA** | Token-protected Pi mobile dashboard plus optional self-hosted ntfy alerts |
+| 🧍 | **VRM Avatar** | Shared Pi/Android avatar, blinking, expressions, body gestures, visemes and speaking animation |
+| 🎮 | **VRChat Integration** | Official OSC movement/chat/emotes plus optional world/screen vision |
+| 👁️ | **Watch & React** | Periodically glances at your screen and reacts in-character |
+| 🎤 | **Singing** | XTTS/gTTS vocals over timed lyrics and optional YouTube instrumental |
+| 🌐 | **Web Search** | Manual or auto-triggered SearXNG / DuckDuckGo research |
+| 👤 | **Profiles** | Create, clone, switch, import/export and delete companion profiles |
+| ⚡ | **Auto-Tune** | Hardware detection and model/performance tuning |
+| 🗄️ | **SQLite Storage** | Chat history, profiles, settings, long-term feature state and memories |
 
 ---
 
 ## 🚀 Quick Start
 
-### ⚡ One-Line Install (fresh machine)
+### One-line install
 
-**Windows** — open PowerShell and paste:
+**Windows — PowerShell**
 
 ```powershell
 powershell -c "irm https://raw.githubusercontent.com/NekoSuneProjects/NekoSuneAI/main/install.ps1 | iex"
 ```
 
-**Linux** — open a terminal and paste:
+**Linux / Raspberry Pi**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/NekoSuneProjects/NekoSuneAI/main/install.sh | bash
 ```
 
-> Both installers handle **everything** — Python, LLM provider choice (Ollama, OpenAI, OpenRouter, LM Studio, or any custom endpoint), model downloads, NVIDIA GPU setup, and a desktop shortcut/launcher — the works. Just answer a few questions and sit back.
+The installers can set up Python, dependencies, local/cloud provider choices, hardware-specific options and launchers.
 
-### 📦 Prefer a packaged installer?
-
-Every [tagged release](https://github.com/NekoSuneProjects/NekoSuneAI/releases) also
-ships a Windows `.exe` installer and Linux `.deb`/`.rpm`/`.apk` packages (full voice
-stack bundled, no separate Python setup needed) — grab one from the Releases page, or
-once published, `apt install`/`dnf install`/`apk add nekosuneai` via the shared
-[NekoSuneProjects/packages](https://nekosuneprojects.github.io/packages/) repo.
-
-### 🔧 Already have the repo?
+### Existing checkout
 
 ```bash
-python setup.py          # or python3 on Linux
+python setup.py
 ```
 
-First run does the full setup, then launches the desktop GUI (or terminal mode on a
-headless machine). Subsequent runs skip straight to launch.
-
-### 📋 All commands
+Useful commands:
 
 ```bash
-python setup.py              # Setup (if needed) + launch (GUI, or terminal if headless)
-python setup.py --launch     # 🖥️ Launch desktop GUI
-python setup.py --terminal   # ⌨️ Terminal mode
-python setup.py --setup      # 🔧 Re-run setup only
-python setup.py --update     # 🔄 Check for updates
+python setup.py --launch       # desktop GUI
+python setup.py --terminal     # terminal mode
+python setup.py --setup        # re-run setup
+python setup.py --update       # check/apply updates
 
-python app.py --gui          # 🖥️ Same desktop GUI, started directly
-python app.py                # ⌨️ Terminal mode, started directly
+python app.py --gui            # desktop GUI directly
+python app.py                  # terminal mode directly
+python app.py --web --web-host 0.0.0.0 --web-port 8788
 ```
 
 ---
 
-## 🖥️ The Desktop GUI
+## 🍓 Raspberry Pi Smart-Speaker / Companion Mode
 
-NekoSuneAI runs as a native desktop window powered by **pywebview + Tailwind CSS** — a proper web-rendered UI that looks and feels modern, not some grey widget nightmare.
+NekoSuneAI can run headless on a Raspberry Pi 5 and expose its authenticated web/mobile/Android companion service.
+
+```bash
+git clone https://github.com/NekoSuneProjects/NekoSuneAI
+cd NekoSuneAI
+python3 setup.py --setup
+sudo apt install ffmpeg
+python3 app.py --web --web-host 0.0.0.0 --web-port 8788
+```
+
+Set a permanent dashboard token in `.env`:
+
+```env
+WEB_DASHBOARD_TOKEN=replace-with-a-long-random-secret
+```
+
+Do **not** expose the raw dashboard port directly to the public Internet. Prefer **Tailscale/VPN**, authenticated HTTPS, or a protected reverse proxy/tunnel.
+
+### Pi music controls
+
+The Pi smart-speaker path uses `yt-dlp` to resolve YouTube audio and `ffplay` for playback. Songs are streamed rather than permanently downloaded.
+
+```text
+Neko, play Alan Walker Faded
+Neko, pause the music
+Neko, resume the music
+Neko, next song
+Neko, previous song
+Neko, stop the music
+Neko, music volume 60
+Neko, turn the music up
+Neko, what's playing?
+```
+
+Saved playlists are supported as well:
+
+```text
+Neko, create a playlist called Frenchcore
+Neko, add Dr Peacock Trip to Valhalla to my Frenchcore playlist
+Neko, play my Frenchcore playlist
+```
+
+### Reminders, timers and alarms
+
+```text
+Neko, remind me in 20 minutes to check the oven
+Neko, remind me at 7 PM to feed the dog
+Neko, set a timer for 10 minutes
+Neko, set an alarm for 7 AM
+Neko, wake me at 7 AM
+```
+
+### Scheduled monitors
+
+```text
+Neko, monitor aircraft 1 PM to 4 PM every Friday
+Neko, track military aircraft from 13:00 to 16:00 every Friday
+Neko, monitor weather from 8 AM to 10 PM every day
+```
+
+Outside the configured window, the scheduled monitor makes no API/MCP calls.
+
+See [`docs/PI_MUSIC_AND_SCHEDULES.md`](docs/PI_MUSIC_AND_SCHEDULES.md).
+
+---
+
+## 📱 Android Companion
+
+The native Android project lives under [`android/`](android/) and connects to a Pi-hosted NekoSuneAI instance.
+
+Current features include:
+
+- persistent low-power Pi connection using a foreground `connectedDevice` service
+- telemetry heartbeat: battery, charging, thermal state, RAM and storage
+- optional Android notification forwarding without requiring raw SMS permissions
+- Find My Phone with full ringtone volume and remote STOP
+- typed remote chat
+- push-to-talk using Android speech recognition
+- local Android TTS replies
+- shared Pi-configured VRM avatar
+- VRM emotion/gesture/viseme animation
+- explicit foreground-only CameraX vision sharing
+- Pi mood and vision context returned with chat responses
+
+Natural phone commands include:
+
+```text
+Neko, find my phone
+Neko, stop ringing my phone
+Neko, what is my phone battery?
+Neko, is my phone charging?
+Neko, show my latest phone notifications
+```
+
+### Android build requirements
+
+The current CameraX stack uses `1.6.1`, which requires Android API 36 / modern Android build tooling.
+
+```text
+Android Gradle Plugin: 8.9.1
+compileSdk:            36
+targetSdk:             35
+minSdk:                26
+Java:                  17
+Gradle:                8.11.1
+CameraX:               1.6.1
+```
+
+Build locally:
+
+```bash
+gradle -p android --no-daemon assembleDebug
+```
+
+The dedicated `build/android-apk` branch contains the APK workflow and explicitly installs Android SDK 36 / Build Tools 36.0.0 before building.
+
+See [`docs/ANDROID_COMPANION.md`](docs/ANDROID_COMPANION.md) and [`docs/ANDROID_MOBILE.md`](docs/ANDROID_MOBILE.md).
+
+---
+
+## 🧬 Memory + Learned Owner Profile
+
+NekoSuneAI has two complementary memory systems.
+
+### RAG long-term memory
+
+The existing RAG store remembers conversation-relevant facts and recalls them semantically later. Local sentence-transformer embeddings run on CPU by default, with Ollama/OpenAI-compatible embedding backends also supported. If embeddings are unavailable, recall degrades gracefully to recent-memory retrieval instead of hard-failing.
+
+### Structured owner learning
+
+The companion can also build a smaller structured owner profile from **explicit first-person statements**. It starts blank and learns categories such as:
+
+- favourites
+- likes
+- dislikes
+- hobbies
+- comfort activities/music/topics
+
+Repeated mentions increase confidence. Camera or voice-tone guesses do **not** silently create personal facts.
+
+Examples:
+
+```text
+I love Frenchcore.
+My favourite game is Star Citizen.
+Making music cheers me up.
+Going for a walk helps me relax.
+This playlist always makes me feel better.
+```
+
+The profile can be inspected through the token-protected endpoint:
+
+```text
+GET /api/owner/profile
+```
+
+This lets NekoSuneAI use things that have genuinely helped before when the owner asks for support, rather than always giving generic suggestions.
+
+---
+
+## 💗 Multimodal Companion Context
+
+NekoSuneAI can combine several **tentative signals** with the owner's actual words:
+
+1. what the owner said;
+2. optional recent camera/Kinect context;
+3. optional visible facial-expression cue;
+4. optional recent voice-tone cue;
+5. learned owner preferences/comfort items;
+6. long-term conversational memory.
+
+The owner's words always take priority over camera/audio guesses.
+
+### Persistent companion mood
+
+`nekosuneai/mood_state.py` stores a bounded simulated affect state using valence, arousal, trust and caution. This can influence avatar expression, posture and voice presentation, then gradually returns toward a calm baseline.
+
+This is a **software personality simulation**, not a claim that NekoSuneAI is sentient or has biological emotional needs. It must not guilt, threaten, pressure, or tell the owner they are responsible for the assistant's wellbeing.
+
+### Voice-tone cues
+
+The lightweight `nekosuneai/voice_tone.py` analyzer uses NumPy and short PCM16 WAV audio to estimate broad acoustic cues from energy, pitch, pitch variation and a rough speaking-rate/activity proxy.
+
+Typical labels are deliberately cautious:
+
+```text
+quiet or subdued
+slow or subdued
+energetic or activated
+expressive or animated
+neutral/uncertain
+```
+
+These are not diagnoses and are never treated as proof of an internal emotional state.
+
+Endpoints:
+
+```text
+POST /api/voice/tone
+POST /api/android/voice-tone
+```
+
+See [`docs/VOICE_TONE_HOOK.md`](docs/VOICE_TONE_HOOK.md).
+
+### Gentle support check-ins
+
+While explicit camera sharing is active, several reasonably consistent negative-looking cues can trigger a single gentle check-in with a cooldown, for example:
+
+```text
+Hey Neko, you seem a little down or tense right now. Are you okay?
+```
+
+One bad camera frame should not cause repeated questioning. The user's own answer always overrides the camera/audio cue. If the owner asks for current ideas or resources, the normal web-search path can be used to research useful information.
+
+---
+
+## 👁️ Camera, Kinect and Lightweight Pi Vision
+
+### Full vision path
+
+When an Ollama/OpenAI-compatible vision model is configured, Android camera or external-camera frames can be understood as normal conversational scene context.
+
+Endpoints:
+
+```text
+POST /api/android/vision
+POST /api/vision/frame
+```
+
+Raw frames are not intentionally persisted by this feature; only short-lived textual context is retained for the current conversation window.
+
+### Lightweight Raspberry Pi facial-affect fallback
+
+When a full VLM is unavailable, NekoSuneAI can optionally use a tiny FER+ ONNX model through OpenCV. It only analyses a detected 64×64 grayscale face crop and therefore uses far less RAM/CPU than a general vision-language model.
+
+Install:
+
+```bash
+pip install -r requirements-vision-lite.txt
+python tools/setup_local_affect_model.py
+```
+
+Default model path:
+
+```text
+/app/data/models/emotion-ferplus-8.onnx
+```
+
+Override it with:
+
+```env
+LOCAL_AFFECT_MODEL=/app/data/models/your-ferplus-model.onnx
+```
+
+An INT8 FER+ ONNX model can be substituted for a smaller footprint.
+
+### Kinect / external camera
+
+Kinect v1/360 can use `libfreenect`; Kinect v2 can use `libfreenect2`. NekoSuneAI keeps these hardware drivers outside the base image and accepts refreshed JPEG/PNG frames through a small bridge:
+
+```bash
+python tools/kinect_vision_bridge.py \
+  --server https://your-neko-host \
+  --token "$WEB_DASHBOARD_TOKEN" \
+  --frame /tmp/kinect.jpg \
+  --interval 5
+```
+
+---
+
+## 🧍 Shared VRM Avatar
+
+Set a VRM model URL:
+
+```env
+VRM_AVATAR_URL=https://your-host/avatar.vrm
+```
+
+The same avatar can be used by the Pi dashboard and Android companion.
+
+Current renderer capabilities:
+
+- blinking
+- idle breathing/head motion
+- expressions: neutral, happy, sad, angry, excited, relaxed, scared
+- body gestures/postures: wave, excited arms, guarded, slouch, emphatic, relaxed
+- vowel visemes: `aa`, `ih`, `ou`, `ee`, `oh`
+- speaking state events
+
+Current lip sync is generated from the exact spoken text as a synchronized viseme estimate. The renderer/event protocol is designed so true TTS phoneme/viseme timestamps can replace the estimator later without rewriting the avatar UI.
+
+Token-protected config endpoint:
+
+```text
+GET /api/avatar/config
+```
+
+---
+
+## 🖥️ Desktop GUI
+
+The desktop GUI uses **pywebview + Tailwind CSS**.
 
 | Page | What It Does |
-|------|-------------|
-| 📊 **Dashboard** | Session controls, toggle voice/mic/hands-free/media (all persist across restarts), live status |
-| 💬 **Chat** | Full conversation view with text + voice input |
-| 🎮 **Game** | Configure the VRChat OSC connection, set a goal, watch it play |
-| 🎤 **Sing** | Type a song, attach/auto-find a backing track, replay saved songs |
-| 👤 **Profiles** | Create, clone, switch, delete, or import/export personalities |
-| ⚙️ **Settings** | Audio devices, web search, LLM/TTS/STT config |
-
-> 💡 **Pro tip:** Voice replies, hands-free mode, and mic mute can all be toggled *before* starting a session. Configure everything first, then hit Start.
+|---|---|
+| 📊 **Dashboard** | Session controls, voice/mic/hands-free/media state and live companion status |
+| 💬 **Chat** | Conversation view with text + voice input |
+| 🎮 **Game** | VRChat OSC connection and agent controls |
+| 🎤 **Sing** | Singing workflow and saved songs |
+| 👤 **Profiles** | Create, clone, switch, delete and import/export personalities |
+| ⚙️ **Settings** | LLM, TTS, STT, memory, web search, audio and feature configuration |
 
 ---
 
-## 🧬 Beyond Chat
+## 🎮 VRChat Integration
 
-NekoSuneAI can do far more than chat — it remembers, plays VRChat, watches your screen, and sings. Everything below is **local-first** and tuned to run on a modest 6–8GB GPU (with cloud/CLI fallbacks where it matters).
+NekoSuneAI can use the official VRChat OSC API to move, look, jump, type into chatbox and trigger avatar parameters/emotes.
 
-### 🧬 Memory / Learning (RAG)
+- walk/strafe/run/turn/look/jump
+- chatbox with typing indicator and automatic paging
+- receives avatar parameters such as velocity/grounded
+- reads VRChat logs for world and instance/player context
+- optional configured vision model for screen/world awareness
+- configurable OSC host/ports and log path
 
-NekoSuneAI **remembers across sessions** using retrieval-augmented memory — not fine-tuning. Tell it a fact today, ask for it next week, and it recalls it.
-
-- Local **sentence-transformers** embeddings on CPU by default (keeps VRAM free for the LLM); Ollama or OpenAI embedding backends optional
-- Stored in the same SQLite DB; thumbs-up/down reinforces or de-weights memories, and stale/low-score ones are pruned automatically
-- Configure in Settings → **Memory (RAG)**
-
-### 🎮 VRChat Integration
-
-NekoSuneAI can join you in **VRChat** via the official **OSC API** (EAC-safe — no risky web API, no GPU-hungry vision needed) and narrate its thoughts aloud as it goes.
-
-- Walk/strafe/run/turn/look, jump, use the chatbox (with typing indicator), and trigger avatar emotes
-- **Receives** avatar params (Velocity/Grounded) to notice walls + ledges
-- Reads VRChat's own logs for the current world and **who's in the instance** — greets people by name
-- **Sees** the room when a Vision model is set (Settings → AI Provider, e.g. an Ollama model like `llava` / `qwen2.5vl` / `moondream`, or an OpenAI-compatible multimodal chat model) — describes what's nearby every think-tick so it can react to the world, not just log/OSC data
-- Long chatbox messages are automatically **paged** across multiple `/chatbox/input` sends instead of getting truncated
-- Configure the OSC host/ports and log directory in the **Game** panel
-
-#### 🤝 Friends System (opt-in, unofficial API)
-
-A separate, **opt-in** service (Settings → VRChat Friends) that logs into VRChat's unofficial web API to auto-accept friend requests, watch friend online/offline status live, and send a thank-you chatbox message. This is against VRChat's ToS for bots and risks the account getting flagged — use a throwaway account, not your main. Enable it and enter your credentials (username, password, and a TOTP secret if the account uses authenticator-app 2FA) in Settings → VRChat Friends. Stays completely off until you enable it there.
-
-### 👁️ Watch & React
-
-NekoSuneAI can periodically glance at your screen (whatever game/video/app is open) and react live, in one short in-character line, using the same vision model as VRChat's own screen awareness. Tune the glance interval and whether it speaks aloud from the panel.
-
-### 🎤 Singing
-
-NekoSuneAI sings songs in its **own cloned voice**, on the beat, over a real instrumental.
-
-- Type `Artist - Title` → it fetches **timed lyrics** (LRCLIB) and performs them
-- Backing track is optional: attach a **file**, paste a **YouTube URL**, or leave it blank to **auto-find an instrumental** on YouTube
-- **Vocals + backing are merged into one audio file**, saved in `audio/songs/` for instant replay
-- Works with **XTTS** (timed, on-beat) or **gTTS**. Needs `pip install yt-dlp imageio-ffmpeg` for the YouTube/merge features
+A separate **opt-in unofficial friends API** integration also exists. Because automated use of VRChat's unofficial web API can conflict with VRChat terms/rules and create account risk, leave it disabled unless you understand that tradeoff.
 
 ---
 
-## ⌨️ Terminal Commands
+## 👁️ Watch & React
 
-For the keyboard warriors out there:
+NekoSuneAI can periodically inspect the current screen through the configured vision model and react in-character. The feature is optional and can be tuned or disabled independently.
+
+---
+
+## 🎤 Singing
+
+NekoSuneAI can synthesize vocals in its configured voice over a backing track.
+
+- timed lyrics through LRCLIB
+- optional local backing file
+- optional pasted YouTube URL
+- optional auto-found YouTube instrumental
+- XTTS or gTTS vocals
+- merged songs saved under `audio/songs/`
+
+---
+
+## 🌐 Web Search
+
+Web lookup can be explicit or automatically triggered for current information.
+
+```text
+/web
+/web on
+/web off
+/web auto on
+/web auto off
+/web clear
+/web <query>
+```
+
+Backends include SearXNG / DuckDuckGo depending on configuration.
+
+---
+
+## ⌨️ Useful Terminal Commands
 
 <details>
-<summary>📖 Click to expand full command list</summary>
+<summary>Click to expand</summary>
 
-### 🗣️ Voice & Input
+### Voice / input
 
-| Command | What It Does |
-|---------|-------------|
-| `/mode voice` | Hands-free mic input |
-| `/mode text` | Switch back to typing |
-| `/listen` or `/ask` | Capture one spoken turn |
-| `/voice` | Toggle spoken replies on/off |
-| `/recalibrate` | Re-tune mic noise gate |
-| `/mics` | List available microphones |
-| `/mic <index>` | Choose a specific mic |
-| `/mic default` | Reset to system default |
-| `/speakers` | List XTTS voices |
-| `/speaker <name>` | Switch XTTS voice |
-| `/tts` | Show current TTS provider |
-| `/tts xtts` / `/tts gtts` | Switch TTS engine |
+| Command | Action |
+|---|---|
+| `/mode voice` | Hands-free voice input |
+| `/mode text` | Text input |
+| `/listen` / `/ask` | Capture one spoken turn |
+| `/voice` | Toggle spoken replies |
+| `/recalibrate` | Re-calibrate mic noise gate |
+| `/mics` | List microphones |
+| `/mic <index>` | Select microphone |
+| `/speakers` | List output devices/voices |
+| `/tts` | Show TTS provider |
 
-### 🌐 Web Search
+### Media
 
-| Command | What It Does |
-|---------|-------------|
-| `/web` | Show web search status |
-| `/web on` / `/web off` | Enable/disable web search |
-| `/web auto on` / `/web auto off` | Toggle auto-search for current events |
-| `/web clear` | Clear queued web context |
-| `/web <query>` | Search and feed results to next reply |
-
-### 🎵 Media
-
-| Command | What It Does |
-|---------|-------------|
-| `/play <query>` | Search and play music on the preferred platform |
-| `/music <query>` | Search your default music platform |
+| Command | Action |
+|---|---|
+| `/play <query>` | Search/play media |
+| `/music <query>` | Search preferred music source |
 | `/pause` / `/resume` / `/stop` | Playback controls |
 
-### 👤 Profiles & History
+### Profiles / history
 
-| Command | What It Does |
-|---------|-------------|
-| `/profile` | Show current profile |
-| `/profiles` | List all profiles |
-| `/profile use <id>` | Switch profiles |
-| `/name <new name>` | Rename the companion |
-| `/me <name>` | Set your name |
-| `/reset` | Clear conversation history |
-| `/performance` | Show hardware and tuning info |
+| Command | Action |
+|---|---|
+| `/profile` | Current profile |
+| `/profiles` | List profiles |
+| `/profile use <id>` | Switch profile |
+| `/name <name>` | Rename companion |
+| `/me <name>` | Set owner display name |
+| `/reset` | Clear conversation state |
+| `/performance` | Hardware/tuning information |
 | `/exit` | Quit |
 
 </details>
 
-> 🗣️ **Natural language works too!** Say *"play synthwave on SoundCloud"* or *"search the web for..."* — NekoSuneAI handles it without a slash command. Say the companion's name plus a standing rule (*"NekoSuneAI, always speak to me in 0s and 1s"*) to make it stick until you say *"stop"*, and say *"reset"* or *"clear"* to cancel that **and** wipe long-term memory back to blank.
+Natural language works for many of these actions too.
 
 ---
 
-## 🎭 Profiles — Make It Yours
+## 🎭 Profiles
 
-Each companion profile is deeply customisable. Go wild:
+Profiles can configure:
 
-| Section | What You Can Tweak |
-|---------|-------------------|
-| 🏷️ **Identity** | Name, pronouns, role, relationship style |
-| 💬 **Conversation** | Reply length, pacing, verbosity, formatting |
-| 🎚️ **Personality Sliders** | Warmth, sass, directness, patience, playfulness, formality |
-| 🚧 **Boundaries** | Roast intensity, avoided topics, safety overrides |
-| 🧠 **Memory** | Likes, dislikes, personal facts, inside jokes, projects |
-| 🔊 **Voice** | Speech style, delivery notes, persona keywords |
-| 📜 **Custom Rules** | Hard must-follow rules and soft preferences |
+| Section | Examples |
+|---|---|
+| Identity | name, pronouns, role, relationship style |
+| Conversation | response length, pacing, formatting |
+| Personality | warmth, sass, directness, patience, playfulness, formality |
+| Boundaries | avoided topics, roast intensity, custom constraints |
+| Memory | likes, dislikes, facts, projects, inside jokes |
+| Voice | delivery style and speaker settings |
+| Rules | persistent hard/soft instructions |
 
-Want a sarcastic best friend? A patient tutor? A no-nonsense project manager? Just create a new profile and dial the sliders. 🎛️
-
-### 📤 Import / Export
-
-Move a profile between machines (e.g. your **PC → Raspberry Pi**) from the **Profiles** page:
-
-- **Export** — click **Export** on any profile to download a `*.nekosuneai-profile.json` file (saved to the device you're browsing from).
-- **Import** — click **Import**, pick a `*.nekosuneai-profile.json` file, and it's added as a **new** profile (importing never overwrites an existing one).
-- **Delete** — remove any non-active profile with **Delete** (you always keep at least one).
-
-> 💡 The export file carries the whole profile — identity, sliders, memory notes, voice, and all feature data — so the imported copy behaves exactly like the original.
+Profiles can be exported/imported as `*.nekosuneai-profile.json` files and moved between PC/Pi installations.
 
 ---
 
 ## 🗄️ Data Storage
 
-All runtime data lives in a single **SQLite database** at `data/nekosuneai.db`:
+Primary runtime storage is SQLite at:
 
-- 💬 Chat history
-- 👤 Profiles and all their feature data
-- ⚙️ App state (active profile, settings)
+```text
+data/nekosuneai.db
+```
 
-Rendered songs live on disk in `audio/songs/` for instant replay.
+It stores chat history, profiles, app state, RAG memory and other persistent feature state. Some companion systems also use named app-state keys for playlists, reminders, schedules, owner learning and simulated mood.
 
-> 📦 On first run, existing JSON files (`profiles.json`, `history.jsonl`) are **automatically migrated** into the database. No manual steps needed.
+Rendered songs remain under:
+
+```text
+audio/songs/
+```
+
+Legacy profile/history JSON files are migrated automatically on first run when applicable.
 
 ---
 
-## ⚙️ Configuration
+## ⚙️ Configuration Highlights
 
-Most day-to-day settings — LLM provider/model/API key, voice, speech-to-text,
-web search, memory, media, singing, RVC, VRChat friends, VRChat OSC — live in
-the in-app **Settings panel** (and the **Game** panel for VRChat OSC), stored
-in SQLite, live-editable with no restart. `.env` (copy `.env.example` to get
-started) only covers what's still `.env`-only: startup/performance tuning,
-CLI-provider paths, and low-level audio/model knobs.
+Most normal settings live in the GUI Settings/Game panels. `.env` is still used for startup, low-level tuning and headless/server features.
 
-<details>
-<summary>📖 Click to expand the remaining .env-only settings</summary>
+Useful companion/Pi settings include:
 
-### 🧠 Core
+```env
+WEB_DASHBOARD_TOKEN=replace-with-a-long-random-secret
+VRM_AVATAR_URL=https://your-host/avatar.vrm
+YOUTUBE_MUSIC_VOLUME=75
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `AUTO_TUNE_PERFORMANCE` | `true` | Auto-detect hardware and tune settings |
-| `AUTO_TUNE_GOAL` | `balanced` | Tuning goal: `speed`, `balanced`, or `quality` |
-| `AUTO_UPDATE_CHECK` | `true` | Check GitHub for updates on startup |
-| `AUTO_UPDATE_INSTALL` | `false` | Auto-install updates on launch — see the security warning in `.env.example` |
+# Optional lightweight local face-expression fallback
+LOCAL_AFFECT_MODEL=/app/data/models/emotion-ferplus-8.onnx
 
-### 🤖 LLM Tuning
+# Gentle camera-based check-ins
+SUPPORT_CHECKINS_ENABLED=true
+SUPPORT_CHECKIN_COOLDOWN_SECONDS=900
+SUPPORT_AFFECT_MIN_CONFIDENCE=0.45
 
-Provider/model/API URL/key/temperature are in Settings → **AI Provider & Models**.
+# Optional self-hosted ntfy push
+MOBILE_NOTIFY_ENABLED=false
+MOBILE_NOTIFY_URL=http://127.0.0.1:2586
+MOBILE_NOTIFY_TOPIC=
+MOBILE_NOTIFY_MIN_LEVEL=warning
+# MOBILE_NOTIFY_TOKEN=
+```
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `LLM_KEEP_ALIVE` | `30m` | How long Ollama keeps the model loaded |
-| `OLLAMA_NUM_PREDICT` | `1200` | Reply token budget |
-| `OLLAMA_SKIP_LOCAL_SETUP` | `false` | Skip local Ollama install/start/model-pull when using an existing Ollama server (set its URL in Settings) |
-| `LLM_CLI_MODEL` / `CLAUDE_CLI_PATH` / `CODEX_CLI_PATH` / `LLM_CLI_COMMAND` | *(none)* | CLI-provider executable overrides — see `.env.example` |
+Core performance examples:
 
-### 🔊 XTTS / 🎙️ Speech-to-Text Tuning
+```env
+AUTO_TUNE_PERFORMANCE=true
+AUTO_TUNE_GOAL=balanced
+AUTO_UPDATE_CHECK=true
+AUTO_UPDATE_INSTALL=false
+LLM_KEEP_ALIVE=30m
+OLLAMA_NUM_PREDICT=1200
+```
 
-Engine, model, speaker, speed and language are in Settings → **Voice** /
-**Speech-to-Text**.
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `XTTS_USE_GPU` | `true` | Use GPU for voice synthesis |
-| `XTTS_STREAM_OUTPUT` | `true` | Stream audio while generating |
-| `STT_USE_GPU` | `true` | Use GPU for transcription |
-| `STT_BEAM_SIZE` / `STT_BEST_OF` | `5` / `5` | Whisper beam search / best-of-N sampling |
-| `STT_VAD_FILTER` | `false` | Voice Activity Detection filter |
-
-### 🔈 Audio Devices
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `MIC_DEVICE_INDEX` | *(auto)* | Pin a specific microphone |
-| `SPEAKER_DEVICE_INDEX` | *(auto)* | Pin a specific speaker |
-
-### 🎮 Game Playing / 🎤 Singing
-
-| Setting | Default | Description |
-|---------|---------|-------------|
-| `GAME_ENABLED` | `false` | Enable the VRChat OSC game agent (OSC host/ports/vision model/tick are in Settings → Game) |
-| `SINGING_FETCH_INSTRUMENTAL` | `true` | Auto-find a YouTube instrumental when no backing is given |
-
-RVC (chat or singing) is lazy-imported and **not** in `requirements-voice.txt`
-— it pins `numpy<=1.23.5`, conflicting with this project's `numpy>=1.24`.
-Install it separately, or accept the downgrade: `pip install "rvc-python>=0.1" --no-deps`.
-
-See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) for the complete list.
-
-</details>
+See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) and `.env.example` for the complete configuration surface.
 
 ---
 
 ## 📁 Project Layout
 
-```
+```text
 NekoSuneAI/
-├── app.py                    # 🚪 Entry point
-├── setup.py                  # 🔧 Setup, launch, and update — all in one
-├── install.ps1               # ⚡ One-line PowerShell installer (Windows)
-├── install.sh                # 🐧 One-line bash installer (Linux)
-├── requirements.txt          # 📦 Python dependencies (base)
-├── requirements-voice.txt    # 🎙️ Optional: mic/STT/TTS/embeddings
-├── requirements-gui.txt      # 🖥️ Optional: native pywebview desktop window
-├── VERSION                   # 🏷️ Current version
-├── .env.example              # ⚙️ Configuration template
-│
-├── data/
-│   ├── logo.png              # 🎨 NekoSuneAI logo
-│   ├── logo.ico              # 🎨 Window icon
-│   ├── nekosuneai.db         # 🗄️ SQLite database (runtime)
-│   └── profile.example.json  # 📝 Example profile
-│
+├── app.py
+├── setup.py
+├── install.ps1
+├── install.sh
+├── requirements.txt
+├── requirements-voice.txt
+├── requirements-gui.txt
+├── requirements-vision-lite.txt
+├── docker-compose.yml
+├── docker-compose.mobile.yml
+├── android/                         # native Android companion
+├── tools/
+│   ├── kinect_vision_bridge.py
+│   └── setup_local_affect_model.py
+├── docs/
+│   ├── ANDROID_COMPANION.md
+│   ├── ANDROID_MOBILE.md
+│   ├── PI_MUSIC_AND_SCHEDULES.md
+│   └── VOICE_TONE_HOOK.md
 └── nekosuneai/
-    ├── launcher.py           # 🚪 CLI vs GUI routing + auto-update
-    ├── webgui.py             # 🖥️ Backend API for the desktop GUI
-    ├── cli.py                # ⌨️ Terminal chat loop + commands
-    ├── chat.py               # 🧠 System prompt + LLM requests
-    ├── engine.py             # 🧩 Shared reply seam + emotion detection
-    ├── memory.py             # 🧬 RAG long-term memory store
-    ├── singing.py            # 🎤 Singing engine (XTTS/gTTS + backing merge)
-    ├── games/                # 🎮 Game agent + VRChat OSC driver + friends system
-    ├── vision.py             # 👁️ Image understanding (VRChat screen awareness, Watch & React)
-    ├── config.py             # ⚙️ Environment parsing + runtime config
-    ├── database.py           # 🗄️ SQLite schema + CRUD operations
-    ├── storage.py            # 💾 Profile/history API (SQLite-backed)
-    ├── audio_input.py        # 🎙️ Mic capture + faster-whisper STT
-    ├── tts.py                # 🔊 XTTS-v2 / gTTS synthesis + playback
-    ├── media.py              # 🎵 Music platform integration
-    ├── media_player.py       # ▶️ In-app audio playback (ffplay)
-    ├── performance.py        # ⚡ Hardware detection + auto-tuning
-    ├── updater.py            # 🔄 GitHub version check + self-update
-    ├── web_search.py         # 🌐 SearXNG / DuckDuckGo search
-    ├── defaults.py           # 📋 Default profile template
-    ├── models.py             # 📦 Shared dataclasses
-    ├── paths.py              # 📍 Path constants
+    ├── webserver.py                 # Pi/mobile/Android HTTP integration
+    ├── webgui.py                    # desktop/web API
+    ├── chat.py
+    ├── engine.py
+    ├── memory.py                    # RAG memory
+    ├── owner_learning.py            # structured owner preferences
+    ├── mood_state.py                # simulated companion affect state
+    ├── voice_tone.py                # lightweight acoustic cues
+    ├── local_affect.py              # FER+ local fallback
+    ├── support_checkins.py
+    ├── android_devices.py           # phone hub/commands/telemetry
+    ├── mobile_notify.py             # ntfy-compatible alerts
+    ├── youtube_music.py
+    ├── reminders.py
+    ├── scheduled_windows.py
+    ├── avatar_motion.py
+    ├── vision.py
+    ├── audio_input.py
+    ├── tts.py
+    ├── singing.py
+    ├── media.py
+    ├── web_search.py
+    ├── games/
     └── static/
-        └── index.html        # 🎨 Tailwind CSS frontend (dashboard, GUI-only)
+        ├── index.html
+        ├── mobile.html
+        ├── mobile-sw.js
+        ├── manifest.webmanifest
+        └── vrm.html
 ```
 
 ---
 
-## 📚 Documentation
+## 🔐 Privacy and Security
 
-<details>
-<summary>🧠 How the Chat Pipeline Works</summary>
+NekoSuneAI includes camera, microphone, notification and personal-memory features, so deployment choices matter.
 
-When you send a message (text or voice), NekoSuneAI runs through this pipeline:
-
-1. **Media check** — is it a play/music request? Handle it directly.
-2. **Web search** — if enabled, check for explicit `/web` queries, inferred lookups (*"what's the weather?"*), or auto-search triggers.
-3. **Memory recall** — if RAG is enabled, retrieve relevant long-term memories and inject them as context.
-4. **LLM request** — build a system prompt from the active profile, attach conversation history, web context, and recalled memories, send to the LLM.
-5. **Voice output** — if voice is enabled, synthesise the reply with XTTS-v2 or gTTS and play it back.
-6. **Remember** — store the exchange back into RAG memory for future recall.
-7. **Hands-free loop** — if hands-free mode is on, immediately start listening for the next turn.
-
-A shared generation seam (`engine.py`) means the VRChat game agent reuses this exact pipeline. The whole thing runs in a background thread so the UI stays responsive.
-
-</details>
-
-<details>
-<summary>🎙️ Voice & Audio Architecture</summary>
-
-### Speech-to-Text (STT)
-- Engine: `faster-whisper` (local) or Google Web Speech API
-- Mic capture via `SpeechRecognition` library
-- Automatic noise calibration on first listen
-- Configurable silence detection, energy threshold, and VAD
-
-### Text-to-Speech (TTS)
-- **XTTS-v2** (default): local neural TTS with voice cloning, GPU-accelerated, streamed output
-- **gTTS** (fallback): Google's cloud TTS — lightweight but needs internet
-- Audio saved to `audio/latest_reply.wav` (XTTS) or `.mp3` (gTTS)
-- Playback via `sounddevice` with configurable output device
-
-### Audio Devices
-- Mic and speaker can be pinned via `.env` or the Settings page
-- `/mics` and `/speakers` commands list available devices with indices
-- Recalibration re-tunes the noise gate without restarting
-
-</details>
-
-<details>
-<summary>🗄️ Database Schema</summary>
-
-NekoSuneAI uses SQLite (`data/nekosuneai.db`) with three tables:
-
-**`profiles`** — one row per companion profile
-```sql
-profile_id   TEXT PRIMARY KEY   -- e.g. "default", "snarky-bot"
-profile_name TEXT               -- display name
-data         TEXT               -- full profile JSON blob
-created_at   TEXT               -- ISO timestamp
-updated_at   TEXT               -- ISO timestamp
-```
-
-**`history`** — one row per chat message
-```sql
-id        INTEGER PRIMARY KEY AUTOINCREMENT
-timestamp TEXT                -- ISO timestamp
-role      TEXT                -- "user", "assistant", or "system"
-content   TEXT                -- message text
-```
-
-**`app_state`** — key/value settings store
-```sql
-key   TEXT PRIMARY KEY        -- e.g. "active_profile_id"
-value TEXT                    -- the value
-```
-
-Feature data lives inside the profile JSON blob under `profile_details`, so it's saved/loaded with the profile automatically.
-
-</details>
-
-<details>
-<summary>⚡ Performance Auto-Tuning</summary>
-
-When `AUTO_TUNE_PERFORMANCE=true`, NekoSuneAI detects your hardware at startup and picks a performance profile:
-
-| What It Checks | What It Adjusts |
-|----------------|----------------|
-| CPU core count | Request timeouts |
-| Available RAM | Token budget |
-| CUDA GPU presence | TTS/STT GPU acceleration |
-| VRAM amount | Whisper model size, XTTS streaming settings |
-
-**Tuning goals:**
-- `speed` — smaller models, aggressive timeouts, prioritise response time
-- `balanced` — sensible defaults for most hardware
-- `quality` — larger models, longer timeouts, prioritise output quality
-
-> ⚠️ Auto-tune **never** changes `XTTS_SPEED`, so your companion's voice pace stays consistent across machines.
-
-</details>
-
-<details>
-<summary>🔄 Auto-Update System</summary>
-
-NekoSuneAI can check for and install updates from GitHub:
-
-1. On startup, compares local `VERSION` to the remote `VERSION` on your configured branch
-2. If a newer version exists and `AUTO_UPDATE_INSTALL=true`, downloads and applies the update
-3. Restarts itself with the new code
-
-**Safety guards:**
-- Git checkouts with local edits are **never** auto-updated
-- Update results are cached for `AUTO_UPDATE_CACHE_SECONDS` (default: 6 hours) to avoid hammering GitHub
-- Manual updates always available via `python setup.py --update`
-
-</details>
-
-<details>
-<summary>🎵 Media</summary>
-
-NekoSuneAI intercepts natural media requests:
-
-- *"play synthwave on SoundCloud"* → searches and plays a track
-- *"pause"* / *"resume"* / *"stop"* → controls the current stream
-
-**Music platforms:** SoundCloud (default, with direct-stream resolution), with Spotify and Deezer as browser search options. A YouTube search/download provider is planned (see `TODO.md`).
-
-In-app playback uses `ffplay` for resolved audio URLs.
-
-</details>
+- Camera sharing from Android is explicit foreground-only.
+- Notification access must be manually granted by the Android owner.
+- Raw SMS, contacts, call logs and GPS are not silently enabled by the companion.
+- Camera/voice affect cues are treated as uncertain observations, not diagnoses.
+- Camera/audio guesses do not silently become owner-profile facts.
+- Use `WEB_DASHBOARD_TOKEN` for every remote client.
+- Prefer Tailscale/VPN or authenticated HTTPS for remote access.
+- Do not publish the raw Pi dashboard port.
+- Keep ntfy topics/tokens private if using push alerts.
 
 ---
 
-## 💡 Good to Know
+## 🐧 Linux / ARM64 Notes
 
-- 📥 **First run downloads models** — XTTS-v2 and faster-whisper grab model files on first use. `python setup.py` preloads them so you're not waiting forever.
-- 🔇 **Mic mute is app-level** — it stops NekoSuneAI from listening. It doesn't touch your Windows system mic.
-- 🔒 **Git-safe updates** — if NekoSuneAI detects a git checkout with local edits, self-update is skipped to protect your work.
-- 💾 **Audio is always saved** — voice replies land in `audio/latest_reply.wav` even if playback fails. Useful for debugging.
-- 🌍 **Works offline** — with Ollama and XTTS, the entire pipeline runs locally. Web search is optional.
+NekoSuneAI supports Windows, amd64 Linux and ARM64 / Raspberry Pi 5.
+
+Manual install profiles:
+
+```bash
+pip install -r requirements.txt
+pip install -r requirements.txt -r requirements-voice.txt
+pip install -r requirements.txt -r requirements-gui.txt
+```
+
+The GUI uses the system WebView on Linux/ARM rather than Windows-only CEF. Headless systems can stay entirely CLI/web based.
+
+Voice can be disabled on machines without audio hardware:
+
+```env
+VOICE_ENABLED=false
+INPUT_MODE=text
+```
 
 ---
 
 ## 🤝 Contributing
 
-The codebase is modular by design — pick an area and dive in:
+Useful areas include:
 
-| Area | File(s) | Difficulty |
-|------|---------|-----------|
-| 🎙️ Voice / mic issues | `nekosuneai/audio_input.py` | Medium |
-| 🧠 Personality / responses | `nekosuneai/chat.py` | Easy |
-| 🔊 TTS / playback | `nekosuneai/tts.py` | Medium |
-| ⌨️ Commands / app flow | `nekosuneai/cli.py` | Easy |
-| 🎨 GUI frontend | `nekosuneai/static/index.html` | Easy |
-| 🖥️ GUI backend | `nekosuneai/webgui.py` | Medium |
-| 🗄️ Data / profiles | `nekosuneai/storage.py` + `nekosuneai/database.py` | Medium |
-| 🌐 Web search | `nekosuneai/web_search.py` | Medium |
-| 🎵 Media | `nekosuneai/media.py` | Medium |
-| 🧬 RAG memory | `nekosuneai/memory.py` | Medium |
-| 👁️ Vision (VRChat screen awareness / watch & react) | `nekosuneai/vision.py` | Medium |
-| 🎮 Game agent / VRChat driver | `nekosuneai/games/` | Hard |
-| 🤝 VRChat friends system | `nekosuneai/games/vrchat_friends.py` | Hard |
-| 🎤 Singing | `nekosuneai/singing.py` | Medium |
+| Area | Files |
+|---|---|
+| Voice / microphone | `nekosuneai/audio_input.py`, `nekosuneai/voice_tone.py` |
+| LLM/personality | `nekosuneai/chat.py`, `nekosuneai/engine.py` |
+| TTS / avatar speech | `nekosuneai/tts.py`, `nekosuneai/avatar_motion.py` |
+| Android companion | `android/`, `nekosuneai/android_devices.py` |
+| Pi web integration | `nekosuneai/webserver.py` |
+| Owner learning / memory | `nekosuneai/owner_learning.py`, `nekosuneai/memory.py` |
+| Mood / support | `nekosuneai/mood_state.py`, `nekosuneai/support_checkins.py` |
+| Vision | `nekosuneai/vision.py`, `nekosuneai/local_affect.py` |
+| Music / reminders | `nekosuneai/youtube_music.py`, `nekosuneai/reminders.py` |
+| VRM frontend | `nekosuneai/static/vrm.html`, Android avatar asset |
+| VRChat | `nekosuneai/games/` |
+| Singing | `nekosuneai/singing.py` |
 
-PRs welcome! If you're not sure where to start, open an issue and we'll point you in the right direction. 🫡
-
----
-
-## 🐧 Linux & Raspberry Pi Support
-
-> NekoSuneAI runs on **Windows**, **amd64 Linux**, and **ARM64 / Raspberry Pi 5**.
-
-### Run modes & install profiles
-
-`install.sh` / `install.ps1` ask **how you want to run NekoSuneAI** and install the
-right dependency set for it:
-
-| Run mode | Installs | Good for |
-|---|---|---|
-| **CLI** | `requirements.txt` + `requirements-voice.txt` | Terminal chat loop, works great headless (Pi / server). |
-| **GUI** | the above **+ `requirements-gui.txt`** | The native desktop window (needs a display). |
-
-Prefer to pick the raw dependency set yourself? Use `NEKOSUNEAI_INSTALL_PROFILE`
-(`minimal` / `voice` / `gui` / `full`) with `setup.py --setup`, or install manually:
-
-```bash
-pip install -r requirements.txt                            # minimal (text-only CLI)
-pip install -r requirements.txt -r requirements-voice.txt  # add voice/ML
-pip install -r requirements.txt -r requirements-gui.txt    # add the desktop GUI
-```
-
-> The desktop GUI's CEF backend is Windows-only; on Linux/ARM `requirements-gui.txt`
-> uses your system WebView instead (`gir1.2-webkit2-4.1` on Debian/Ubuntu).
-
-### 🍓 Raspberry Pi 5 / headless quick-start
-
-A Pi (or any server) usually has no monitor, mic, or speakers — so run in
-**CLI/terminal mode**:
-
-```bash
-git clone https://github.com/NekoSuneProjects/NekoSuneAI && cd NekoSuneAI
-python3 setup.py --setup        # choose the "CLI" run mode when asked
-sudo apt install ffmpeg         # optional, for audio playback later
-python3 app.py                  # terminal chat, works headless over SSH
-```
-
-- On a box with no audio hardware, keep `VOICE_ENABLED=false` (the default) and set
-  `INPUT_MODE=text` in `.env` so terminal mode never reaches for a microphone.
-- Voice can be added later — `pip install -r requirements-voice.txt` — once you attach
-  a mic/speakers. XTTS runs on CPU there, so expect it to be slow.
-
-### ✅ Done
-
-- [x] **Minimal install runs without torch/coqui/PortAudio** — voice/ML imports are lazy
-- [x] **ARM64 / Raspberry Pi 5** — `pip install` no longer pulls Windows-only `cefpython3`
-- [x] **`install.sh`** — arch/distro-aware system deps, install-profile prompt, headless detection
-- [x] **`nekosuneai/tts.py`** — Linux audio playback via ffplay, ALSA/PulseAudio/PipeWire/JACK support
-
-### 🗺️ Roadmap
-
-- [ ] systemd service / auto-start on boot
-- [ ] Test on more distros (Fedora, Arch, NixOS)
-- [ ] macOS support
+Pull requests and issue reports are welcome.
 
 ---
 
 ## 💖 Support NekoSuneProjects
 
-If you enjoy our projects, find them useful, or would like to help support the continued development of **NekoSuneProjects**, donations are greatly appreciated. ❤️
+If NekoSuneAI is useful to you, contributions, bug reports, pull requests and project support are appreciated.
 
-Donations help support:
+GitHub Sponsors: https://github.com/sponsors/NekoSuneProjects
 
-* 🖥️ Server and hosting costs
-* 🌐 Domains and infrastructure
-* 🔧 Development and maintenance
-* 💾 Storage and backup costs
-* 🛡️ Security and infrastructure improvements
-* 🚀 New open-source projects and features
-* ☕ The time and effort that goes into maintaining our projects
+Selected donation addresses retained from the project:
 
-### 💰 Cryptocurrency Donations
+| Cryptocurrency | Donation Address |
+|---|---|
+| Ethereum / EVM | `0xAD41cD581FD06dB2589fd745BB179cA454a242ac` |
+| Bitcoin | `38qeqyTxgakcsb8swbo4g8EnovUSX4DDNp` |
+| Dogecoin | `DGVT15yeHJnSFsAy6zWx3m6grXsK7FV9kk` |
+| Hive / HBD | `chisdealhd` |
+| Steem / SBD | `chisdealhd` |
+| Blurt | `chisdealhd` |
+| ZBD / Bitcoin Lightning | `nekosunevr` |
 
-You can support **NekoSuneProjects** using any of the following cryptocurrencies:
+Always verify the cryptocurrency and network before sending funds.
 
-| Cryptocurrency                     | Donation Address                 |
-| ---------------------------------- | -------------------------------- |
-| 🟣 **Ethereum (ETH)**              | `0xAD41cD581FD06dB2589fd745BB179cA454a242ac`               |
-| 🟠 **Bitcoin (BTC)**               | `38qeqyTxgakcsb8swbo4g8EnovUSX4DDNp`               |
-| 🐕 **Dogecoin (DOGE)**             | `DGVT15yeHJnSFsAy6zWx3m6grXsK7FV9kk`              |
-| 🟢 **Hive (HIVE)**                 | `chisdealhd`  |
-| 🟡 **Hive Dollar (HBD)**           | `chisdealhd`  |
-| 🟢 **Steem (STEEM)**               | `chisdealhd` |
-| 🟡 **Steem Dollar (SBD)**          | `chisdealhd` |
-| 🔵 **Blurt (BLURT)**               | `chisdealhd` |
-| 🟣 **Solana (SOL)**                | `YOUR_SOL_ADDRESS`               |
-| 💵 **USD Coin (USDC)**             | `0xAD41cD581FD06dB2589fd745BB179cA454a242ac`              |
-| 💵 **USDT Coin (USDT)**             | `0xAD41cD581FD06dB2589fd745BB179cA454a242ac`             |
-| 🟡 **BNB**                         | `0xAD41cD581FD06dB2589fd745BB179cA454a242ac`               |
-| 🦇 **Basic Attention Token (BAT) ETH CHAIN** | `0x7196Ec85d9FB64f1a6EA94e0E7d7f25195416F17`               |
-| ⚡ **ZBD / Bitcoin Lightning**      | `nekosunevr`   |
-| **Github Sponsor** | `https://github.com/sponsors/NekoSuneProjects` |
-
-> ⚠️ **Important:** Always verify the cryptocurrency and network before sending a donation. Sending funds to an incorrect address or unsupported network may result in permanent loss of funds.
-
-### 🙏 Thank You
-
-Whether you contribute financially, report bugs, submit improvements, or simply use and share our projects, **thank you for supporting NekoSuneProjects**.
-
-Every contribution helps us continue building and maintaining open-source software for the community. ❤️
-
-**Thank you for supporting NekoSuneProjects!** 🌙
+---
 
 ## 📄 License
 
-NekoSuneAI is open-source software licensed under the [GNU General Public
-License v3.0](LICENSE). You may use, study, fork, and modify it. If you
-distribute a modified version, you must provide the corresponding source under
-the same license and preserve the required legal notices.
+NekoSuneAI is open-source software licensed under the [GNU General Public License v3.0](LICENSE). You may use, study, fork and modify it. If you distribute a modified version, you must provide the corresponding source under the same license and preserve required notices.
 
-The license does not permit anyone to claim authorship of code they did not
-write or present an unofficial fork as an official NekoSuneAI release. See
-[NOTICE](NOTICE) for upstream attribution and [TRADEMARKS.md](TRADEMARKS.md)
-for the branding policy.
-
-Open-source licenses cannot restrict fields of use. NekoSuneProjects does not
-endorse unlawful, harmful, or abusive uses of this software; all users remain
-responsible for complying with applicable law.
+See [NOTICE](NOTICE) for upstream attribution and [TRADEMARKS.md](TRADEMARKS.md) for branding policy.
 
 ---
 
 <div align="center">
 
-Built with spite, sarcasm, and way too much caffeine ☕ by [NekoSuneProjects](https://github.com/NekoSuneProjects)
+Built with way too much caffeine ☕ by [NekoSuneProjects](https://github.com/NekoSuneProjects)
 
-**If NekoSuneAI roasts you, that's a feature, not a bug.** 😏
+**NekoSuneAI — desktop companion, Pi smart speaker, Android companion, VRM avatar and local-first assistant in one project.**
 
 </div>
