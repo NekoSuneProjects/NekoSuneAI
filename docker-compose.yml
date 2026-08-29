@@ -19,6 +19,8 @@ services:
       - ./data:/app/data
       - ./audio:/app/audio
       - nekosuneai-models:/app/models
+      # Xbox 360 Kinect exposes several USB interfaces (camera/motor/audio).
+      # Mount the bus and allow USB character devices through the Docker cgroup.
       - /dev/bus/usb:/dev/bus/usb
       # Read all desktop runtime sessions so startup can locate the real audio
       # owner automatically instead of assuming /run/user/1000.
@@ -26,6 +28,8 @@ services:
       # BlueZ stays on the host. bluetoothctl inside the container talks to the
       # host daemon over this D-Bus socket to reconnect already-paired speakers.
       - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
+    device_cgroup_rules:
+      - 'c 189:* rwm'
     devices:
       - /dev/snd:/dev/snd
     environment:
