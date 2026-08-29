@@ -9,6 +9,7 @@ from urllib.parse import parse_qs, urlparse
 AVATAR_FILE = Path(os.getenv("NEKOSUNEAI_AVATAR_FILE", "/app/data/avatar/current.vrm"))
 AVATAR_ROUTE = "/api/avatar/file"
 UPLOAD_ROUTE = "/api/avatar/upload"
+MANAGER_ROUTE = "/avatar-upload"
 MAX_VRM_BYTES = 64 * 1024 * 1024
 _INSTALLED = False
 
@@ -24,12 +25,7 @@ def _json(handler, code: int, payload: dict) -> None:
 
 
 def install_avatar_http_patch() -> None:
-    """Extend NekoSuneAI's built-in HTTP server with persistent VRM upload/serve routes.
-
-    This keeps the main webserver implementation small while allowing a dashboard owner
-    to upload one VRM into the existing /app/data Docker volume. The uploaded model is
-    then exposed through an authenticated URL that paired Android devices can use.
-    """
+    """Extend the built-in dashboard HTTP server with persistent VRM routes."""
     global _INSTALLED
     if _INSTALLED:
         return
@@ -55,7 +51,10 @@ def install_avatar_http_patch() -> None:
                         return False
                     previous = self.headers.get("X-Neko-Device-Token")
                     try:
-                        self.headers.replace_header("X-Neko-Device-Token", supplied) if previous is not None else self.headers.__setitem__("X-Neko-Device-Token", supplied)
+                        if previous is not None:
+                            self.headers.replace_header("X-Neko-Device-Token", supplied)
+                        else:
+                            self.headers["X-Neko-Device-Token"] = supplied
                         return bool(self._device_authorized())
                     finally:
                         if previous is None:
@@ -83,7 +82,7 @@ def install_avatar_http_patch() -> None:
                     if not filename.lower().endswith(".vrm"):
                         return _json(self, 400, {"error": "Only .vrm files are accepted"})
                     raw = self.rfile.read(length)
-                    # VRM is a GLB container and should begin with the glTF magic bytes.
+                    # VRM is a GLB container and begins with the glTF magic bytes.
                     if len(raw) < 20 or raw[:4] != b"glTF":
                         return _json(self, 400, {"error": "This does not look like a valid binary VRM/GLB file"})
                     temp = AVATAR_FILE.with_suffix(".vrm.tmp")
@@ -99,7 +98,23 @@ def install_avatar_http_patch() -> None:
                     })
 
                 def do_GET(self):
-                    if urlparse(self.path).path != AVATAR_ROUTE:
+                    path = urlparse(self.path).path
+                    if path == MANAGER_ROUTE:
+                        if not hasattr(self, "_dashboard_authorized") or not self._dashboard_authorized():
+                            return _json(self, 401, {"error": "dashboard authorization required"})
+                        static_dir = Path(__file__).resolve().parent / "static"
+                        page = static_dir / "avatar-upload.html"
+                        if not page.is_file():
+                            return _json(self, 404, {"error": "VRM manager page is missing"})
+                        body = page.read_bytes()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "text/html; charset=utf-8")
+                        self.send_header("Cache-Control", "no-cache")
+                        self.send_header("Content-Length", str(len(body)))
+                        self.end_headers()
+                        self.wfile.write(body)
+                        return
+                    if path != AVATAR_ROUTE:
                         return super().do_GET()
                     if not self._avatar_authorized():
                         return _json(self, 401, {"error": "unauthorized"})
