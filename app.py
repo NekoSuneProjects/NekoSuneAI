@@ -1,4 +1,5 @@
 from nekosuneai.avatar_http_patch import install_avatar_http_patch
+from nekosuneai.scam_call_patch import install_scam_call_patch
 from nekosuneai.mcp_oauth_recovery import install_mcp_oauth_recovery
 from nekosuneai.settings_dashboard_patch import install_settings_dashboard_patch
 from nekosuneai.settings_backend_patch import install_settings_backend_patch
@@ -11,9 +12,11 @@ from nekosuneai.bridge_edge_voice_patch import install_bridge_edge_voice_patch
 from nekosuneai.kinect_vision_patch import install_kinect_vision_patch
 from nekosuneai.dashboard_tts_config_patch import install_dashboard_tts_config_patch
 from nekosuneai.media_youtube_provider_patch import install_media_youtube_provider_patch
-from nekosuneai.scam_call_patch import install_scam_call_patch
 
+# HTTP route wrappers must be installed before webserver.py is imported by the
+# dashboard patches below. Avatar wraps first, then scam-call routes wrap it.
 install_avatar_http_patch()
+install_scam_call_patch()
 install_mcp_oauth_recovery()
 install_settings_dashboard_patch()
 install_settings_backend_patch()
@@ -26,7 +29,6 @@ install_bridge_edge_voice_patch()
 install_kinect_vision_patch()
 install_dashboard_tts_config_patch()
 install_media_youtube_provider_patch()
-install_scam_call_patch()
 
 from nekosuneai.launcher import main
 
