@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import html
 import json
 import mimetypes
@@ -12,10 +13,12 @@ from urllib.parse import parse_qs, urlparse
 from .avatar_motion import drive_tts_avatar
 from .local_affect import LocalAffectDetector
 from .mood_state import load_mood, update_from_interaction
+from .owner_learning import learn_from_text, list_profile, summary_for_prompt
 from .reminders import ReminderManager
 from .scheduled_windows import WindowedMonitorManager
 from .support_checkins import SupportCheckinManager, support_context
 from .vision import describe_image, strip_data_uri
+from .voice_tone import analyze_voice_wav
 from .webgui import Api, STATIC_DIR
 from .youtube_music import YouTubeMusicPlayer, handle_music_request
 
@@ -73,6 +76,7 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     affect = LocalAffectDetector()
     support = SupportCheckinManager()
     vision_context: dict[str, object] = {"text": "", "epoch": 0.0, "source": ""}
+    voice_context: dict[str, object] = {"text": "", "epoch": 0.0}
 
     def emit_avatar(event: dict) -> None:
         try:
@@ -94,11 +98,11 @@ def serve(host: str, port: int, token: str | None = None) -> None:
         return result
 
     api.initialize = initialize_with_services  # type: ignore[method-assign]
-
     original_pipeline = api._pipeline
 
     def pi_feature_pipeline(user_text: str, from_voice: bool) -> str:
         nonlocal windowed_monitor, reminders
+        learn_from_text(user_text)
         mood = update_from_interaction(user_text)
         emit_avatar({"type": "avatar_emotion", "value": mood.expression()})
         emit_avatar({"type": "avatar_gesture", "value": mood.gesture()})
@@ -119,14 +123,17 @@ def serve(host: str, port: int, token: str | None = None) -> None:
             except Exception as exc:
                 reply = f"I couldn't create that monitoring schedule: {exc}"
 
-        pipeline_text = user_text
+        context_blocks: list[str] = []
         if time.time() - float(vision_context.get("epoch") or 0) <= 20 and vision_context.get("text"):
-            pipeline_text = (
-                user_text
-                + "\n\n[Opt-in current camera/Kinect context: "
-                + str(vision_context["text"])
-                + "]"
-            )
+            context_blocks.append("Opt-in current camera/Kinect context: " + str(vision_context["text"]))
+        if time.time() - float(voice_context.get("epoch") or 0) <= 30 and voice_context.get("text"):
+            context_blocks.append("Tentative current voice-tone cue: " + str(voice_context["text"]))
+        owner_summary = summary_for_prompt()
+        if owner_summary:
+            context_blocks.append(owner_summary)
+        pipeline_text = user_text
+        if context_blocks:
+            pipeline_text += "\n\n[Companion context — uncertain cues must never override the user's own words:\n" + "\n".join(context_blocks) + "]"
 
         if reply is None:
             reply = original_pipeline(pipeline_text, from_voice)
@@ -178,7 +185,6 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                     image = strip_data_uri(str(payload.get("image_base64", "")))
                     if not image:
                         raise ValueError("image_base64 is required")
-
                     cue = affect.detect(image)
                     description = describe_image(api.config, image, VISION_PROMPT)
                     context_parts: list[str] = []
@@ -189,15 +195,9 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                     if not context_parts:
                         detail = f" Local affect fallback: {affect.error}." if affect.error else ""
                         raise ValueError("No configured vision model or local affect fallback could analyse this frame." + detail)
-
                     combined = " ".join(context_parts)
-                    vision_context.update({
-                        "text": combined[:1600],
-                        "epoch": time.time(),
-                        "source": str(payload.get("source", "camera"))[:40],
-                    })
+                    vision_context.update({"text": combined[:1600], "epoch": time.time(), "source": str(payload.get("source", "camera"))[:40]})
                     emit_avatar({"type": "vision_context", "value": combined[:500]})
-
                     checkin = support.observe(cue)
                     if checkin:
                         companion = api.profile.get("companion_name", "NekoSuneAI")
@@ -211,18 +211,21 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                                 api._speak_async(checkin, "gentle")
                             except Exception:
                                 pass
+                    return self._json(200, {"ok": True, "description": description or "", "affect": None if cue is None else {"label": cue.label, "confidence": round(cue.confidence, 4), "tentative": True}, "checkin": checkin or "", "local_affect_available": affect.available})
 
-                    return self._json(200, {
-                        "ok": True,
-                        "description": description or "",
-                        "affect": None if cue is None else {
-                            "label": cue.label,
-                            "confidence": round(cue.confidence, 4),
-                            "tentative": True,
-                        },
-                        "checkin": checkin or "",
-                        "local_affect_available": affect.available,
-                    })
+                if parsed.path in {"/api/android/voice-tone", "/api/voice/tone"}:
+                    raw = str(payload.get("wav_base64", ""))
+                    if "," in raw:
+                        raw = raw.split(",", 1)[1]
+                    try:
+                        wav = base64.b64decode(raw)
+                    except Exception as exc:
+                        raise ValueError("invalid wav_base64") from exc
+                    cue = analyze_voice_wav(wav)
+                    if cue is None:
+                        raise ValueError("A short PCM16 WAV utterance is required")
+                    voice_context.update({"text": f"{cue.label} (confidence {cue.confidence:.2f}); acoustic cue only, not proof of emotion", "epoch": time.time()})
+                    return self._json(200, {"ok": True, "tone": cue.as_dict(), "tentative": True})
 
                 if parsed.path == "/api/android/chat":
                     api.initialize()
@@ -231,11 +234,7 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                         raise ValueError("message is required")
                     reply = api._pipeline(message, False)
                     mood = load_mood()
-                    return self._json(200, {
-                        "reply": reply,
-                        "emotion": mood.expression(),
-                        "gesture": mood.gesture(),
-                    })
+                    return self._json(200, {"reply": reply, "emotion": mood.expression(), "gesture": mood.gesture()})
 
                 if parsed.path != "/api/rpc":
                     return self._json(404, {"error": "not found"})
@@ -253,68 +252,32 @@ def serve(host: str, port: int, token: str | None = None) -> None:
             if parsed.path == "/oauth/callback":
                 query = parse_qs(parsed.query)
                 error = query.get("error", [""])[0]
-                result = ({"ok": False, "msg": error} if error else api.complete_mcp_oauth(
-                    query.get("state", [""])[0], query.get("code", [""])[0]
-                ))
+                result = ({"ok": False, "msg": error} if error else api.complete_mcp_oauth(query.get("state", [""])[0], query.get("code", [""])[0]))
                 message = html.escape(str(result.get("msg", "OAuth complete.")))
-                body = (
-                    "<!doctype html><meta charset='utf-8'><title>NekoSuneAI OAuth</title>"
-                    "<body style='background:#080914;color:#f4f2ff;font:18px system-ui;padding:40px'>"
-                    f"<h1>{'Connected' if result.get('ok') else 'Connection failed'}</h1><p>{message}</p>"
-                    "<script>if(window.opener){window.opener.postMessage({type:'neko-oauth-complete'},location.origin);"
-                    "setTimeout(()=>window.close(),900)}</script></body>"
-                ).encode()
-                self.send_response(200)
-                self.send_header("Content-Type", "text/html; charset=utf-8")
-                self.send_header("Content-Length", str(len(body)))
-                self.end_headers()
-                self.wfile.write(body)
-                return
+                body = ("<!doctype html><meta charset='utf-8'><title>NekoSuneAI OAuth</title><body style='background:#080914;color:#f4f2ff;font:18px system-ui;padding:40px'>" f"<h1>{'Connected' if result.get('ok') else 'Connection failed'}</h1><p>{message}</p>" "<script>if(window.opener){window.opener.postMessage({type:'neko-oauth-complete'},location.origin);setTimeout(()=>window.close(),900)}</script></body>").encode()
+                self.send_response(200); self.send_header("Content-Type", "text/html; charset=utf-8"); self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body); return
             if parsed.path == "/api/events":
-                if not self._authorized():
-                    return self._json(401, {"error": "unauthorized"})
+                if not self._authorized(): return self._json(401, {"error":"unauthorized"})
                 return self._json(200, {"events": api.get_web_events()})
+            if parsed.path == "/api/owner/profile":
+                if not self._authorized(): return self._json(401, {"error":"unauthorized"})
+                return self._json(200, {"items": list_profile()})
             if parsed.path == "/api/avatar/config":
-                if not self._authorized():
-                    return self._json(401, {"error": "unauthorized"})
-                api.initialize()
-                mood = load_mood()
-                return self._json(200, {
-                    "url": os.getenv("VRM_AVATAR_URL", "").strip(),
-                    "companion": api.profile.get("companion_name", "NekoSuneAI"),
-                    "mood": mood.expression(),
-                    "gesture": mood.gesture(),
-                    "mood_state": {
-                        "valence": round(mood.valence, 3),
-                        "arousal": round(mood.arousal, 3),
-                        "trust": round(mood.trust, 3),
-                        "caution": round(mood.caution, 3),
-                    },
-                    "local_affect_available": affect.available,
-                    "local_affect_error": affect.error if not affect.available else "",
-                })
-            if parsed.path in {"/avatar", "/avatar/"}:
-                relative = "vrm.html"
-            else:
-                relative = "index.html" if parsed.path in {"", "/"} else parsed.path.lstrip("/")
+                if not self._authorized(): return self._json(401, {"error":"unauthorized"})
+                api.initialize(); mood = load_mood()
+                return self._json(200, {"url": os.getenv("VRM_AVATAR_URL", "").strip(), "companion": api.profile.get("companion_name", "NekoSuneAI"), "mood": mood.expression(), "gesture": mood.gesture(), "mood_state": {"valence": round(mood.valence,3), "arousal": round(mood.arousal,3), "trust": round(mood.trust,3), "caution": round(mood.caution,3)}, "local_affect_available": affect.available, "local_affect_error": affect.error if not affect.available else ""})
+            if parsed.path in {"/avatar", "/avatar/"}: relative = "vrm.html"
+            else: relative = "index.html" if parsed.path in {"", "/"} else parsed.path.lstrip("/")
             target = (STATIC_DIR / relative).resolve()
-            if STATIC_DIR.resolve() not in target.parents and target != STATIC_DIR.resolve():
-                return self.send_error(403)
-            if not target.is_file():
-                return self.send_error(404)
+            if STATIC_DIR.resolve() not in target.parents and target != STATIC_DIR.resolve(): return self.send_error(403)
+            if not target.is_file(): return self.send_error(404)
             body = target.read_bytes()
-            if target.name == "index.html":
-                body = _decorate_dashboard(body)
-            self.send_response(200)
-            self.send_header("Content-Type", mimetypes.guess_type(target.name)[0] or "application/octet-stream")
-            if target.name in {"vrm.html", "index.html"}:
-                self.send_header("Cache-Control", "no-cache")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            if target.name == "index.html": body = _decorate_dashboard(body)
+            self.send_response(200); self.send_header("Content-Type", mimetypes.guess_type(target.name)[0] or "application/octet-stream")
+            if target.name in {"vrm.html", "index.html"}: self.send_header("Cache-Control", "no-cache")
+            self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
 
-        def log_message(self, *_args):
-            pass
+        def log_message(self, *_args): pass
 
     print(f"NekoSuneAI web dashboard: http://{host}:{port}/?token={access_token}")
     print(f"NekoSuneAI VRM avatar: http://{host}:{port}/avatar?token={access_token}")
