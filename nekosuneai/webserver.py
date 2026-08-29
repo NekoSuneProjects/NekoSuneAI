@@ -1,19 +1,71 @@
 from __future__ import annotations
 
-import json
 import html
+import json
 import mimetypes
 import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from .scheduled_windows import WindowedMonitorManager
 from .webgui import Api, STATIC_DIR
+from .youtube_music import YouTubeMusicPlayer, handle_music_request
 
 
 def serve(host: str, port: int, token: str | None = None) -> None:
     api = Api()
     access_token = token or secrets.token_urlsafe(24)
+    music = YouTubeMusicPlayer(lambda msg: api._push_chat("Music", msg, "system"))
+    windowed_monitor: WindowedMonitorManager | None = None
+
+    # Start persistent time-window monitors as soon as Api has loaded its
+    # configuration. This means schedules survive restarts and resume even if
+    # nobody opens the dashboard after the Pi boots.
+    original_initialize = api.initialize
+
+    def initialize_with_schedules(*args, **kwargs):
+        nonlocal windowed_monitor
+        result = original_initialize(*args, **kwargs)
+        if windowed_monitor is None:
+            windowed_monitor = WindowedMonitorManager(api.config, api._monitor_notification)
+            windowed_monitor.start()
+        return result
+
+    api.initialize = initialize_with_schedules  # type: ignore[method-assign]
+
+    # Voice turns and typed web-dashboard turns both pass through this pipeline,
+    # so the same phrases work with the Pi wake-word assistant and the browser.
+    original_pipeline = api._pipeline
+
+    def pi_feature_pipeline(user_text: str, from_voice: bool) -> str:
+        nonlocal windowed_monitor
+        try:
+            reply = handle_music_request(user_text, music)
+        except Exception as exc:
+            reply = f"I couldn't use YouTube music: {exc}"
+        if reply is None and windowed_monitor is not None:
+            try:
+                reply = windowed_monitor.handle(user_text)
+            except Exception as exc:
+                reply = f"I couldn't create that monitoring schedule: {exc}"
+        if reply is None:
+            return original_pipeline(user_text, from_voice)
+
+        user_name = api.profile.get("user_name", "You")
+        companion = api.profile.get("companion_name", "NekoSuneAI")
+        api._push_chat(user_name, user_text, "user")
+        api._push_chat(companion, reply, "assistant")
+        api._push_status("Ready.")
+        # Do not speak over music-start commands. Other control/schedule replies
+        # may use normal TTS when voice output is enabled.
+        if api.state.voice_enabled and not reply.lower().startswith("playing"):
+            try:
+                api._speak_async(reply, "neutral")
+            except Exception:
+                pass
+        return reply
+
+    api._pipeline = pi_feature_pipeline  # type: ignore[method-assign]
 
     class Handler(BaseHTTPRequestHandler):
         def _authorized(self) -> bool:
