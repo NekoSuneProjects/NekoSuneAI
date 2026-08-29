@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .android_devices import AndroidDeviceHub
 from .avatar_motion import drive_tts_avatar
+from .device_pairing import DevicePairingManager, MdnsAdvertiser
 from .local_affect import LocalAffectDetector
 from .mobile_notify import MobileNotifier
 from .mood_state import load_mood, update_from_interaction
@@ -64,6 +65,37 @@ def _decorate_dashboard(body: bytes) -> bytes:
     }catch(_){}
     return response;
   };
+
+  const token=()=>new URLSearchParams(location.search).get('token')||'';
+  const pairFetch=(url,options={})=>originalFetch(url,{...options,headers:{...(options.headers||{}),'X-Neko-Token':token(),'Content-Type':'application/json'}});
+  function escapeHtml(v){return String(v||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function mountPairing(){
+    if(document.getElementById('neko-pairing-panel'))return;
+    const panel=document.createElement('section');
+    panel.id='neko-pairing-panel';
+    panel.className='card fixed right-4 bottom-4 z-[100] w-[min(390px,calc(100vw-2rem))] p-4 hidden';
+    panel.innerHTML=`<div class="flex items-center justify-between gap-3 mb-2"><div><div class="section-kicker">ANDROID COMPANION</div><div class="text-[15px] font-bold text-nova-text mt-1">Device pairing request</div></div><span class="live-pill">LAN</span></div><div class="text-[11px] text-nova-muted2 mb-3">A phone found this NekoSuneAI server. Approve only devices you recognize.</div><div id="neko-pairing-list" class="space-y-2"></div>`;
+    document.body.appendChild(panel);
+  }
+  async function pairingAction(requestId,action){
+    try{await pairFetch('/api/pairing/'+action,{method:'POST',body:JSON.stringify({request_id:requestId})});await refreshPairing();}catch(_){}
+  }
+  async function refreshPairing(){
+    mountPairing();
+    const panel=document.getElementById('neko-pairing-panel'),list=document.getElementById('neko-pairing-list');
+    if(!panel||!list||!token()){if(panel)panel.classList.add('hidden');return;}
+    try{
+      const r=await pairFetch('/api/pairing/pending');
+      if(!r.ok){panel.classList.add('hidden');return;}
+      const j=await r.json(),items=j.pending||[];
+      if(!items.length){panel.classList.add('hidden');return;}
+      panel.classList.remove('hidden');
+      list.innerHTML=items.map(x=>`<div class="card-alt p-3"><div class="text-[13px] font-semibold text-nova-text">${escapeHtml(x.name)}</div><div class="text-[10px] text-nova-muted mt-1">${escapeHtml(x.remote_ip)} · ${escapeHtml(x.device_id).slice(0,18)}…</div><div class="flex gap-2 mt-3"><button class="btn-primary rounded-lg px-3 py-2 text-[11px] flex-1" data-pair-approve="${escapeHtml(x.request_id)}">Approve</button><button class="btn-danger rounded-lg px-3 py-2 text-[11px] flex-1" data-pair-reject="${escapeHtml(x.request_id)}">Reject</button></div></div>`).join('');
+      list.querySelectorAll('[data-pair-approve]').forEach(b=>b.onclick=()=>pairingAction(b.dataset.pairApprove,'approve'));
+      list.querySelectorAll('[data-pair-reject]').forEach(b=>b.onclick=()=>pairingAction(b.dataset.pairReject,'reject'));
+    }catch(_){panel.classList.add('hidden');}
+  }
+  addEventListener('DOMContentLoaded',()=>{mountPairing();refreshPairing();setInterval(refreshPairing,3000)});
 })();
 </script>'''
     return text.replace("</body>", bridge + "</body>", 1).encode("utf-8")
@@ -75,6 +107,8 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     music = YouTubeMusicPlayer(lambda msg: api._push_chat("Music", msg, "system"))
     mobile_notifier = MobileNotifier.from_env()
     android_hub = AndroidDeviceHub()
+    pairing = DevicePairingManager()
+    advertiser = MdnsAdvertiser(port)
     windowed_monitor: WindowedMonitorManager | None = None
     reminders: ReminderManager | None = None
     affect = LocalAffectDetector()
@@ -133,7 +167,7 @@ def serve(host: str, port: int, token: str | None = None) -> None:
         reply = None
         if any((is_find, is_stop, is_battery, is_status, is_notices)):
             if not device:
-                reply = "I can't see an Android companion phone yet. Open NekoSuneAI Companion on the phone and connect it to this Pi first."
+                reply = "I can't see an Android companion phone yet. Open NekoSuneAI Companion on the phone and pair it with this Pi first."
             elif is_find:
                 android_hub.enqueue(device["device_id"], "FIND_PHONE")
                 reply = f"Okay — I'm ringing {device.get('name', 'your phone')} at full ringtone volume until you stop it."
@@ -215,9 +249,18 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     api._pipeline = integrated_pipeline  # type: ignore[method-assign]
 
     class Handler(BaseHTTPRequestHandler):
-        def _authorized(self) -> bool:
+        def _dashboard_authorized(self) -> bool:
             query = parse_qs(urlparse(self.path).query)
             return self.headers.get("X-Neko-Token") == access_token or query.get("token", [""])[0] == access_token
+
+        def _device_authorized(self) -> bool:
+            if self._dashboard_authorized():
+                return True
+            supplied = self.headers.get("X-Neko-Device-Token", "")
+            return bool(supplied) and (secrets.compare_digest(supplied, access_token) or pairing.authorize_device_token(supplied))
+
+        def _authorized(self) -> bool:
+            return self._dashboard_authorized()
 
         def _json(self, code: int, value) -> None:
             body = json.dumps(value, default=str).encode()
@@ -229,14 +272,47 @@ def serve(host: str, port: int, token: str | None = None) -> None:
             self.wfile.write(body)
 
         def do_POST(self):
-            if not self._authorized():
-                return self._json(401, {"error": "unauthorized"})
             parsed = urlparse(self.path)
             try:
                 length = int(self.headers.get("Content-Length", "0"))
                 if length > 1_800_000:
                     raise ValueError("request too large")
                 payload = json.loads(self.rfile.read(length) or b"{}")
+
+                if parsed.path == "/api/pairing/request":
+                    try:
+                        item = pairing.request(
+                            str(payload.get("device_id", "")),
+                            str(payload.get("name", "Android phone")),
+                            str(self.client_address[0]),
+                        )
+                    except PermissionError as exc:
+                        return self._json(403, {"error": str(exc)})
+                    api._push_notification(f"Pairing request from {item.get('name', 'Android phone')} ({item.get('remote_ip', '')}). Approve it on the dashboard.")
+                    return self._json(200, {"ok": True, **item})
+
+                if parsed.path in {"/api/pairing/approve", "/api/pairing/reject", "/api/pairing/revoke"}:
+                    if not self._dashboard_authorized():
+                        return self._json(401, {"error": "unauthorized"})
+                    if parsed.path == "/api/pairing/approve":
+                        result = pairing.approve(str(payload.get("request_id", "")))
+                        api._push_notification(f"Paired {result.get('name', 'Android phone')} successfully.")
+                    elif parsed.path == "/api/pairing/reject":
+                        result = pairing.reject(str(payload.get("request_id", "")))
+                    else:
+                        result = pairing.revoke(str(payload.get("device_id", "")))
+                    return self._json(200, result)
+
+                device_paths = {
+                    "/api/android/heartbeat", "/api/android/notification", "/api/android/command",
+                    "/api/android/vision", "/api/vision/frame", "/api/android/voice-tone",
+                    "/api/voice/tone", "/api/android/chat",
+                }
+                if parsed.path in device_paths:
+                    if not self._device_authorized():
+                        return self._json(401, {"error": "unauthorized"})
+                elif not self._dashboard_authorized():
+                    return self._json(401, {"error": "unauthorized"})
 
                 if parsed.path == "/api/android/heartbeat":
                     result = android_hub.heartbeat(
@@ -291,7 +367,7 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                         if getattr(api.state, "voice_enabled", False):
                             try:
                                 drive_tts_avatar(checkin, emit_avatar, gesture="relaxed")
-                                api._speak_async(checkin, "gentle")
+                                api._speak_async(checkin, "relaxed")
                             except Exception:
                                 pass
                     return self._json(200, {
@@ -348,31 +424,41 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 self.end_headers()
                 self.wfile.write(body)
                 return
+            if parsed.path == "/api/pairing/status":
+                return self._json(200, pairing.status(query.get("request_id", [""])[0], query.get("device_id", [""])[0]))
+            if parsed.path == "/api/pairing/pending":
+                if not self._dashboard_authorized():
+                    return self._json(401, {"error": "unauthorized"})
+                return self._json(200, {"pending": pairing.pending()})
+            if parsed.path == "/api/pairing/paired":
+                if not self._dashboard_authorized():
+                    return self._json(401, {"error": "unauthorized"})
+                return self._json(200, {"paired": pairing.paired()})
             if parsed.path == "/api/events":
-                if not self._authorized():
+                if not self._dashboard_authorized():
                     return self._json(401, {"error": "unauthorized"})
                 return self._json(200, {"events": api.get_web_events()})
             if parsed.path == "/api/android/devices":
-                if not self._authorized():
+                if not self._device_authorized():
                     return self._json(401, {"error": "unauthorized"})
                 return self._json(200, {"devices": android_hub.list_devices()})
             if parsed.path == "/api/android/notifications":
-                if not self._authorized():
+                if not self._device_authorized():
                     return self._json(401, {"error": "unauthorized"})
                 return self._json(200, {"notifications": android_hub.latest_notifications(query.get("device_id", [""])[0], int(query.get("limit", ["20"])[0]))})
             if parsed.path == "/api/android/commands":
-                if not self._authorized():
+                if not self._device_authorized():
                     return self._json(401, {"error": "unauthorized"})
                 commands = android_hub.wait_commands(
                     query.get("device_id", [""])[0], int(query.get("after", ["0"])[0]), float(query.get("wait", ["25"])[0])
                 )
                 return self._json(200, {"commands": commands})
             if parsed.path == "/api/owner/profile":
-                if not self._authorized():
+                if not self._dashboard_authorized():
                     return self._json(401, {"error": "unauthorized"})
                 return self._json(200, {"items": list_profile()})
             if parsed.path == "/api/avatar/config":
-                if not self._authorized():
+                if not self._device_authorized():
                     return self._json(401, {"error": "unauthorized"})
                 api.initialize()
                 mood = load_mood()
@@ -416,6 +502,13 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     print(f"NekoSuneAI web dashboard: http://{host}:{port}/?token={access_token}")
     print(f"NekoSuneAI mobile dashboard: http://{host}:{port}/mobile?token={access_token}")
     print(f"NekoSuneAI VRM avatar: http://{host}:{port}/avatar?token={access_token}")
+    if advertiser.start():
+        print(f"NekoSuneAI Android discovery: mDNS _nekosuneai._tcp.local. on port {port}")
     if mobile_notifier:
         print(f"NekoSuneAI Android push: enabled ({mobile_notifier.base_url}/{mobile_notifier.topic}, min={mobile_notifier.min_level})")
-    ThreadingHTTPServer((host, port), Handler).serve_forever()
+    server = ThreadingHTTPServer((host, port), Handler)
+    try:
+        server.serve_forever()
+    finally:
+        advertiser.stop()
+        server.server_close()
