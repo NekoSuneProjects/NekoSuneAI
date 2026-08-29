@@ -40,15 +40,11 @@ class CompanionService : Service() {
                 } else if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
                     prefs.edit().putBoolean("wake_word_enabled", true).apply()
                     ContextCompat.startForegroundService(this, Intent(this, WakeWordService::class.java))
-                }
-                refreshNotification()
-            }
-            ACTION_SET_WAKE_PHRASE -> {
-                val phrase = intent.getStringExtra(EXTRA_WAKE_PHRASE).orEmpty().trim().lowercase()
-                if (phrase.isNotBlank()) prefs.edit().putString("wake_phrase", phrase).apply()
-                if (prefs.getBoolean("wake_word_enabled", false)) {
-                    stopService(Intent(this, WakeWordService::class.java))
-                    ContextCompat.startForegroundService(this, Intent(this, WakeWordService::class.java))
+                } else {
+                    startActivity(Intent(this, WakeWordSettingsActivity::class.java).apply {
+                        putExtra("enable_now", true)
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    })
                 }
                 refreshNotification()
             }
@@ -70,13 +66,18 @@ class CompanionService : Service() {
             this, 11, Intent(this, CompanionService::class.java).setAction(ACTION_TOGGLE_WAKE),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val settings = PendingIntent.getActivity(
+            this, 12, Intent(this, WakeWordSettingsActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         startForeground(NOTIFICATION_ID, NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("NekoSuneAI connected")
             .setContentText(if (enabled) "Background wake ON · say “$phrase”" else "Low-power phone link active · background wake OFF")
             .setContentIntent(open)
             .setOngoing(true)
-            .addAction(0, if (enabled) "Turn off Hey Jarvis" else "Enable Hey Jarvis", toggle)
+            .addAction(0, if (enabled) "Turn off wake" else "Enable Hey Jarvis", toggle)
+            .addAction(0, "Wake settings", settings)
             .build())
     }
 
@@ -123,7 +124,5 @@ class CompanionService : Service() {
         private const val CHANNEL_ID = "neko_companion"
         private const val NOTIFICATION_ID = 1001
         const val ACTION_TOGGLE_WAKE = "co.uk.nekosuneprojects.nekosuneai.TOGGLE_WAKE"
-        const val ACTION_SET_WAKE_PHRASE = "co.uk.nekosuneprojects.nekosuneai.SET_WAKE_PHRASE"
-        const val EXTRA_WAKE_PHRASE = "wake_phrase"
     }
 }
