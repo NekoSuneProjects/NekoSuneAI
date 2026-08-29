@@ -1,9 +1,14 @@
 package co.uk.nekosuneprojects.nekosuneai
 
-import android.content.Context
-import android.os.Build
-import android.os.BatteryManager
 import android.app.ActivityManager
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
+import android.os.Build
+import android.os.Environment
+import android.os.PowerManager
+import android.os.StatFs
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -38,18 +43,35 @@ class ApiClient(private val context: Context) {
         val bm = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
         val battery = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
         val currentUa = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+        val batteryIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val plugged = batteryIntent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0) ?: 0
+        val temperatureTenths = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, -1) ?: -1
+        val voltageMv = batteryIntent?.getIntExtra(BatteryManager.EXTRA_VOLTAGE, -1) ?: -1
+
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val mem = ActivityManager.MemoryInfo().also(am::getMemoryInfo)
+        val stat = StatFs(Environment.getDataDirectory().absolutePath)
+        val storageFreeMb = stat.availableBytes / 1024 / 1024
+        val storageTotalMb = stat.totalBytes / 1024 / 1024
+        val thermal = if (Build.VERSION.SDK_INT >= 29) {
+            context.getSystemService(PowerManager::class.java).currentThermalStatus
+        } else -1
+
         val payload = JSONObject().apply {
             put("device_id", deviceId)
             put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
             put("telemetry", JSONObject().apply {
                 put("battery_percent", battery)
-                put("charging", currentUa > 0)
+                put("charging", plugged != 0)
                 put("battery_current_ma", currentUa / 1000.0)
+                put("battery_temperature_c", if (temperatureTenths >= 0) temperatureTenths / 10.0 else JSONObject.NULL)
+                put("battery_voltage_mv", if (voltageMv >= 0) voltageMv else JSONObject.NULL)
+                put("thermal_status", thermal)
                 put("memory_available_mb", mem.availMem / 1024 / 1024)
                 put("memory_total_mb", mem.totalMem / 1024 / 1024)
                 put("low_memory", mem.lowMemory)
+                put("storage_free_mb", storageFreeMb)
+                put("storage_total_mb", storageTotalMb)
                 put("sdk", Build.VERSION.SDK_INT)
                 put("model", Build.MODEL)
             })
