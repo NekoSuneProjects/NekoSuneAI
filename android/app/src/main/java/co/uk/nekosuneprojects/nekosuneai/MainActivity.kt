@@ -23,6 +23,7 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import java.net.URLEncoder
 import java.util.Locale
 import kotlin.concurrent.thread
@@ -38,8 +39,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var serverInput: EditText
     private lateinit var tokenInput: EditText
     private lateinit var advancedBox: LinearLayout
+    private lateinit var discoveredBox: LinearLayout
     private var tts: TextToSpeech? = null
     @Volatile private var pairingBusy = false
+    private val foundServers = linkedSetOf<String>()
 
     private val bg = Color.parseColor("#080914")
     private val surface = Color.parseColor("#111329")
@@ -61,7 +64,18 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onInit(status: Int) { if (status == TextToSpeech.SUCCESS) tts?.language = Locale.UK }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splash = installSplashScreen()
         super.onCreate(savedInstanceState)
+        splash.setOnExitAnimationListener { provider ->
+            provider.view.animate()
+                .alpha(0f)
+                .scaleX(1.12f)
+                .scaleY(1.12f)
+                .setDuration(420L)
+                .withEndAction { provider.remove() }
+                .start()
+        }
+
         window.statusBarColor = bg
         window.navigationBarColor = bg
         api = ApiClient(this)
@@ -108,8 +122,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val pairCard = card()
         pairCard.addView(kicker("QUICK CONNECT"))
         pairCard.addView(title("Pair this phone"))
-        pairCard.addView(body("No URL or dashboard token needed. NekoSuneAI will find your Docker/Pi on this Wi-Fi, then you approve the phone from the Docker dashboard."))
-        pairCard.addView(primaryButton("Discover & Pair", "⌁") { startDiscoveryAndPair() }, marginTop(12))
+        pairCard.addView(body("No URL or dashboard token needed. Search this Wi-Fi, choose your NekoSuneAI server, then approve the phone from that Docker dashboard."))
+        pairCard.addView(primaryButton("Find NekoSuneAI servers", "⌁") { startDiscovery() }, marginTop(12))
+        discoveredBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = View.GONE
+            setPadding(0, dp(10), 0, 0)
+        }
+        pairCard.addView(discoveredBox)
         pairCard.addView(secondaryButton("Advanced manual connection") {
             advancedBox.visibility = if (advancedBox.visibility == View.VISIBLE) View.GONE else View.VISIBLE
         }, marginTop(8))
@@ -182,45 +202,68 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         root.addView(body("Remote access can still use Tailscale/VPN or authenticated HTTPS. Automatic pairing is intentionally local-network only by default."), marginTop(18))
         setContentView(scroll)
-        if (api.configured()) onConnected(startService = false)
+        if (api.configured()) onConnected()
     }
 
-    private fun startDiscoveryAndPair() {
+    private fun startDiscovery() {
         if (pairingBusy) return
-        pairingBusy = true
+        foundServers.clear()
+        discoveredBox.removeAllViews()
+        discoveredBox.visibility = View.VISIBLE
+        discoveredBox.addView(body("Searching… found servers will appear here."))
         connectionStatus.text = "● Searching for NekoSuneAI on this Wi-Fi…"
-        var requested = false
         discovery.discover(onFound = { url, name ->
-            if (requested) return@discover
-            requested = true
-            discovery.stop()
-            connectionStatus.post { connectionStatus.text = "● Found $name — sending approval request…" }
-            thread(name = "NekoPairing") {
-                try {
-                    val pairing = api.requestPairing(url)
-                    runOnUiThread { connectionStatus.text = "● Waiting for approval on Docker dashboard…" }
-                    var result = PairingResult("pending")
-                    repeat(75) {
-                        if (result.connected || result.status == "rejected" || result.status == "expired") return@repeat
-                        Thread.sleep(1600)
-                        result = api.pollPairing(pairing)
-                    }
-                    runOnUiThread {
-                        pairingBusy = false
-                        when {
-                            result.connected -> onConnected()
-                            result.status == "rejected" -> connectionStatus.text = "● Pairing rejected on dashboard"
-                            else -> connectionStatus.text = "● Pairing timed out — tap Discover & Pair to retry"
-                        }
-                    }
-                } catch (e: Exception) {
-                    runOnUiThread { pairingBusy = false; connectionStatus.text = "● Pairing failed: ${e.message}" }
-                }
-            }
+            runOnUiThread { addDiscoveredServer(url, name) }
         }, onStatus = { status -> connectionStatus.post { connectionStatus.text = "● $status" } })
     }
 
+    private fun addDiscoveredServer(url: String, name: String) {
+        if (!foundServers.add(url)) return
+        if (foundServers.size == 1) discoveredBox.removeAllViews()
+        val serverCard = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = pill(surface2, Color.parseColor("#3C4275"), 12f)
+            addView(TextView(this@MainActivity).apply { text = name; setTextColor(text); textSize = 14f; typeface = Typeface.DEFAULT_BOLD })
+            addView(TextView(this@MainActivity).apply { text = url; setTextColor(muted); textSize = 11f; setPadding(0, dp(3), 0, dp(8)) })
+            addView(primaryButton("Request pairing") { requestPairing(url, name) })
+        }
+        discoveredBox.addView(serverCard, if (foundServers.size == 1) LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT) else marginTop(8))
+        connectionStatus.text = "● Found ${foundServers.size} NekoSuneAI server${if (foundServers.size == 1) "" else "s"}"
+    }
+
+    private fun requestPairing(url: String, name: String) {
+        if (pairingBusy) return
+        pairingBusy = true
+        discovery.stop()
+        connectionStatus.text = "● Sending pairing request to $name…"
+        thread(name = "NekoPairing") {
+            try {
+                val pairing = api.requestPairing(url)
+                runOnUiThread { connectionStatus.text = "● Waiting for approval on $name dashboard…" }
+                var result = PairingResult("pending")
+                var attempts = 0
+                while (attempts < 75 && !result.connected && result.status !in setOf("rejected", "expired")) {
+                    Thread.sleep(1600)
+                    result = api.pollPairing(pairing)
+                    attempts++
+                }
+                runOnUiThread {
+                    pairingBusy = false
+                    when {
+                        result.connected -> onConnected()
+                        result.status == "rejected" -> connectionStatus.text = "● Pairing rejected on dashboard"
+                        else -> connectionStatus.text = "● Pairing timed out — search again to retry"
+                    }
+                }
+            } catch (e: Exception) {
+                runOnUiThread { pairingBusy = false; connectionStatus.text = "● Pairing failed: ${e.message}" }
+            }
+        }
+    }
+
     private fun onConnected(startService: Boolean = true) {
+        discovery.stop()
         connectionStatus.text = "● Connected to ${api.serverUrl}"
         if (startService) ContextCompat.startForegroundService(this, Intent(this, CompanionService::class.java))
         if (Build.VERSION.SDK_INT >= 33) askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
