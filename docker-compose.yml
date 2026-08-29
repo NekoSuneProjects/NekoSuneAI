@@ -6,6 +6,13 @@ services:
         APP_VERSION: "1.2.1"
     image: ghcr.io/nekosuneprojects/nekosuneai:1.2.1
     restart: unless-stopped
+    # Protect small hosts such as an 8 GB Raspberry Pi from a runaway decoder,
+    # extractor or model process taking the entire machine down. Override these
+    # in .env on larger hosts if desired.
+    mem_limit: ${NEKOSUNEAI_MEMORY_LIMIT:-6g}
+    cpus: ${NEKOSUNEAI_CPU_LIMIT:-3.5}
+    pids_limit: ${NEKOSUNEAI_PIDS_LIMIT:-256}
+    stop_grace_period: 15s
     # Start as root only for the entrypoint. It scans the host runtime sessions,
     # finds the owner of a working PulseAudio/PipeWire socket, then drops to that
     # UID/GID before NekoSuneAI starts. No PUID/PGID setup is normally required.
