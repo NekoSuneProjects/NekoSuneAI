@@ -5,7 +5,7 @@ plugins {
 
 android {
     namespace = "co.uk.nekosuneprojects.nekosuneai"
-    compileSdk = 36
+    compileSdk = 35
 
     defaultConfig {
         applicationId = "co.uk.nekosuneprojects.nekosuneai"
