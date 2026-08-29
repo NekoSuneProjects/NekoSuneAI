@@ -27,8 +27,21 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.11.1'
+      - name: Runner memory before build
+        run: |
+          free -h || true
+          echo "cgroup memory.max: $(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unknown)"
+          echo "cgroup memory.current: $(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo unknown)"
       - name: Build Android debug APK
-        run: gradle -p android --no-daemon assembleDebug
+        run: gradle -p android --no-daemon --max-workers=1 assembleDebug --stacktrace
+      - name: Runner memory after build
+        if: always()
+        run: |
+          free -h || true
+          echo "cgroup memory.current: $(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo unknown)"
+          if command -v journalctl >/dev/null 2>&1; then
+            journalctl -k -n 80 --no-pager 2>/dev/null | grep -Ei 'oom|out of memory|killed process' || true
+          fi
       - uses: actions/upload-artifact@v4
         with:
           name: NekoSuneAI-Android-debug
