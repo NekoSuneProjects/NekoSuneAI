@@ -1,0 +1,9 @@
+{
+  "name": "nekosuneai-music-helper",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Local API-key-free YouTube search helper for NekoSuneAI music playback.",
+  "dependencies": {
+    "yt-search": "^2.13.1"
+  }
+}
