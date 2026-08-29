@@ -66,8 +66,12 @@ class CompanionService : Service() {
             this, 11, Intent(this, CompanionService::class.java).setAction(ACTION_TOGGLE_WAKE),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        val settings = PendingIntent.getActivity(
+        val wakeSettings = PendingIntent.getActivity(
             this, 12, Intent(this, WakeWordSettingsActivity::class.java),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val callSettings = PendingIntent.getActivity(
+            this, 13, Intent(this, ScamCallSettingsActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         startForeground(NOTIFICATION_ID, NotificationCompat.Builder(this, CHANNEL_ID)
@@ -77,7 +81,8 @@ class CompanionService : Service() {
             .setContentIntent(open)
             .setOngoing(true)
             .addAction(0, if (enabled) "Turn off wake" else "Enable Hey Jarvis", toggle)
-            .addAction(0, "Wake settings", settings)
+            .addAction(0, "Wake settings", wakeSettings)
+            .addAction(0, "Call protection", callSettings)
             .build())
     }
 
