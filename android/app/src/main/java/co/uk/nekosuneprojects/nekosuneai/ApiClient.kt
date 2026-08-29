@@ -15,6 +15,7 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import java.net.URLEncoder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
@@ -126,7 +127,19 @@ class ApiClient(private val context: Context) {
         val req = authorized(Request.Builder().url("$serverUrl/api/avatar/config")).get().build()
         client.newCall(req).execute().use { response ->
             if (!response.isSuccessful) return ""
-            return JSONObject(response.body?.string().orEmpty()).optString("url", "")
+            val raw = JSONObject(response.body?.string().orEmpty()).optString("url", "").trim()
+            if (raw.isBlank()) return ""
+            if (raw.startsWith("/")) {
+                val encoded = URLEncoder.encode(token, "UTF-8")
+                val separator = if (raw.contains("?")) "&" else "?"
+                return serverUrl + raw + separator + "device_token=" + encoded
+            }
+            if (raw.startsWith(serverUrl)) {
+                val encoded = URLEncoder.encode(token, "UTF-8")
+                val separator = if (raw.contains("?")) "&" else "?"
+                return raw + separator + "device_token=" + encoded
+            }
+            return raw
         }
     }
 
