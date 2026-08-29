@@ -36,8 +36,6 @@ def _install_schema() -> None:
 
     schema = webgui.APP_SETTINGS_SCHEMA
 
-    # Keep the model/provider card focused on chat. Vision and memory now have
-    # dedicated pages in the Settings workspace instead of being buried here.
     llm = schema.get("llm", {"label": "AI Provider & Models", "fields": []})
     llm["fields"] = [
         f for f in llm.get("fields", [])
@@ -113,8 +111,8 @@ def _install_schema() -> None:
     schema["media"] = media
 
     schema["youtube"] = {
-        "label": "YouTube Music & yt-dlp",
-        "description": "Controls for the built-in YouTube music player used by voice/chat music commands.",
+        "label": "YouTube Music & yt-dlp Nightly",
+        "description": "API-key-free yt-search discovery plus the always-updated yt-dlp nightly stream resolver used by the Music page.",
         "fields": [
             _field("youtube_music_volume", "Default YouTube music volume (0-100)", "int"),
             _field("ytdlp_cookies_file", "yt-dlp cookies file (optional)", "text"),
@@ -134,8 +132,6 @@ def _install_schema() -> None:
         if key in schema:
             schema[key]["description"] = text
 
-    # Rebuild the type lookup after extending/reorganising the schema so the
-    # generic persistence path accepts all new controls.
     webgui._APP_FIELD_TYPES.clear()
     webgui._APP_FIELD_TYPES.update({
         f["key"]: f["type"]
@@ -287,8 +283,6 @@ def _install_youtube_settings() -> None:
         saved = _read_saved_app_settings()
         cookies = str(saved.get("ytdlp_cookies_file", "") or "").strip()
         if cookies:
-            # Replace any environment-derived cookie argument so the live
-            # Settings value is authoritative.
             cleaned: list[str] = []
             skip = False
             for item in args:
