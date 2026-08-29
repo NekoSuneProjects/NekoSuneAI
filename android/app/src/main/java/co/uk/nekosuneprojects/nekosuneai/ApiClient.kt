@@ -22,12 +22,14 @@ import java.util.concurrent.TimeUnit
 data class ChatReply(val text: String, val emotion: String = "neutral", val gesture: String = "idle")
 data class PairingRequest(val requestId: String, val serverUrl: String)
 data class PairingResult(val status: String, val connected: Boolean = false)
+data class VisionReply(val description: String, val checkin: String = "", val affect: String = "")
 
 class ApiClient(private val context: Context) {
     private val prefs = context.getSharedPreferences("neko", Context.MODE_PRIVATE)
     private val client = OkHttpClient.Builder()
-        .connectTimeout(6, TimeUnit.SECONDS)
-        .readTimeout(90, TimeUnit.SECONDS)
+        .connectTimeout(8, TimeUnit.SECONDS)
+        .readTimeout(95, TimeUnit.SECONDS)
+        .writeTimeout(25, TimeUnit.SECONDS)
         .build()
 
     val deviceId: String
@@ -41,6 +43,7 @@ class ApiClient(private val context: Context) {
 
     fun configured(): Boolean = serverUrl.startsWith("http") && token.isNotBlank()
     fun pairedAutomatically(): Boolean = serverUrl.startsWith("http") && deviceToken.isNotBlank()
+    fun rememberedConnectionLabel(): String = if (pairedAutomatically()) "Paired device remembered" else if (configured()) "Manual connection remembered" else "Not paired"
 
     fun save(server: String, authToken: String) {
         prefs.edit()
@@ -54,6 +57,14 @@ class ApiClient(private val context: Context) {
         prefs.edit().remove("server_url").remove("token").remove("device_token").apply()
     }
 
+    fun ping(): Boolean {
+        if (!configured()) return false
+        return try {
+            val req = authorized(Request.Builder().url("$serverUrl/api/android/devices")).get().build()
+            client.newCall(req).execute().use { it.isSuccessful }
+        } catch (_: Exception) { false }
+    }
+
     fun requestPairing(candidateUrl: String): PairingRequest {
         val base = candidateUrl.trim().trimEnd('/')
         val payload = JSONObject().apply {
@@ -61,16 +72,12 @@ class ApiClient(private val context: Context) {
             put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
             put("sdk", Build.VERSION.SDK_INT)
         }
-        val req = Request.Builder()
-            .url("$base/api/pairing/request")
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-            .build()
+        val req = Request.Builder().url("$base/api/pairing/request")
+            .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
         client.newCall(req).execute().use { response ->
             val raw = response.body?.string().orEmpty()
             val root = JSONObject(raw.ifBlank { "{}" })
-            if (!response.isSuccessful) {
-                throw IllegalStateException(root.optString("error", "Pairing request failed"))
-            }
+            if (!response.isSuccessful) throw IllegalStateException(root.optString("error", "Pairing request failed"))
             val requestId = root.optString("request_id")
             if (requestId.isBlank()) throw IllegalStateException("Pi did not return a pairing request ID")
             return PairingRequest(requestId, base)
@@ -80,19 +87,14 @@ class ApiClient(private val context: Context) {
     fun pollPairing(pairing: PairingRequest): PairingResult {
         val requestId = URLEncoder.encode(pairing.requestId, "UTF-8")
         val encodedDeviceId = URLEncoder.encode(deviceId, "UTF-8")
-        val url = "${pairing.serverUrl}/api/pairing/status?request_id=$requestId&device_id=$encodedDeviceId"
-        val req = Request.Builder().url(url).get().build()
+        val req = Request.Builder().url("${pairing.serverUrl}/api/pairing/status?request_id=$requestId&device_id=$encodedDeviceId").get().build()
         client.newCall(req).execute().use { response ->
             val root = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" })
             if (!response.isSuccessful) return PairingResult(root.optString("status", "waiting"))
             val status = root.optString("status", "waiting")
             val approvedToken = root.optString("device_token", "")
             if (status == "approved" && approvedToken.isNotBlank()) {
-                prefs.edit()
-                    .putString("server_url", pairing.serverUrl)
-                    .putString("device_token", approvedToken)
-                    .remove("token")
-                    .apply()
+                prefs.edit().putString("server_url", pairing.serverUrl).putString("device_token", approvedToken).remove("token").apply()
                 return PairingResult("approved", true)
             }
             return PairingResult(status)
@@ -100,59 +102,52 @@ class ApiClient(private val context: Context) {
     }
 
     fun chat(message: String): ChatReply {
-        if (!configured()) return ChatReply("Pair this phone with your Pi first.")
+        if (!configured()) return ChatReply("Pair this phone with your NekoSuneAI server first.")
         val payload = JSONObject().put("message", message)
         val req = authorized(Request.Builder().url("$serverUrl/api/android/chat"))
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-            .build()
+            .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
         client.newCall(req).execute().use { response ->
             val raw = response.body?.string().orEmpty()
-            if (response.isSuccessful) {
-                val root = JSONObject(raw.ifBlank { "{}" })
-                return ChatReply(
-                    root.optString("reply", "Sent."),
-                    root.optString("emotion", "neutral"),
-                    root.optString("gesture", "idle")
-                )
-            }
+            val root = JSONObject(raw.ifBlank { "{}" })
+            if (!response.isSuccessful) throw IllegalStateException(root.optString("error", "HTTP ${response.code}"))
+            val reply = root.optString("reply", "").trim()
+            return ChatReply(
+                if (reply.isBlank()) "NekoSuneAI returned an empty reply." else reply,
+                root.optString("emotion", "neutral"),
+                root.optString("gesture", "idle")
+            )
         }
-        return ChatReply("The Pi chat endpoint is unavailable.")
     }
 
-    fun sendVisionFrame(jpeg: ByteArray): String {
-        if (!configured()) return "Pair this phone with your Pi first."
+    fun musicCommand(command: String): ChatReply = chat(command)
+
+    fun sendVisionFrameDetailed(jpeg: ByteArray): VisionReply {
+        if (!configured()) return VisionReply("Pair this phone with your NekoSuneAI server first.")
         val payload = JSONObject().apply {
             put("source", "android-camera")
             put("image_base64", Base64.encodeToString(jpeg, Base64.NO_WRAP))
         }
         val req = authorized(Request.Builder().url("$serverUrl/api/android/vision"))
-            .post(payload.toString().toRequestBody("application/json".toMediaType()))
-            .build()
+            .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
         client.newCall(req).execute().use { response ->
-            val raw = response.body?.string().orEmpty()
-            val root = JSONObject(raw.ifBlank { "{}" })
-            if (!response.isSuccessful) {
-                throw IllegalStateException(root.optString("error", "Vision request failed"))
+            val root = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" })
+            if (!response.isSuccessful) throw IllegalStateException(root.optString("error", "Vision request failed"))
+            val affect = root.optJSONObject("affect")?.optString("label", "").orEmpty()
+            val description = root.optString("description", "").ifBlank {
+                if (affect.isNotBlank()) "Tentative facial cue: $affect" else "Frame received."
             }
-            val description = root.optString("description", "")
-            if (description.isNotBlank()) return description
-            val affect = root.optJSONObject("affect")
-            return if (affect != null) {
-                "Tentative facial cue: ${affect.optString("label", "unknown")}"
-            } else {
-                "Frame received."
-            }
+            return VisionReply(description, root.optString("checkin", ""), affect)
         }
     }
+
+    fun sendVisionFrame(jpeg: ByteArray): String = sendVisionFrameDetailed(jpeg).description
 
     fun avatarUrl(): String {
         if (!configured()) return ""
         val req = authorized(Request.Builder().url("$serverUrl/api/avatar/config")).get().build()
         client.newCall(req).execute().use { response ->
             if (!response.isSuccessful) return ""
-            val raw = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" })
-                .optString("url", "")
-                .trim()
+            val raw = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" }).optString("url", "").trim()
             if (raw.isBlank()) return ""
             if (raw.startsWith("/")) return addAvatarAuth(serverUrl + raw)
             if (raw.startsWith(serverUrl)) return addAvatarAuth(raw)
@@ -164,9 +159,8 @@ class ApiClient(private val context: Context) {
         val authValue = if (deviceToken.isNotBlank()) deviceToken else legacyToken
         if (authValue.isBlank()) return url
         val authName = if (deviceToken.isNotBlank()) "device_token" else "token"
-        val encoded = URLEncoder.encode(authValue, "UTF-8")
         val separator = if (url.contains("?")) "&" else "?"
-        return "$url$separator$authName=$encoded"
+        return "$url$separator$authName=${URLEncoder.encode(authValue, "UTF-8")}" 
     }
 
     fun heartbeat() {
@@ -181,28 +175,16 @@ class ApiClient(private val context: Context) {
         val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
         val mem = ActivityManager.MemoryInfo().also(am::getMemoryInfo)
         val stat = StatFs(Environment.getDataDirectory().absolutePath)
-        val thermal = if (Build.VERSION.SDK_INT >= 29) {
-            context.getSystemService(PowerManager::class.java).currentThermalStatus
-        } else {
-            -1
-        }
+        val thermal = if (Build.VERSION.SDK_INT >= 29) context.getSystemService(PowerManager::class.java).currentThermalStatus else -1
         val payload = JSONObject().apply {
-            put("device_id", deviceId)
-            put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
+            put("device_id", deviceId); put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
             put("telemetry", JSONObject().apply {
-                put("battery_percent", battery)
-                put("charging", plugged != 0)
-                put("battery_current_ma", currentUa / 1000.0)
+                put("battery_percent", battery); put("charging", plugged != 0); put("battery_current_ma", currentUa / 1000.0)
                 put("battery_temperature_c", if (temperatureTenths >= 0) temperatureTenths / 10.0 else JSONObject.NULL)
-                put("battery_voltage_mv", if (voltageMv >= 0) voltageMv else JSONObject.NULL)
-                put("thermal_status", thermal)
-                put("memory_available_mb", mem.availMem / 1024 / 1024)
-                put("memory_total_mb", mem.totalMem / 1024 / 1024)
-                put("low_memory", mem.lowMemory)
-                put("storage_free_mb", stat.availableBytes / 1024 / 1024)
-                put("storage_total_mb", stat.totalBytes / 1024 / 1024)
-                put("sdk", Build.VERSION.SDK_INT)
-                put("model", Build.MODEL)
+                put("battery_voltage_mv", if (voltageMv >= 0) voltageMv else JSONObject.NULL); put("thermal_status", thermal)
+                put("memory_available_mb", mem.availMem / 1024 / 1024); put("memory_total_mb", mem.totalMem / 1024 / 1024)
+                put("low_memory", mem.lowMemory); put("storage_free_mb", stat.availableBytes / 1024 / 1024); put("storage_total_mb", stat.totalBytes / 1024 / 1024)
+                put("sdk", Build.VERSION.SDK_INT); put("model", Build.MODEL)
             })
         }
         post("/api/android/heartbeat", payload)
@@ -214,9 +196,7 @@ class ApiClient(private val context: Context) {
         val payload = JSONObject().apply {
             put("device_id", deviceId)
             put("notification", JSONObject().apply {
-                put("app", app.take(80))
-                put("title", title.take(160))
-                put("text", if (includePreview) text.take(500) else "New notification")
+                put("app", app.take(80)); put("title", title.take(160)); put("text", if (includePreview) text.take(500) else "New notification")
             })
         }
         post("/api/android/notification", payload)
@@ -225,34 +205,19 @@ class ApiClient(private val context: Context) {
     fun longPoll(after: Int): List<JSONObject> {
         if (!configured()) return emptyList()
         val encodedDeviceId = URLEncoder.encode(deviceId, "UTF-8")
-        val request = authorized(
-            Request.Builder().url("$serverUrl/api/android/commands?device_id=$encodedDeviceId&after=$after&wait=25")
-        ).get().build()
+        val request = authorized(Request.Builder().url("$serverUrl/api/android/commands?device_id=$encodedDeviceId&after=$after&wait=25")).get().build()
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) return emptyList()
-            val arr = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" })
-                .optJSONArray("commands") ?: return emptyList()
+            val arr = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" }).optJSONArray("commands") ?: return emptyList()
             return (0 until arr.length()).map { arr.getJSONObject(it) }
         }
     }
 
-    private fun authorized(builder: Request.Builder): Request.Builder {
-        return if (deviceToken.isNotBlank()) {
-            builder.header("X-Neko-Device-Token", deviceToken)
-        } else {
-            builder.header("X-Neko-Token", legacyToken)
-        }
-    }
+    private fun authorized(builder: Request.Builder): Request.Builder = if (deviceToken.isNotBlank()) builder.header("X-Neko-Device-Token", deviceToken) else builder.header("X-Neko-Token", legacyToken)
 
     private fun post(path: String, json: JSONObject) {
         if (!configured()) return
-        val request = authorized(Request.Builder().url(serverUrl + path))
-            .post(json.toString().toRequestBody("application/json".toMediaType()))
-            .build()
-        client.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) {
-                throw IllegalStateException("Request failed with HTTP ${response.code}")
-            }
-        }
+        val request = authorized(Request.Builder().url(serverUrl + path)).post(json.toString().toRequestBody("application/json".toMediaType())).build()
+        client.newCall(request).execute().use { response -> if (!response.isSuccessful) throw IllegalStateException("Request failed with HTTP ${response.code}") }
     }
 }
