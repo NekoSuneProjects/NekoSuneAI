@@ -24,12 +24,6 @@ def _emotion_for(text: str) -> str:
 
 
 def _decorate_dashboard(body: bytes) -> bytes:
-    """Replace only the large dashboard logo with the live VRM stage.
-
-    The original static file stays lightweight and update-friendly. Small
-    loading/sidebar logos remain images, while the central companion stage is
-    upgraded at serve time.
-    """
     text = body.decode("utf-8")
     old = '<img src="logo.png" alt="NekoSuneAI avatar" class="avatar-logo relative z-10 w-40 h-40 object-contain" draggable="false">'
     new = '<iframe id="vrm-avatar-frame" src="about:blank" title="NekoSuneAI VRM avatar" class="relative z-10 w-full h-[220px] border-0 bg-transparent" allow="autoplay"></iframe>'
@@ -120,13 +114,20 @@ def serve(host: str, port: int, token: str | None = None) -> None:
 
         def do_POST(self):
             if not self._authorized(): return self._json(401, {"error":"unauthorized"})
-            if urlparse(self.path).path != "/api/rpc": return self._json(404, {"error":"not found"})
+            parsed = urlparse(self.path)
             try:
                 length = int(self.headers.get("Content-Length", "0")); payload = json.loads(self.rfile.read(length) or b"{}")
+                if parsed.path == "/api/android/chat":
+                    api.initialize()
+                    message = str(payload.get("message", "")).strip()
+                    if not message: raise ValueError("message is required")
+                    reply = api._pipeline(message, False)
+                    return self._json(200, {"reply": reply, "emotion": _emotion_for(reply)})
+                if parsed.path != "/api/rpc": return self._json(404, {"error":"not found"})
                 name = str(payload.get("method", ""))
                 if name.startswith("_") or name in {"restart_app"}: raise ValueError("method not allowed")
-                method = getattr(api, name); result = method(*(payload.get("args") or [])); self._json(200, {"result": result})
-            except Exception as exc: self._json(400, {"error": str(exc)})
+                method = getattr(api, name); result = method(*(payload.get("args") or [])); return self._json(200, {"result": result})
+            except Exception as exc: return self._json(400, {"error": str(exc)})
 
         def do_GET(self):
             parsed = urlparse(self.path)
@@ -141,6 +142,7 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 return self._json(200, {"events": api.get_web_events()})
             if parsed.path == "/api/avatar/config":
                 if not self._authorized(): return self._json(401, {"error":"unauthorized"})
+                api.initialize()
                 return self._json(200, {"url": os.getenv("VRM_AVATAR_URL", "").strip(), "companion": api.profile.get("companion_name", "NekoSuneAI")})
             if parsed.path in {"/avatar", "/avatar/"}: relative = "vrm.html"
             else: relative = "index.html" if parsed.path in {"", "/"} else parsed.path.lstrip("/")
