@@ -7,6 +7,7 @@ import secrets
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from .android_devices import AndroidDeviceHub
 from .mobile_notify import MobileNotifier
 from .webgui import Api, STATIC_DIR
 
@@ -15,6 +16,7 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     api = Api()
     access_token = token or secrets.token_urlsafe(24)
     mobile_notifier = MobileNotifier.from_env()
+    android_hub = AndroidDeviceHub()
 
     # MonitorManager stores this callback during Api.initialize(). Wrapping it
     # here lets Pi-hosted web mode fan warning/danger events out to Android
@@ -49,27 +51,65 @@ def serve(host: str, port: int, token: str | None = None) -> None:
             self.end_headers()
             self.wfile.write(body)
 
+        def _read_json(self) -> dict:
+            length = int(self.headers.get("Content-Length", "0"))
+            return json.loads(self.rfile.read(length) or b"{}")
+
         def do_POST(self):
             if not self._authorized():
                 return self._json(401, {"error": "unauthorized"})
-            if urlparse(self.path).path != "/api/rpc":
-                return self._json(404, {"error": "not found"})
+            parsed = urlparse(self.path)
             try:
-                length = int(self.headers.get("Content-Length", "0"))
-                payload = json.loads(self.rfile.read(length) or b"{}")
-                name = str(payload.get("method", ""))
-                if name.startswith("_") or name in {"restart_app"}:
-                    raise ValueError("method not allowed")
-                method = getattr(api, name)
-                result = method(*(payload.get("args") or []))
-                self._json(200, {"result": result})
+                payload = self._read_json()
+
+                if parsed.path == "/api/rpc":
+                    name = str(payload.get("method", ""))
+                    if name.startswith("_") or name in {"restart_app"}:
+                        raise ValueError("method not allowed")
+                    method = getattr(api, name)
+                    result = method(*(payload.get("args") or []))
+                    return self._json(200, {"result": result})
+
+                if parsed.path == "/api/android/heartbeat":
+                    result = android_hub.heartbeat(
+                        str(payload.get("device_id", "")),
+                        str(payload.get("name", "Android phone")),
+                        dict(payload.get("telemetry") or {}),
+                    )
+                    battery = int((result.get("telemetry") or {}).get("battery_percent", -1))
+                    charging = bool((result.get("telemetry") or {}).get("charging", False))
+                    if 0 <= battery <= 10 and not charging:
+                        api._push_notification(
+                            f"{result.get('name', 'Phone')} battery is critically low at {battery}%."
+                        )
+                    return self._json(200, {"ok": True, "device": result})
+
+                if parsed.path == "/api/android/notification":
+                    device_id = str(payload.get("device_id", ""))
+                    notice = dict(payload.get("notification") or {})
+                    android_hub.add_notification(device_id, notice)
+                    title = str(notice.get("title") or notice.get("app") or "Phone")
+                    text = str(notice.get("text") or "New notification")
+                    api._push_chat("Phone", f"{title}: {text}", "system")
+                    return self._json(200, {"ok": True})
+
+                if parsed.path == "/api/android/command":
+                    item = android_hub.enqueue(
+                        str(payload.get("device_id", "")),
+                        str(payload.get("command", "")),
+                        dict(payload.get("args") or {}),
+                    )
+                    return self._json(200, {"ok": True, "command": item})
+
+                return self._json(404, {"error": "not found"})
             except Exception as exc:
-                self._json(400, {"error": str(exc)})
+                return self._json(400, {"error": str(exc)})
 
         def do_GET(self):
             parsed = urlparse(self.path)
+            query = parse_qs(parsed.query)
+
             if parsed.path == "/oauth/callback":
-                query = parse_qs(parsed.query)
                 error = query.get("error", [""])[0]
                 result = (
                     {"ok": False, "msg": error}
@@ -96,6 +136,34 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 if not self._authorized():
                     return self._json(401, {"error": "unauthorized"})
                 return self._json(200, {"events": api.get_web_events()})
+
+            if parsed.path == "/api/android/devices":
+                if not self._authorized():
+                    return self._json(401, {"error": "unauthorized"})
+                return self._json(200, {"devices": android_hub.list_devices()})
+
+            if parsed.path == "/api/android/notifications":
+                if not self._authorized():
+                    return self._json(401, {"error": "unauthorized"})
+                return self._json(
+                    200,
+                    {
+                        "notifications": android_hub.latest_notifications(
+                            query.get("device_id", [""])[0],
+                            int(query.get("limit", ["20"])[0]),
+                        )
+                    },
+                )
+
+            if parsed.path == "/api/android/commands":
+                if not self._authorized():
+                    return self._json(401, {"error": "unauthorized"})
+                commands = android_hub.wait_commands(
+                    query.get("device_id", [""])[0],
+                    int(query.get("after", ["0"])[0]),
+                    float(query.get("wait", ["25"])[0]),
+                )
+                return self._json(200, {"commands": commands})
 
             # Friendly Android/PWA route. The dashboard token is intentionally
             # not baked into the manifest; mobile.html stores a supplied token
