@@ -8,6 +8,7 @@ import android.graphics.Typeface
 import android.graphics.YuvImage
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.speech.tts.TextToSpeech
 import android.view.Gravity
 import android.widget.Button
 import android.widget.LinearLayout
@@ -22,16 +23,20 @@ import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.core.content.ContextCompat
 import java.io.ByteArrayOutputStream
+import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.concurrent.thread
 
-class CameraVisionActivity : AppCompatActivity() {
+class CameraVisionActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var api: ApiClient
     private lateinit var previewView: PreviewView
     private lateinit var status: TextView
+    private var tts: TextToSpeech? = null
     private val cameraExecutor = Executors.newSingleThreadExecutor()
     @Volatile private var lastSentAt = 0L
     @Volatile private var uploadBusy = false
+    private var lastSpokenCheckin = ""
+    private var lastSpokenAt = 0L
 
     private val bg = Color.parseColor("#080914")
     private val surface = Color.parseColor("#111329")
@@ -45,94 +50,42 @@ class CameraVisionActivity : AppCompatActivity() {
         if (granted) startCamera() else status.text = "Camera permission was not granted. Nothing is being shared."
     }
 
+    override fun onInit(result: Int) { if (result == TextToSpeech.SUCCESS) tts?.language = Locale.getDefault() }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = bg
-        window.navigationBarColor = bg
-        api = ApiClient(this)
+        window.statusBarColor = bg; window.navigationBarColor = bg
+        api = ApiClient(this); tts = TextToSpeech(this, this)
 
-        val root = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(16), dp(18), dp(16), dp(24))
-            setBackgroundColor(bg)
-        }
-        root.addView(TextView(this).apply {
-            text = "VISION"
-            textSize = 10f
-            letterSpacing = .13f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(violet)
-        })
-        root.addView(TextView(this).apply {
-            text = "Phone Camera"
-            textSize = 24f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(textColor)
-            setPadding(0, dp(4), 0, dp(3))
-        })
-        root.addView(TextView(this).apply {
-            text = "Foreground-only camera sharing to your paired NekoSuneAI server."
-            textSize = 13f
-            setTextColor(muted)
-        })
+        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(18), dp(16), dp(24)); setBackgroundColor(bg) }
+        root.addView(TextView(this).apply { text = "VISION"; textSize = 10f; letterSpacing = .13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(violet) })
+        root.addView(TextView(this).apply { text = "Face Vision"; textSize = 24f; typeface = Typeface.DEFAULT_BOLD; setTextColor(textColor); setPadding(0, dp(4), 0, dp(3)) })
+        root.addView(TextView(this).apply { text = "Neko can observe visible expressions and posture through the front camera and speak a check-in when the server decides one is useful."; textSize = 13f; setTextColor(muted) })
 
-        status = TextView(this).apply {
-            text = "● Camera sharing is OFF"
-            textSize = 13f
-            setTextColor(cyan)
-            setPadding(dp(12), dp(9), dp(12), dp(9))
-            background = rounded(Color.parseColor("#17213A"), Color.parseColor("#345D77"), 12)
-        }
+        status = TextView(this).apply { text = "● Camera sharing is OFF"; textSize = 13f; setTextColor(cyan); setPadding(dp(12), dp(9), dp(12), dp(9)); background = rounded(Color.parseColor("#17213A"), Color.parseColor("#345D77"), 12) }
         root.addView(status, params(top = 14))
 
-        previewView = PreviewView(this).apply {
-            scaleType = PreviewView.ScaleType.FILL_CENTER
-            background = rounded(surface, border, 16)
-        }
-        root.addView(previewView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply {
-            topMargin = dp(12)
-            bottomMargin = dp(12)
-        })
+        previewView = PreviewView(this).apply { scaleType = PreviewView.ScaleType.FILL_CENTER; background = rounded(surface, border, 16) }
+        root.addView(previewView, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = dp(12); bottomMargin = dp(12) })
 
-        root.addView(Button(this).apply {
-            text = "Stop sharing camera"
-            isAllCaps = false
-            textSize = 14f
-            typeface = Typeface.DEFAULT_BOLD
-            setTextColor(Color.parseColor("#111329"))
-            background = rounded(violet, cyan, 12)
-            gravity = Gravity.CENTER
-            setOnClickListener { finish() }
-        })
-        root.addView(TextView(this).apply {
-            text = "The camera closes immediately when you leave this screen. Raw frames are not intentionally saved by the companion vision endpoint."
-            textSize = 11f
-            setTextColor(muted)
-            setPadding(0, dp(10), 0, 0)
-        })
+        root.addView(Button(this).apply { text = "Stop sharing camera"; isAllCaps = false; textSize = 14f; typeface = Typeface.DEFAULT_BOLD; setTextColor(Color.parseColor("#111329")); background = rounded(violet, cyan, 12); gravity = Gravity.CENTER; setOnClickListener { finish() } })
+        root.addView(TextView(this).apply { text = "Frames are analysed by your paired Docker server. Facial-expression results are tentative visual cues, not proof of how you feel."; textSize = 11f; setTextColor(muted); setPadding(0, dp(10), 0, 0) })
 
-        setContentView(root)
-        askCamera.launch(Manifest.permission.CAMERA)
+        setContentView(root); askCamera.launch(Manifest.permission.CAMERA)
     }
 
     private fun startCamera() {
-        if (!api.configured()) { status.text = "● Pair the app to your Pi first."; return }
+        if (!api.configured()) { status.text = "● Pair the app to your server first."; return }
         val providerFuture = ProcessCameraProvider.getInstance(this)
         providerFuture.addListener({
             val provider = providerFuture.get()
             val preview = Preview.Builder().build().also { it.setSurfaceProvider(previewView.surfaceProvider) }
-            val analysis = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .setTargetResolution(android.util.Size(640, 480))
-                .build()
+            val analysis = ImageAnalysis.Builder().setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).setTargetResolution(android.util.Size(640, 480)).build()
             analysis.setAnalyzer(cameraExecutor) { image -> analyseFrame(image) }
             try {
-                provider.unbindAll()
-                provider.bindToLifecycle(this, CameraSelector.DEFAULT_FRONT_CAMERA, preview, analysis)
-                status.text = "● Camera sharing ACTIVE — one frame about every 5 seconds"
-            } catch (e: Exception) {
-                status.text = "● Could not start camera: ${e.message}"
-            }
+                provider.unbindAll(); provider.bindToLifecycle(this, CameraSelector.DEFAULT_FRONT_CAMERA, preview, analysis)
+                status.text = "● Camera ACTIVE — Neko checks about every 5 seconds"
+            } catch (e: Exception) { status.text = "● Could not start camera: ${e.message}" }
         }, ContextCompat.getMainExecutor(this))
     }
 
@@ -141,12 +94,20 @@ class CameraVisionActivity : AppCompatActivity() {
         if (uploadBusy || now - lastSentAt < 5000) { image.close(); return }
         val jpeg = try { imageToJpeg(image) } catch (_: Exception) { null } finally { image.close() }
         if (jpeg == null || jpeg.size > 1_200_000) return
-        lastSentAt = now
-        uploadBusy = true
+        lastSentAt = now; uploadBusy = true
         thread(name = "NekoCameraVision") {
             try {
-                val description = api.sendVisionFrame(jpeg)
-                runOnUiThread { if (!isFinishing) status.text = "● Camera ACTIVE\nNeko sees: ${description.take(220)}" }
+                val result = api.sendVisionFrameDetailed(jpeg)
+                runOnUiThread {
+                    if (isFinishing) return@runOnUiThread
+                    val cue = if (result.affect.isNotBlank()) " · cue: ${result.affect}" else ""
+                    status.text = "● Camera ACTIVE$cue\nNeko sees: ${result.description.take(220)}"
+                    val checkin = result.checkin.trim()
+                    if (checkin.isNotBlank() && (checkin != lastSpokenCheckin || System.currentTimeMillis() - lastSpokenAt > 60_000)) {
+                        lastSpokenCheckin = checkin; lastSpokenAt = System.currentTimeMillis()
+                        tts?.speak(checkin, TextToSpeech.QUEUE_FLUSH, null, "vision-checkin")
+                    }
+                }
             } catch (e: Exception) {
                 runOnUiThread { if (!isFinishing) status.text = "● Camera ACTIVE — vision error: ${e.message}" }
             } finally { uploadBusy = false }
@@ -159,8 +120,8 @@ class CameraVisionActivity : AppCompatActivity() {
         val nv21 = ByteArray(width * height * 3 / 2)
         copyPlane(y, width, height, nv21, 0, 1)
         val chromaOffset = width * height
-        copyChroma(v, width / 2, height / 2, nv21, chromaOffset, 2)
-        copyChroma(u, width / 2, height / 2, nv21, chromaOffset + 1, 2)
+        copyPlane(v, width / 2, height / 2, nv21, chromaOffset, 2)
+        copyPlane(u, width / 2, height / 2, nv21, chromaOffset + 1, 2)
         val out = ByteArrayOutputStream()
         YuvImage(nv21, ImageFormat.NV21, width, height, null).compressToJpeg(Rect(0, 0, width, height), 58, out)
         return out.toByteArray()
@@ -176,22 +137,9 @@ class CameraVisionActivity : AppCompatActivity() {
         }
     }
 
-    private fun copyChroma(plane: ImageProxy.PlaneProxy, width: Int, height: Int, out: ByteArray, offset: Int, step: Int) {
-        copyPlane(plane, width, height, out, offset, step)
-    }
-
-    private fun rounded(fill: Int, stroke: Int, radiusDp: Int) = GradientDrawable().apply {
-        shape = GradientDrawable.RECTANGLE
-        setColor(fill)
-        cornerRadius = dp(radiusDp).toFloat()
-        setStroke(dp(1), stroke)
-    }
-
-    private fun params(top: Int = 0) = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-        topMargin = dp(top)
-    }
-
+    private fun rounded(fill: Int, stroke: Int, radiusDp: Int) = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; setColor(fill); cornerRadius = dp(radiusDp).toFloat(); setStroke(dp(1), stroke) }
+    private fun params(top: Int = 0) = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(top) }
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    override fun onDestroy() { cameraExecutor.shutdownNow(); super.onDestroy() }
+    override fun onDestroy() { cameraExecutor.shutdownNow(); tts?.stop(); tts?.shutdown(); super.onDestroy() }
 }
