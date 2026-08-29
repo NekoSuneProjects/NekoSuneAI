@@ -3,7 +3,7 @@ name: Android APK Build
 on:
   push:
     branches:
-      - 'main'
+      - 'build/android-apk'
     paths:
       - 'android/**'
       - '.github/workflows/android-companion.yml'
