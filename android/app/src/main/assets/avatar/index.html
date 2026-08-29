@@ -7,14 +7,16 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRMLoaderPlugin } from '@pixiv/three-vrm';
-const status=document.getElementById('status');
-const scene=new THREE.Scene();scene.background=new THREE.Color(0x0a0b14);
+const status=document.getElementById('status'),scene=new THREE.Scene();scene.background=new THREE.Color(0x0a0b14);
 const camera=new THREE.PerspectiveCamera(30,innerWidth/innerHeight,.1,20);camera.position.set(0,1.35,2.6);
 const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setSize(innerWidth,innerHeight);document.body.appendChild(renderer.domElement);
 scene.add(new THREE.HemisphereLight(0xffffff,0x333344,2.2));const key=new THREE.DirectionalLight(0xffffff,2);key.position.set(1,2,2);scene.add(key);
 const floor=new THREE.Mesh(new THREE.CircleGeometry(1.2,64),new THREE.MeshStandardMaterial({color:0x181a2d,roughness:1}));floor.rotation.x=-Math.PI/2;scene.add(floor);
-let vrm=null;const url=new URL(location.href).searchParams.get('model');
-if(url){status.textContent='Loading VRM…';const loader=new GLTFLoader();loader.register(p=>new VRMLoaderPlugin(p));loader.load(url,gltf=>{vrm=gltf.userData.vrm;vrm.scene.rotation.y=Math.PI;scene.add(vrm.scene);status.textContent='VRM loaded';},undefined,e=>{status.textContent='VRM load failed: '+e.message})}else{status.textContent='Paste a .vrm URL above and tap Load VRM'}
-const clock=new THREE.Clock();function tick(){requestAnimationFrame(tick);const dt=clock.getDelta();if(vrm){vrm.update(dt);vrm.scene.rotation.y=Math.PI+Math.sin(performance.now()/4000)*.08}renderer.render(scene,camera)}tick();
+let vrm=null,speaking=false,emotion='neutral';const url=new URL(location.href).searchParams.get('model');
+function expr(name,value){try{vrm?.expressionManager?.setValue(name,value)}catch{}}
+window.setNekoEmotion=(next)=>{emotion=next||'neutral';for(const n of['happy','sad','angry','relaxed','surprised'])expr(n,0);const map={happy:'happy',sad:'sad',angry:'angry',excited:'surprised',surprised:'surprised',relaxed:'relaxed'};if(map[emotion])expr(map[emotion],.8)};
+window.setNekoSpeaking=(active)=>{speaking=!!active;if(!speaking)expr('aa',0)};
+if(url){status.textContent='Loading VRM…';const loader=new GLTFLoader();loader.register(p=>new VRMLoaderPlugin(p));loader.load(url,gltf=>{vrm=gltf.userData.vrm;vrm.scene.rotation.y=Math.PI;scene.add(vrm.scene);status.textContent='NekoSuneAI';window.setNekoEmotion('neutral')},undefined,e=>{status.textContent='VRM load failed: '+e.message})}else{status.textContent='Connect to your Pi to load its VRM avatar'}
+const clock=new THREE.Clock();let blinkAt=performance.now()+2200,blink=false;function tick(){requestAnimationFrame(tick);const dt=clock.getDelta(),now=performance.now();if(vrm){vrm.update(dt);vrm.scene.rotation.y=Math.PI+Math.sin(now/4000)*.06;if(speaking)expr('aa',.12+Math.abs(Math.sin(now/90))*.22);if(now>blinkAt&&!blink){blink=true;expr('blink',1);setTimeout(()=>{expr('blink',0);blink=false},100);blinkAt=now+2400+Math.random()*3200}}renderer.render(scene,camera)}tick();
 addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
 </script></body></html>
