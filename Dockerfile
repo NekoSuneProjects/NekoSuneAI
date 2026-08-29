@@ -25,7 +25,7 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN python -m pip install --upgrade pip \
     && python -m pip install -r requirements.txt \
-    && python -m pip install "opencv-python-headless>=4.10,<5" \
+    && python -m pip install "opencv-python-headless>=4.10,<4.12" \
     && python -m pip install --pre --upgrade "yt-dlp[default,curl-cffi]" \
     && python -m yt_dlp --update-to nightly || true \
     && python -c "import vosk; print('Vosk native library OK')"
