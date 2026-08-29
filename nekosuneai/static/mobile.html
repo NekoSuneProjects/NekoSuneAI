@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#8b5cf6">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>NekoSuneAI Mobile</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <style>
+    :root{color-scheme:dark;--bg:#080914;--panel:#111326;--panel2:#171a31;--line:#292d4d;--text:#f4f2ff;--muted:#9ca3c7;--accent:#8b5cf6;--accent2:#ec4899;--ok:#22c55e;--warn:#f59e0b;--danger:#ef4444}
+    *{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at top right,#261543 0,#080914 45%);color:var(--text);font:15px system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100dvh}
+    .app{max-width:760px;margin:auto;padding:16px 14px 96px}.top{display:flex;gap:12px;align-items:center;margin-bottom:14px}.logo{width:54px;height:54px;border-radius:16px;object-fit:cover;background:#111326}.title{font-size:21px;font-weight:800}.sub{color:var(--muted);font-size:13px}.pill{margin-left:auto;border:1px solid var(--line);padding:7px 10px;border-radius:999px;font-size:12px;background:#101225}.pill.ok{color:#9cf7b5;border-color:#245c34}.pill.bad{color:#ffb3b3;border-color:#65303a}.card{background:rgba(17,19,38,.94);border:1px solid var(--line);border-radius:20px;padding:14px;margin:12px 0;box-shadow:0 16px 35px rgba(0,0,0,.2)}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.grow{flex:1}.metric{min-width:135px;background:var(--panel2);border:1px solid var(--line);padding:11px;border-radius:14px}.metric b{display:block;font-size:12px;color:var(--muted);margin-bottom:4px}.metric span{font-weight:700}.btn{border:1px solid var(--line);background:#1b1e37;color:var(--text);border-radius:13px;padding:11px 13px;font-weight:700;cursor:pointer}.btn.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:0}.btn.warn{border-color:#6b5017;color:#ffd48a}.btn.danger{border-color:#6d2831;color:#ffb3b3}.btn:disabled{opacity:.45}.chat{height:42dvh;min-height:280px;overflow:auto;display:flex;flex-direction:column;gap:9px;padding:4px}.msg{max-width:88%;padding:10px 12px;border-radius:15px;white-space:pre-wrap;word-break:break-word}.msg.user{align-self:flex-end;background:#5b36a8}.msg.assistant{align-self:flex-start;background:#1a1e38}.msg.system{align-self:center;background:#231b2d;color:#d8c5eb;font-size:13px}.composer{display:flex;gap:8px;margin-top:10px}.composer textarea{flex:1;resize:none;min-height:46px;max-height:130px;background:#0d1020;border:1px solid var(--line);color:var(--text);border-radius:14px;padding:12px}.notice{font-size:13px;color:var(--muted);line-height:1.45}.section-title{font-weight:800;margin-bottom:10px}.toast{position:fixed;left:14px;right:14px;bottom:16px;max-width:720px;margin:auto;background:#171a31;border:1px solid var(--line);padding:12px 14px;border-radius:14px;display:none;z-index:10}.toast.show{display:block}.tokenbox{display:flex;gap:8px}.tokenbox input{flex:1;min-width:0;background:#0d1020;border:1px solid var(--line);color:var(--text);border-radius:12px;padding:11px}.small{font-size:12px;color:var(--muted)}
+  </style>
+</head>
+<body>
+<div class="app">
+  <div class="top">
+    <img src="/logo.png" class="logo" alt="NekoSuneAI">
+    <div><div class="title">NekoSuneAI Mobile</div><div class="sub">Raspberry Pi dashboard</div></div>
+    <div id="conn" class="pill bad">Offline</div>
+  </div>
+
+  <div id="authCard" class="card" hidden>
+    <div class="section-title">Connect to your Pi</div>
+    <div class="notice">Paste the dashboard token printed by NekoSuneAI when web mode starts. It is saved only in this browser.</div>
+    <div class="tokenbox" style="margin-top:10px"><input id="tokenInput" type="password" placeholder="WEB_DASHBOARD_TOKEN"><button class="btn primary" id="saveToken">Connect</button></div>
+  </div>
+
+  <div class="card">
+    <div class="row">
+      <div class="metric grow"><b>Companion</b><span id="companion">NekoSuneAI</span></div>
+      <div class="metric grow"><b>Status</b><span id="status">Connecting…</span></div>
+      <div class="metric grow"><b>Model</b><span id="model">—</span></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Quick controls</div>
+    <div class="row">
+      <button id="sessionBtn" class="btn primary">Start session</button>
+      <button id="voiceBtn" class="btn">Voice: —</button>
+      <button id="micBtn" class="btn">Mic: —</button>
+      <button id="notifyBtn" class="btn warn">Enable phone alerts</button>
+    </div>
+    <div class="small" style="margin-top:9px">Browser alerts work while this PWA is running. For closed-app alerts, use the optional ntfy service on the Pi.</div>
+  </div>
+
+  <div class="card">
+    <div class="section-title">Chat</div>
+    <div id="chat" class="chat"></div>
+    <div class="composer"><textarea id="message" rows="1" placeholder="Message NekoSuneAI…"></textarea><button id="sendBtn" class="btn primary">Send</button></div>
+  </div>
+</div>
+<div id="toast" class="toast"></div>
+<script>
+const qs=new URLSearchParams(location.search);let token=qs.get('token')||localStorage.getItem('nekosune_token')||'';if(qs.get('token')){localStorage.setItem('nekosune_token',token);history.replaceState({},'',location.pathname)}
+const $=id=>document.getElementById(id);const conn=$('conn'),authCard=$('authCard'),statusEl=$('status'),chat=$('chat');let state={};let polling=false;let swReg=null;
+function toast(t){const el=$('toast');el.textContent=t;el.classList.add('show');clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),3500)}
+async function rpc(method,...args){if(!token)throw new Error('No dashboard token');const r=await fetch('/api/rpc',{method:'POST',headers:{'Content-Type':'application/json','X-Neko-Token':token},body:JSON.stringify({method,args})});const j=await r.json().catch(()=>({error:'Invalid server response'}));if(!r.ok||j.error)throw new Error(j.error||`HTTP ${r.status}`);return j.result}
+function setConn(ok){conn.textContent=ok?'Connected':'Offline';conn.className='pill '+(ok?'ok':'bad');authCard.hidden=ok}
+function renderState(s){state={...state,...s};$('companion').textContent=state.companion_name||'NekoSuneAI';$('model').textContent=state.model||'—';$('sessionBtn').textContent=state.session_started?'End session':'Start session';$('sessionBtn').className='btn '+(state.session_started?'danger':'primary');$('voiceBtn').textContent=`Voice: ${state.voice_enabled?'On':'Off'}`;$('micBtn').textContent=`Mic: ${state.mic_muted?'Muted':'On'}`}
+function addChat(v){const d=document.createElement('div');d.className='msg '+(v.role||'system');d.textContent=`${v.author||''}${v.author?': ':''}${v.text||''}`;chat.appendChild(d);chat.scrollTop=chat.scrollHeight}
+async function browserNotify(message,level='warning'){if(Notification.permission!=='granted')return;if(swReg?.active)swReg.active.postMessage({type:'notify',title:level==='danger'?'NekoSuneAI — DANGER':'NekoSuneAI Alert',body:message,level});else new Notification('NekoSuneAI',{body:message,icon:'/logo.png'})}
+function handleEvent(e){if(e.type==='state')renderState(e.value||{});if(e.type==='status'){statusEl.textContent=e.value||'Ready'}if(e.type==='chat')addChat(e.value||{});if(e.type==='notification'){toast(e.value);const level=e.level||(/danger|emergency|severe|warning/i.test(e.value||'')?'warning':'info');if(level==='warning'||level==='danger')browserNotify(e.value,level)}}
+async function poll(){if(polling||!token)return;polling=true;try{const r=await fetch('/api/events?token='+encodeURIComponent(token),{cache:'no-store'});if(r.status===401){setConn(false);token='';localStorage.removeItem('nekosune_token');return}const j=await r.json();setConn(true);for(const e of (j.events||[]))handleEvent(e)}catch{setConn(false)}finally{polling=false}}
+async function connect(){if(!token){setConn(false);return}try{const s=await rpc('initialize');renderState(s||{});setConn(true);statusEl.textContent='Ready';poll()}catch(e){setConn(false);toast(e.message)}}
+$('saveToken').onclick=()=>{token=$('tokenInput').value.trim();if(token)localStorage.setItem('nekosune_token',token);connect()};
+$('sessionBtn').onclick=async()=>{try{const r=await rpc(state.session_started?'end_session':'start_session');toast(r.msg||'Done');renderState(await rpc('get_state'))}catch(e){toast(e.message)}};
+$('voiceBtn').onclick=async()=>{try{renderState(await rpc('toggle_voice'))}catch(e){toast(e.message)}};
+$('micBtn').onclick=async()=>{try{renderState(await rpc('toggle_mic'))}catch(e){toast(e.message)}};
+$('sendBtn').onclick=send;$('message').addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();send()}});
+async function send(){const box=$('message'),text=box.value.trim();if(!text)return;box.value='';try{if(!state.session_started){await rpc('start_session');renderState(await rpc('get_state'))}const r=await rpc('send_message',text);if(!r?.ok)toast(r?.msg||'Message failed')}catch(e){toast(e.message)}}
+$('notifyBtn').onclick=async()=>{if(!('Notification'in window)){toast('Notifications are not supported by this browser.');return}const p=await Notification.requestPermission();toast(p==='granted'?'Phone alerts enabled.':'Notification permission was not granted.')};
+if('serviceWorker'in navigator){navigator.serviceWorker.register('/mobile-sw.js').then(r=>swReg=r).catch(()=>{})}
+setInterval(poll,1500);connect();
+</script>
+</body>
+</html>
