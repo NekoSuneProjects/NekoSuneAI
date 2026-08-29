@@ -5,6 +5,7 @@ from nekosuneai.settings_backend_patch import install_settings_backend_patch
 from nekosuneai.settings_dashboard_compat import install_settings_dashboard_compat
 from nekosuneai.music_dashboard_patch import install_music_dashboard_patch
 from nekosuneai.ytdlp_nightly_patch import install_ytdlp_nightly_patch
+from nekosuneai.dashboard_runtime_fix_patch import install_dashboard_runtime_fix_patch
 
 install_avatar_http_patch()
 install_mcp_oauth_recovery()
@@ -13,6 +14,7 @@ install_settings_backend_patch()
 install_settings_dashboard_compat()
 install_music_dashboard_patch()
 install_ytdlp_nightly_patch()
+install_dashboard_runtime_fix_patch()
 
 from nekosuneai.launcher import main
 
