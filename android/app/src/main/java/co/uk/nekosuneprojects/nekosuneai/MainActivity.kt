@@ -48,7 +48,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val surface = Color.parseColor("#111329")
     private val surface2 = Color.parseColor("#181B38")
     private val border = Color.parseColor("#292D55")
-    private val text = Color.parseColor("#F4F2FF")
+    private val textColor = Color.parseColor("#F4F2FF")
     private val muted = Color.parseColor("#B3B7DC")
     private val violet = Color.parseColor("#A78BFA")
     private val cyan = Color.parseColor("#67E8F9")
@@ -104,7 +104,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(12), 0, 0, 0)
-                addView(TextView(this@MainActivity).apply { text = "NekoSuneAI"; textSize = 22f; setTextColor(text); typeface = Typeface.DEFAULT_BOLD })
+                addView(TextView(this@MainActivity).apply { text = "NekoSuneAI"; textSize = 22f; setTextColor(textColor); typeface = Typeface.DEFAULT_BOLD })
                 addView(TextView(this@MainActivity).apply { text = "ANDROID COMPANION STUDIO"; textSize = 10f; setTextColor(violet); letterSpacing = .12f })
             })
         })
@@ -224,7 +224,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(12), dp(10), dp(12), dp(10))
             background = pill(surface2, Color.parseColor("#3C4275"), 12f)
-            addView(TextView(this@MainActivity).apply { text = name; setTextColor(text); textSize = 14f; typeface = Typeface.DEFAULT_BOLD })
+            addView(TextView(this@MainActivity).apply { text = name; setTextColor(textColor); textSize = 14f; typeface = Typeface.DEFAULT_BOLD })
             addView(TextView(this@MainActivity).apply { text = url; setTextColor(muted); textSize = 11f; setPadding(0, dp(3), 0, dp(8)) })
             addView(primaryButton("Request pairing") { requestPairing(url, name) })
         }
@@ -316,11 +316,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         background = pill(surface, border, 16f)
     }
     private fun kicker(value: String) = TextView(this).apply { text = value; textSize = 10f; setTextColor(violet); typeface = Typeface.DEFAULT_BOLD; letterSpacing = .13f }
-    private fun title(value: String) = TextView(this).apply { text = value; textSize = 19f; setTextColor(text); typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(4), 0, dp(5)) }
+    private fun title(value: String) = TextView(this).apply { text = value; textSize = 19f; setTextColor(textColor); typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(4), 0, dp(5)) }
     private fun sectionTitle(value: String) = TextView(this).apply { text = value; textSize = 13f; setTextColor(muted); typeface = Typeface.DEFAULT_BOLD; letterSpacing = .06f }
     private fun body(value: String) = TextView(this).apply { text = value; textSize = 13f; setTextColor(muted); setLineSpacing(0f, 1.12f) }
     private fun field(hintText: String, value: String) = EditText(this).apply {
-        hint = hintText; setText(value); setTextColor(text); setHintTextColor(Color.parseColor("#777DA9")); textSize = 14f
+        hint = hintText; setText(value); setTextColor(textColor); setHintTextColor(Color.parseColor("#777DA9")); textSize = 14f
         setPadding(dp(12), dp(10), dp(12), dp(10)); background = pill(Color.parseColor("#0D0F24"), Color.parseColor("#343961"), 10f)
     }
     private fun primaryButton(label: String, icon: String = "", action: () -> Unit) = Button(this).apply {
@@ -328,7 +328,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         background = pill(violet, cyan, 12f); setOnClickListener { action() }
     }
     private fun secondaryButton(label: String, action: () -> Unit) = Button(this).apply {
-        text = label; isAllCaps = false; textSize = 14f; setTextColor(text); background = pill(surface2, Color.parseColor("#3C4275"), 12f); setOnClickListener { action() }
+        text = label; isAllCaps = false; textSize = 14f; setTextColor(textColor); background = pill(surface2, Color.parseColor("#3C4275"), 12f); setOnClickListener { action() }
     }
     private fun pill(fill: Int, stroke: Int, radius: Float) = GradientDrawable().apply { shape = GradientDrawable.RECTANGLE; setColor(fill); cornerRadius = dp(radius.toInt()).toFloat(); setStroke(dp(1), stroke) }
     private fun marginTop(top: Int) = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(top) }
