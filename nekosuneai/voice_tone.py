@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import io
-import math
+import json
+import time
 import wave
 from dataclasses import dataclass, asdict
 
 import numpy as np
+
+from .database import get_state, set_state
+
+STATE_KEY = "latest_voice_tone_v1"
 
 
 @dataclass
@@ -19,6 +24,23 @@ class VoiceToneCue:
 
     def as_dict(self) -> dict:
         return asdict(self)
+
+
+def save_latest(cue: VoiceToneCue | None) -> None:
+    if cue is None:
+        return
+    set_state(STATE_KEY, json.dumps({"epoch": time.time(), "cue": cue.as_dict()}))
+
+
+def load_latest(max_age_seconds: float = 30.0) -> VoiceToneCue | None:
+    try:
+        raw = json.loads(get_state(STATE_KEY, "{}"))
+        if time.time() - float(raw.get("epoch") or 0) > max_age_seconds:
+            return None
+        cue = raw.get("cue")
+        return VoiceToneCue(**cue) if isinstance(cue, dict) else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _decode_wav(data: bytes) -> tuple[np.ndarray, int] | None:
@@ -44,7 +66,7 @@ def _pitch_track(y: np.ndarray, sr: int, frame: int = 1024, hop: int = 512) -> l
     if y.size < frame:
         return out
     for i in range(0, y.size - frame + 1, hop):
-        x = y[i:i+frame]
+        x = y[i:i + frame]
         x = x - float(np.mean(x))
         rms = float(np.sqrt(np.mean(x * x) + 1e-9))
         if rms < 0.015:
@@ -87,7 +109,6 @@ def analyze_voice_wav(data: bytes) -> VoiceToneCue | None:
     pitch_hz = float(np.median(pitches)) if pitches else 0.0
     pitch_variation = float(np.std(pitches) / max(np.mean(pitches), 1.0)) if len(pitches) >= 3 else 0.0
 
-    # Conservative, non-clinical cue labels. Thresholds are deliberately broad.
     label = "neutral/uncertain"
     confidence = 0.25
     if energy < 0.035 and pitch_variation < 0.08:
@@ -99,7 +120,7 @@ def analyze_voice_wav(data: bytes) -> VoiceToneCue | None:
     elif pitch_variation > 0.22:
         label, confidence = "expressive or animated", 0.45
 
-    return VoiceToneCue(
+    cue = VoiceToneCue(
         energy=round(energy, 5),
         pitch_hz=round(pitch_hz, 1),
         pitch_variation=round(pitch_variation, 4),
@@ -107,3 +128,5 @@ def analyze_voice_wav(data: bytes) -> VoiceToneCue | None:
         label=label,
         confidence=confidence,
     )
+    save_latest(cue)
+    return cue
