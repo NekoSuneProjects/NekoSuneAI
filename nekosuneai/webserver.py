@@ -10,9 +10,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
 from .avatar_motion import drive_tts_avatar
+from .local_affect import LocalAffectDetector
 from .mood_state import load_mood, update_from_interaction
 from .reminders import ReminderManager
 from .scheduled_windows import WindowedMonitorManager
+from .support_checkins import SupportCheckinManager, support_context
 from .vision import describe_image, strip_data_uri
 from .webgui import Api, STATIC_DIR
 from .youtube_music import YouTubeMusicPlayer, handle_music_request
@@ -68,6 +70,8 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     music = YouTubeMusicPlayer(lambda msg: api._push_chat("Music", msg, "system"))
     windowed_monitor: WindowedMonitorManager | None = None
     reminders: ReminderManager | None = None
+    affect = LocalAffectDetector()
+    support = SupportCheckinManager()
     vision_context: dict[str, object] = {"text": "", "epoch": 0.0, "source": ""}
 
     def emit_avatar(event: dict) -> None:
@@ -126,8 +130,6 @@ def serve(host: str, port: int, token: str | None = None) -> None:
 
         if reply is None:
             reply = original_pipeline(pipeline_text, from_voice)
-            # The original pipeline owns speech playback; this layer only drives
-            # the visual mouth/body in parallel when voice output is active.
             if getattr(api.state, "voice_enabled", False) or from_voice:
                 drive_tts_avatar(reply, emit_avatar, gesture=mood.gesture())
             return reply
@@ -176,16 +178,51 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                     image = strip_data_uri(str(payload.get("image_base64", "")))
                     if not image:
                         raise ValueError("image_base64 is required")
+
+                    cue = affect.detect(image)
                     description = describe_image(api.config, image, VISION_PROMPT)
-                    if not description:
-                        raise ValueError("No configured vision model could analyse this frame")
+                    context_parts: list[str] = []
+                    if description:
+                        context_parts.append(description[:900])
+                    if cue:
+                        context_parts.append(support_context(cue))
+                    if not context_parts:
+                        detail = f" Local affect fallback: {affect.error}." if affect.error else ""
+                        raise ValueError("No configured vision model or local affect fallback could analyse this frame." + detail)
+
+                    combined = " ".join(context_parts)
                     vision_context.update({
-                        "text": description[:1200],
+                        "text": combined[:1600],
                         "epoch": time.time(),
                         "source": str(payload.get("source", "camera"))[:40],
                     })
-                    emit_avatar({"type": "vision_context", "value": description[:500]})
-                    return self._json(200, {"ok": True, "description": description})
+                    emit_avatar({"type": "vision_context", "value": combined[:500]})
+
+                    checkin = support.observe(cue)
+                    if checkin:
+                        companion = api.profile.get("companion_name", "NekoSuneAI")
+                        api._push_chat(companion, checkin, "assistant")
+                        api._push_status("Checking in with you.")
+                        emit_avatar({"type": "avatar_emotion", "value": "relaxed"})
+                        emit_avatar({"type": "avatar_gesture", "value": "relaxed"})
+                        if getattr(api.state, "voice_enabled", False):
+                            try:
+                                drive_tts_avatar(checkin, emit_avatar, gesture="relaxed")
+                                api._speak_async(checkin, "gentle")
+                            except Exception:
+                                pass
+
+                    return self._json(200, {
+                        "ok": True,
+                        "description": description or "",
+                        "affect": None if cue is None else {
+                            "label": cue.label,
+                            "confidence": round(cue.confidence, 4),
+                            "tentative": True,
+                        },
+                        "checkin": checkin or "",
+                        "local_affect_available": affect.available,
+                    })
 
                 if parsed.path == "/api/android/chat":
                     api.initialize()
@@ -253,6 +290,8 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                         "trust": round(mood.trust, 3),
                         "caution": round(mood.caution, 3),
                     },
+                    "local_affect_available": affect.available,
+                    "local_affect_error": affect.error if not affect.available else "",
                 })
             if parsed.path in {"/avatar", "/avatar/"}:
                 relative = "vrm.html"
