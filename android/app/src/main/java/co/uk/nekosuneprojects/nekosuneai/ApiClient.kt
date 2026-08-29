@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Environment
 import android.os.PowerManager
 import android.os.StatFs
+import android.util.Base64
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -17,9 +18,11 @@ import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
+data class ChatReply(val text: String, val emotion: String = "neutral", val gesture: String = "idle")
+
 class ApiClient(private val context: Context) {
     private val prefs = context.getSharedPreferences("neko", Context.MODE_PRIVATE)
-    private val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(35, TimeUnit.SECONDS).build()
+    private val client = OkHttpClient.Builder().connectTimeout(10, TimeUnit.SECONDS).readTimeout(90, TimeUnit.SECONDS).build()
 
     val deviceId: String
         get() = prefs.getString("device_id", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("device_id", it).apply() }
@@ -30,20 +33,34 @@ class ApiClient(private val context: Context) {
     fun configured(): Boolean = baseUrl.startsWith("http") && token.isNotBlank()
     fun save(server: String, authToken: String) { prefs.edit().putString("server_url", server.trim().trimEnd('/')).putString("token", authToken.trim()).apply() }
 
-    fun chat(message: String): String {
-        if (!configured()) return "Connect this phone to your Pi first."
+    fun chat(message: String): ChatReply {
+        if (!configured()) return ChatReply("Connect this phone to your Pi first.")
         val payload = JSONObject().put("message", message)
         val req = Request.Builder().url("$baseUrl/api/android/chat").header("X-Neko-Token", token)
             .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
         client.newCall(req).execute().use { response ->
             val raw = response.body?.string().orEmpty()
-            if (response.isSuccessful) return JSONObject(raw).optString("reply", "Sent.")
+            if (response.isSuccessful) {
+                val root = JSONObject(raw)
+                return ChatReply(root.optString("reply", "Sent."), root.optString("emotion", "neutral"), root.optString("gesture", "idle"))
+            }
         }
-        // Compatibility fallback for a Pi that has not received the direct chat endpoint yet.
-        try { rpc("initialize") } catch (_: Exception) {}
-        try { rpc("start_session") } catch (_: Exception) {}
-        val result = rpc("send_message", message)
-        return if (result is JSONObject) result.optString("msg", result.optString("text", "Sent.")) else result?.toString() ?: "Sent."
+        return ChatReply("The Pi chat endpoint is unavailable. Update the Pi smart-speaker branch first.")
+    }
+
+    fun sendVisionFrame(jpeg: ByteArray): String {
+        if (!configured()) return "Connect this phone to your Pi first."
+        val payload = JSONObject().apply {
+            put("source", "android-camera")
+            put("image_base64", Base64.encodeToString(jpeg, Base64.NO_WRAP))
+        }
+        val req = Request.Builder().url("$baseUrl/api/android/vision").header("X-Neko-Token", token)
+            .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
+        client.newCall(req).execute().use { response ->
+            val root = JSONObject(response.body?.string().orEmpty())
+            if (!response.isSuccessful) throw IllegalStateException(root.optString("error", "Vision request failed"))
+            return root.optString("description", "")
+        }
     }
 
     fun avatarUrl(): String {
@@ -52,16 +69,6 @@ class ApiClient(private val context: Context) {
         client.newCall(req).execute().use { response ->
             if (!response.isSuccessful) return ""
             return JSONObject(response.body?.string().orEmpty()).optString("url", "")
-        }
-    }
-
-    private fun rpc(method: String, vararg args: Any): Any? {
-        val payload = JSONObject().apply { put("method", method); put("args", org.json.JSONArray().apply { args.forEach { put(it) } }) }
-        val req = Request.Builder().url("$baseUrl/api/rpc").header("X-Neko-Token", token).post(payload.toString().toRequestBody("application/json".toMediaType())).build()
-        client.newCall(req).execute().use { response ->
-            val root = JSONObject(response.body?.string().orEmpty())
-            if (!response.isSuccessful || root.has("error")) throw IllegalStateException(root.optString("error", "Pi request failed"))
-            return root.opt("result")
         }
     }
 
