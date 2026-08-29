@@ -23,6 +23,57 @@ Neko, what's playing?
 
 Search ranking prefers official video/audio, VEVO and artist Topic results and penalises covers, karaoke, reaction and slowed/sped-up versions. `YOUTUBE_MUSIC_VOLUME=75` sets startup music volume separately from TTS volume.
 
+## Learned owner profile
+
+NekoSuneAI starts with no assumptions about the owner and gradually builds a local structured preference profile from explicit first-person conversation. Examples it can learn include:
+
+```text
+I love Frenchcore.
+My favourite game is Star Citizen.
+Going for a walk calms me down.
+This playlist always cheers me up.
+I don't like horror games.
+One of my hobbies is making music.
+```
+
+`nekosuneai/owner_learning.py` stores categories such as favourite, like, dislike, hobby and comfort. Repeated mentions increase confidence. Comfort items have an additional comfort score so Neko can preferentially suggest things that have previously helped.
+
+The learned profile is injected into normal conversations as fallible memory. It is used naturally rather than mechanically repeating preferences. Camera and voice-tone guesses do **not** create personal facts in the owner profile; only explicit conversational evidence does.
+
+The token-protected endpoint below can be used by a future dashboard editor:
+
+```text
+GET /api/owner/profile
+```
+
+NekoSuneAI's existing long-term RAG memory remains available alongside this structured owner profile. The two systems serve different purposes: RAG recalls conversational history, while the owner profile ranks stable preferences and comfort strategies.
+
+## Voice-tone cues
+
+`nekosuneai/voice_tone.py` provides a very lightweight CPU-only acoustic cue analyzer. It uses NumPy rather than a large speech-emotion neural network and extracts broad cues such as:
+
+- RMS speech energy
+- median voice pitch
+- pitch variation
+- a rough speech-rate/activity proxy
+
+It intentionally returns tentative labels such as `quiet or subdued`, `slow or subdued`, `energetic or activated`, `expressive or animated`, or `neutral/uncertain`. These are **not** treated as proof of the user's emotional state.
+
+Short PCM16 WAV clips can be supplied through:
+
+```text
+POST /api/voice/tone
+POST /api/android/voice-tone
+```
+
+Payload:
+
+```json
+{"wav_base64":"<base64 PCM16 WAV>"}
+```
+
+The recent tone cue is short-lived conversational context. The design is intended to combine wording + camera cues + voice acoustics instead of trying to infer emotion from one sensor.
+
 ## Saved playlists
 
 Playlists use NekoSuneAI's existing persistent database state and survive restarts when `/app/data` is persistent. Each track stores a stable YouTube page URL and resolves a fresh audio URL before playback.
@@ -118,7 +169,9 @@ SUPPORT_CHECKIN_COOLDOWN_SECONDS=900
 SUPPORT_AFFECT_MIN_CONFIDENCE=0.45
 ```
 
-Recent visual context is passed into the normal assistant conversation as tentative context. The user's own words always take priority. If the user describes grief, disappointment, loneliness or another difficult event, the assistant is instructed to respond gently, ask rather than assume, avoid diagnosis, and offer practical ways to feel a little better. When the user explicitly asks for ideas/resources and web search is enabled, the normal assistant can research current reputable suggestions.
+Recent visual and voice-tone context is passed into the normal assistant conversation as tentative context. The user's own words always take priority. The learned owner profile can then help the assistant choose personalised ideas — for example a known comfort playlist, favourite hobby, game, creative project, familiar routine, or another activity that has previously helped.
+
+If the user describes grief, disappointment, loneliness or another difficult event, the assistant is instructed to respond gently, ask rather than assume, avoid diagnosis, and offer practical ways to feel a little better. When the user explicitly asks for ideas/resources and web search is enabled, the normal assistant can research current reputable suggestions.
 
 This support mode is companionship, not a replacement for human relationships or professional care. It must not guilt the user into staying with the assistant or claim that the assistant itself needs attention.
 
