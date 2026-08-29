@@ -15,3 +15,11 @@ def test_avatar_upload_page_builds_valid_preview_url_and_requires_token():
     assert "Dashboard token required" in text
     assert "sessionStorage.getItem('nekoDashboardToken')" in text
     assert "body:f" in text
+
+
+def test_vrm_viewer_adaptively_fills_dashboard_stage():
+    text = Path("nekosuneai/static/vrm.html").read_text(encoding="utf-8")
+    assert "function frameAvatar()" in text
+    assert "Box3().setFromObject" in text
+    assert "camera.lookAt" in text
+    assert "Math.max(1.05,distance)" in text
