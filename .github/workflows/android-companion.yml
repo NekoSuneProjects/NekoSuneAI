@@ -1,0 +1,53 @@
+name: Android APK Build
+
+on:
+  push:
+    branches:
+      - 'main'
+    paths:
+      - 'android/**'
+      - '.github/workflows/android-companion.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-debug-apk:
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK 35
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+      - name: Runner memory before build
+        run: |
+          free -h || true
+          echo "cgroup memory.max: $(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unknown)"
+          echo "cgroup memory.current: $(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo unknown)"
+      - name: Build Android debug APK
+        run: gradle -p android --no-daemon --max-workers=1 assembleDebug --stacktrace
+      - name: Runner memory after build
+        if: always()
+        run: |
+          free -h || true
+          echo "cgroup memory.current: $(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo unknown)"
+          if command -v journalctl >/dev/null 2>&1; then
+            journalctl -k -n 80 --no-pager 2>/dev/null | grep -Ei 'oom|out of memory|killed process' || true
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NekoSuneAI-Android-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
