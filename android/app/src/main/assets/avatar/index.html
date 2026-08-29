@@ -1,0 +1,20 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#0a0b14;color:white;font-family:system-ui}#status{position:fixed;left:10px;top:10px;z-index:2;background:#171a31cc;padding:7px 10px;border-radius:10px;font-size:12px}canvas{display:block}</style></head>
+<body><div id="status">VRM viewer ready</div>
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/","@pixiv/three-vrm":"https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3.1.2/lib/three-vrm.module.min.js"}}</script>
+<script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { VRMLoaderPlugin } from '@pixiv/three-vrm';
+const status=document.getElementById('status');
+const scene=new THREE.Scene();scene.background=new THREE.Color(0x0a0b14);
+const camera=new THREE.PerspectiveCamera(30,innerWidth/innerHeight,.1,20);camera.position.set(0,1.35,2.6);
+const renderer=new THREE.WebGLRenderer({antialias:true,alpha:false});renderer.setPixelRatio(Math.min(devicePixelRatio,1.5));renderer.setSize(innerWidth,innerHeight);document.body.appendChild(renderer.domElement);
+scene.add(new THREE.HemisphereLight(0xffffff,0x333344,2.2));const key=new THREE.DirectionalLight(0xffffff,2);key.position.set(1,2,2);scene.add(key);
+const floor=new THREE.Mesh(new THREE.CircleGeometry(1.2,64),new THREE.MeshStandardMaterial({color:0x181a2d,roughness:1}));floor.rotation.x=-Math.PI/2;scene.add(floor);
+let vrm=null;const url=new URL(location.href).searchParams.get('model');
+if(url){status.textContent='Loading VRM…';const loader=new GLTFLoader();loader.register(p=>new VRMLoaderPlugin(p));loader.load(url,gltf=>{vrm=gltf.userData.vrm;vrm.scene.rotation.y=Math.PI;scene.add(vrm.scene);status.textContent='VRM loaded';},undefined,e=>{status.textContent='VRM load failed: '+e.message})}else{status.textContent='Paste a .vrm URL above and tap Load VRM'}
+const clock=new THREE.Clock();function tick(){requestAnimationFrame(tick);const dt=clock.getDelta();if(vrm){vrm.update(dt);vrm.scene.rotation.y=Math.PI+Math.sin(performance.now()/4000)*.08}renderer.render(scene,camera)}tick();
+addEventListener('resize',()=>{camera.aspect=innerWidth/innerHeight;camera.updateProjectionMatrix();renderer.setSize(innerWidth,innerHeight)});
+</script></body></html>
