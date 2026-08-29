@@ -9,6 +9,7 @@ from nekosuneai.dashboard_runtime_fix_patch import install_dashboard_runtime_fix
 from nekosuneai.tts_busy_guard_patch import install_tts_busy_guard_patch
 from nekosuneai.bridge_edge_voice_patch import install_bridge_edge_voice_patch
 from nekosuneai.kinect_vision_patch import install_kinect_vision_patch
+from nekosuneai.dashboard_tts_config_patch import install_dashboard_tts_config_patch
 
 install_avatar_http_patch()
 install_mcp_oauth_recovery()
@@ -21,6 +22,7 @@ install_dashboard_runtime_fix_patch()
 install_tts_busy_guard_patch()
 install_bridge_edge_voice_patch()
 install_kinect_vision_patch()
+install_dashboard_tts_config_patch()
 
 from nekosuneai.launcher import main
 
