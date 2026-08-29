@@ -36,7 +36,7 @@ class CameraVisionActivity : AppCompatActivity() {
     private val bg = Color.parseColor("#080914")
     private val surface = Color.parseColor("#111329")
     private val border = Color.parseColor("#292D55")
-    private val text = Color.parseColor("#F4F2FF")
+    private val textColor = Color.parseColor("#F4F2FF")
     private val muted = Color.parseColor("#B3B7DC")
     private val violet = Color.parseColor("#A78BFA")
     private val cyan = Color.parseColor("#67E8F9")
@@ -67,7 +67,7 @@ class CameraVisionActivity : AppCompatActivity() {
             text = "Phone Camera"
             textSize = 24f
             typeface = Typeface.DEFAULT_BOLD
-            setTextColor(text)
+            setTextColor(textColor)
             setPadding(0, dp(4), 0, dp(3))
         })
         root.addView(TextView(this).apply {
