@@ -15,7 +15,6 @@ import android.view.Gravity
 import android.view.View
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import android.widget.Button
 import android.widget.EditText
 import android.widget.ImageView
 import android.widget.LinearLayout
@@ -53,6 +52,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val muted = Color.parseColor("#B3B7DC")
     private val violet = Color.parseColor("#A78BFA")
     private val cyan = Color.parseColor("#67E8F9")
+
+    private val bg = Color.rgb(13, 11, 18)
+    private val surface = Color.rgb(23, 19, 31)
+    private val surface2 = Color.rgb(33, 26, 44)
+    private val primary = Color.rgb(184, 156, 255)
+    private val text = Color.rgb(247, 241, 255)
+    private val muted = Color.rgb(185, 175, 199)
+    private val success = Color.rgb(121, 216, 167)
 
     private val askNotifications = registerForActivityResult(ActivityResultContracts.RequestPermission()) {}
     private val speechLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -287,7 +294,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         thread(name = "NekoRemoteChat") {
             val answer = try { api.chat(message) } catch (e: Exception) { ChatReply("I couldn't reach the Pi: ${e.message}") }
             runOnUiThread {
-                replyView.text = answer.text; chatInput.setText("")
+                replyView.text = answer.text
+                chatInput.setText("")
                 web.evaluateJavascript("window.setNekoEmotion('${safeJs(answer.emotion)}');window.setNekoGesture('${safeJs(answer.gesture)}');", null)
                 animateTtsVisemes(answer.text)
                 tts?.speak(answer.text, TextToSpeech.QUEUE_FLUSH, null, "neko-reply")
