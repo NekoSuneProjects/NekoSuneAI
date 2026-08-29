@@ -2,6 +2,33 @@
 set -eu
 
 # ---------------------------------------------------------------------------
+# yt-dlp nightly updater
+# ---------------------------------------------------------------------------
+# Keep the Docker-side YouTube stack on yt-dlp nightly. This mirrors the
+# updater behaviour used by NekosDownloaderFork/yt-dlp-node: check at startup,
+# prefer the nightly channel, and never stop NekoSuneAI from booting if the
+# updater itself cannot reach GitHub.
+ytdlp_auto="$(printf '%s' "${YTDLP_AUTO_UPDATE:-true}" | tr '[:upper:]' '[:lower:]')"
+ytdlp_channel="$(printf '%s' "${YTDLP_CHANNEL:-nightly}" | tr '[:upper:]' '[:lower:]')"
+if [ "$ytdlp_auto" != "false" ] && [ "$ytdlp_auto" != "0" ] && [ "$ytdlp_auto" != "no" ]; then
+    if command -v yt-dlp >/dev/null 2>&1; then
+        if [ "$ytdlp_channel" = "nightly" ] || [ "$ytdlp_channel" = "nightlies" ]; then
+            echo "[startup] Checking yt-dlp nightly update..."
+            yt-dlp --update-to nightly >/tmp/nekosuneai-ytdlp-update.log 2>&1 || {
+                echo "[startup] yt-dlp nightly self-update skipped; trying pip nightly refresh..."
+                python -m pip install --pre --upgrade "yt-dlp[default,curl-cffi]" >/tmp/nekosuneai-ytdlp-pip.log 2>&1 || true
+            }
+        else
+            echo "[startup] Checking yt-dlp update..."
+            yt-dlp -U >/tmp/nekosuneai-ytdlp-update.log 2>&1 || true
+        fi
+    else
+        echo "[startup] yt-dlp missing; installing nightly-capable build..."
+        python -m pip install --pre --upgrade "yt-dlp[default,curl-cffi]" >/tmp/nekosuneai-ytdlp-pip.log 2>&1 || true
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Host audio auto-detection
 # ---------------------------------------------------------------------------
 # Compose mounts /run/user read-only. We scan every host desktop session,
@@ -158,149 +185,3 @@ if [ -n "$selected_audio_runtime" ] \
        PULSE_SERVER="${PULSE_SERVER:-}" \
        PIPEWIRE_REMOTE="${PIPEWIRE_REMOTE:-pipewire-0}" \
        BLUETOOTH_SPEAKER_ADDRESS="${BLUETOOTH_SPEAKER_ADDRESS:-}" \
-       run_as_ids "$selected_audio_uid" "$selected_audio_gid" \
-       python - <<'PY'
-import os
-from types import SimpleNamespace
-
-from nekosuneai.bluetooth_watchdog import BluetoothSpeakerWatchdog
-
-config = SimpleNamespace(
-    bluetooth_reconnect_enabled=True,
-    bluetooth_speaker_address=(os.getenv("BLUETOOTH_SPEAKER_ADDRESS") or "").strip() or None,
-    bluetooth_reconnect_interval_seconds=10.0,
-)
-watchdog = BluetoothSpeakerWatchdog(config, print)
-ok, message = watchdog.reconnect_now()
-print(f"[startup] {message}")
-raise SystemExit(0 if ok else 1)
-PY
-    then
-        :
-    else
-        echo "[startup] Bluetooth speaker was not ready at boot; the background watchdog will keep trying."
-    fi
-fi
-
-rm -f /tmp/nekosuneai-pactl-info.txt /tmp/nekosuneai-pactl-error.txt
-
-# ---------------------------------------------------------------------------
-# Vosk model bootstrap
-# ---------------------------------------------------------------------------
-VOSK_MODEL_PATH="${VOSK_MODEL_PATH:-/app/models/vosk-model-small-en-us-0.15}"
-VOSK_MODEL_URL="${VOSK_MODEL_URL:-https://alphacephei.com/vosk/models/vosk-model-small-en-us-0.15.zip}"
-STT_PROVIDER_NORMALIZED="$(printf '%s' "${STT_PROVIDER:-vosk}" | tr '[:upper:]' '[:lower:]')"
-
-needs_vosk=false
-case "$STT_PROVIDER_NORMALIZED" in
-    vosk|local-lite|local_light|pi)
-        needs_vosk=true
-        ;;
-esac
-
-if [ "$needs_vosk" = "true" ]; then
-    if [ -f "$VOSK_MODEL_PATH/am/final.mdl" ]; then
-        echo "[startup] Vosk model ready: $VOSK_MODEL_PATH"
-    else
-        echo "[startup] Vosk model missing; downloading lightweight model..."
-        echo "[startup] Source: $VOSK_MODEL_URL"
-
-        model_parent="$(dirname "$VOSK_MODEL_PATH")"
-        mkdir -p "$model_parent"
-        tmp_dir="$(mktemp -d)"
-        trap 'rm -rf "$tmp_dir"' EXIT INT TERM
-
-        curl -fL --retry 5 --retry-delay 2 \
-            --connect-timeout 20 \
-            -o "$tmp_dir/vosk-model.zip" \
-            "$VOSK_MODEL_URL"
-
-        python - "$tmp_dir/vosk-model.zip" "$tmp_dir/extracted" "$VOSK_MODEL_PATH" <<'PY'
-from __future__ import annotations
-
-import shutil
-import sys
-import zipfile
-from pathlib import Path
-
-archive = Path(sys.argv[1])
-extract_dir = Path(sys.argv[2])
-target = Path(sys.argv[3])
-
-extract_dir.mkdir(parents=True, exist_ok=True)
-with zipfile.ZipFile(archive) as zf:
-    zf.extractall(extract_dir)
-
-entries = list(extract_dir.iterdir())
-source = entries[0] if len(entries) == 1 and entries[0].is_dir() else extract_dir
-
-if target.exists():
-    shutil.rmtree(target)
-target.parent.mkdir(parents=True, exist_ok=True)
-shutil.move(str(source), str(target))
-
-required = target / "am" / "final.mdl"
-if not required.is_file():
-    raise SystemExit(f"Downloaded archive did not contain a valid Vosk model: missing {required}")
-PY
-
-        rm -rf "$tmp_dir"
-        trap - EXIT INT TERM
-        echo "[startup] Vosk model installed: $VOSK_MODEL_PATH"
-    fi
-else
-    echo "[startup] STT provider '$STT_PROVIDER_NORMALIZED' does not use Vosk; skipping model download."
-fi
-
-# ---------------------------------------------------------------------------
-# Drop from root to the detected desktop-session owner
-# ---------------------------------------------------------------------------
-if [ "$(id -u)" = "0" ] && [ -n "$selected_audio_uid" ] && [ "$selected_audio_uid" != "0" ]; then
-    app_home="/app/data/.home"
-    mkdir -p "$app_home" /app/audio /app/data
-    # These bind mounts contain small mutable application state/audio. Matching
-    # them to the detected desktop UID prevents old root-owned files from
-    # breaking TTS output after the automatic privilege drop.
-    chown -R "$selected_audio_uid:$selected_audio_gid" /app/data /app/audio 2>/dev/null || true
-
-    group_list="$selected_audio_gid"
-
-    add_group_id() {
-        extra_gid="$1"
-        [ -n "$extra_gid" ] || return 0
-        # Do not grant host root-group access simply because a device happens to
-        # be root-owned. Non-zero device groups are enough for audio/USB access.
-        [ "$extra_gid" != "0" ] || return 0
-        case ",$group_list," in
-            *,$extra_gid,*) ;;
-            *) group_list="$group_list,$extra_gid" ;;
-        esac
-    }
-
-    # Discover the actual host sound-device groups instead of assuming gid 29.
-    for device_path in /dev/snd/*; do
-        [ -e "$device_path" ] || continue
-        add_group_id "$(stat -c '%g' "$device_path" 2>/dev/null || true)"
-    done
-
-    # Kinect and other USB microphones can be owned by a non-root device group.
-    for device_path in /dev/bus/usb/*/*; do
-        [ -e "$device_path" ] || continue
-        add_group_id "$(stat -c '%g' "$device_path" 2>/dev/null || true)"
-    done
-
-    # Keep old explicit overrides working for unusual hosts.
-    add_group_id "${AUDIO_GID:-}"
-    add_group_id "${VIDEO_GID:-}"
-    add_group_id "${BLUETOOTH_GID:-}"
-
-    echo "[startup] Running NekoSuneAI as detected host audio UID:GID $selected_audio_uid:$selected_audio_gid (groups: $group_list)"
-    exec setpriv \
-        --reuid "$selected_audio_uid" \
-        --regid "$selected_audio_gid" \
-        --groups "$group_list" \
-        env HOME="$app_home" USER=nekosuneai LOGNAME=nekosuneai \
-        python app.py "$@"
-fi
-
-exec python app.py "$@"
