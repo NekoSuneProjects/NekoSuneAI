@@ -1,3 +1,9 @@
+from nekosuneai.avatar_http_patch import install_avatar_http_patch
+from nekosuneai.mcp_oauth_recovery import install_mcp_oauth_recovery
+
+install_avatar_http_patch()
+install_mcp_oauth_recovery()
+
 from nekosuneai.launcher import main
 
 
