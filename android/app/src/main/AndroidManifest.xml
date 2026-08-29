@@ -24,6 +24,7 @@
         android:usesCleartextTraffic="true">
 
         <activity android:name=".CameraVisionActivity" android:exported="false" />
+        <activity android:name=".WakeWordSettingsActivity" android:exported="false" />
 
         <activity
             android:name=".MainActivity"
