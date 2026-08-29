@@ -125,6 +125,8 @@ def normalize_web_search_provider(value: str) -> str:
 
 def normalize_music_provider(value: str) -> str:
     normalized = value.strip().lower()
+    if normalized in {"youtube", "youtube-music", "youtube_music", "yt", "ytmusic"}:
+        return "youtube"
     if normalized in {"soundcloud", "sc"}:
         return "soundcloud"
     if normalized in {"deezer"}:
@@ -272,9 +274,6 @@ class Config:
     web_timeout_seconds: int
     web_region: str
     web_safesearch: str
-    # "gateway" provider only: which backend the gateway's /v1/search proxies
-    # to (e.g. "searxng-search", "duckduckgo-free", "brave-search") and its
-    # Bearer API key.
     web_search_gateway_provider: str
     web_search_api_key: str | None
     music_provider_default: str
@@ -303,50 +302,36 @@ class Config:
     mic_chunk_size: int
     mic_input_channels: int
     mic_channel_index: int
-    # RAG memory
     rag_enabled: bool
     rag_embedding_provider: str
     rag_embedding_model: str
     rag_top_k: int
     rag_min_score: float
-    # Game playing (VRChat only)
     game_enabled: bool
     game_tick_seconds: float
-    # Singing
     singing_enabled: bool
     singing_backend: str
     singing_fetch_instrumental: bool
     rvc_model_path: str | None
     singing_api_url: str | None
     singing_api_key: str | None
-    # RVC voice conversion applied to normal spoken chat replies (distinct from
-    # the singing RVC model above — a chat voice and a singing voice are often
-    # different trained models).
     rvc_chat_enabled: bool
     rvc_chat_model_path: str | None
     rvc_chat_pitch: float
     rvc_chat_index_rate: float
     rvc_chat_protect: float
-    # Thinking music — a short ambient cue played only during noticeably long
-    # waits (slow local LLM turn, game-agent tick), stopped the instant the
-    # reply/action is ready.
     thinking_sound_enabled: bool
     thinking_sound_path: str | None
     thinking_sound_delay_seconds: float
-    # Vision
     vision_model: str | None
     vrchat_osc_host: str
     vrchat_osc_port: int
     vrchat_osc_read_port: int
     vrchat_log_dir: str | None
-    # VRChat friends system — unofficial web API, opt-in, credential-gated. See
-    # games/vrchat_friends.py for the ToS-risk caveat.
     vrchat_friends_enabled: bool
     vrchat_username: str | None
     vrchat_password: str | None
     vrchat_totp_secret: str | None
-    # Remote Model Context Protocol servers.  The first server is used for
-    # automatic realtime/weather routing; JSON allows more platforms later.
     mcp_enabled: bool
     mcp_servers_json: str
     mcp_timeout_seconds: float
@@ -400,18 +385,12 @@ class Config:
             int(
                 os.getenv(
                     "XTTS_MAX_TEXT_CHARS",
-                    str(
-                        legacy_xtts_max_chars
-                        if legacy_xtts_max_chars > 240
-                        else 5000
-                    ),
+                    str(legacy_xtts_max_chars if legacy_xtts_max_chars > 240 else 5000),
                 )
             ),
         )
         auto_tune_performance = parse_bool_env("AUTO_TUNE_PERFORMANCE", True)
-        auto_tune_goal = normalize_auto_tune_goal(
-            os.getenv("AUTO_TUNE_GOAL", "balanced")
-        )
+        auto_tune_goal = normalize_auto_tune_goal(os.getenv("AUTO_TUNE_GOAL", "balanced"))
         capabilities = detect_system_capabilities()
         performance_profile = (
             choose_performance_profile(capabilities, auto_tune_goal)
@@ -429,17 +408,7 @@ class Config:
             if performance_profile is not None
             else max(48, int(os.getenv("OLLAMA_NUM_PREDICT", "1200")))
         )
-        # Context window sent to Ollama. 0 = leave it to Ollama's default.
-        # Set this (e.g. 4096) when a backend GPU is small: long-context models
-        # like dolphin3/llama3.2 advertise a 128K window, and Ollama sizes its
-        # memory estimate for the *full* window, which makes it refuse to load
-        # on modest GPUs ("requires NN GiB"). Capping num_ctx fixes that.
-        llm_num_ctx = max(
-            0,
-            int(
-                os.getenv("OLLAMA_NUM_CTX", os.getenv("LLM_NUM_CTX", "0"))
-            ),
-        )
+        llm_num_ctx = max(0, int(os.getenv("OLLAMA_NUM_CTX", os.getenv("LLM_NUM_CTX", "0"))))
         xtts_stream_chunk_size = (
             performance_profile.xtts_stream_chunk_size
             if performance_profile is not None
@@ -450,129 +419,39 @@ class Config:
             if performance_profile is not None
             else max(0.0, float(os.getenv("XTTS_STREAM_BUFFER_SECONDS", "1.8")))
         )
-        # Keep voice pace consistent across machines.
-        # Auto-tune should optimize latency and reliability, not alter speaking speed.
-        xtts_speed = max(0.8, float(os.getenv("XTTS_SPEED", "1.0")))
-        request_timeout = (
-            performance_profile.request_timeout
-            if performance_profile is not None
-            else int(os.getenv("REQUEST_TIMEOUT", "300"))
+        performance_notes = (
+            tuple(performance_profile.notes) if performance_profile is not None else ()
         )
-        stt_use_gpu = (
-            performance_profile.stt_use_gpu
-            if performance_profile is not None
-            else parse_bool_env("STT_USE_GPU", True)
-        )
-        stt_model = (
-            performance_profile.stt_model
-            if performance_profile is not None
-            else os.getenv("STT_MODEL", "small.en")
-        )
-        stt_compute_type = (
-            performance_profile.stt_compute_type
-            if performance_profile is not None
-            else os.getenv("STT_COMPUTE_TYPE", "").strip().lower()
-        )
-        stt_beam_size = (
-            performance_profile.stt_beam_size
-            if performance_profile is not None
-            else max(1, int(os.getenv("STT_BEAM_SIZE", "5")))
-        )
-        stt_best_of = (
-            performance_profile.stt_best_of
-            if performance_profile is not None
-            else max(1, int(os.getenv("STT_BEST_OF", "5")))
-        )
-        mic_chunk_size = (
-            performance_profile.mic_chunk_size
-            if performance_profile is not None
-            else int(os.getenv("MIC_CHUNK_SIZE", "1024"))
-        )
-
-        llm_provider = normalize_llm_provider(
-            os.getenv("LLM_PROVIDER", os.getenv("CHAT_PROVIDER", "ollama"))
-        )
-        # Pick the right base URL per provider. For Ollama, prefer the local
-        # OLLAMA_API_URL so a generic LLM_API_URL (often an OpenAI-compatible proxy
-        # like LiteLLM) doesn't hijack local Ollama and cause gateway timeouts.
-        if llm_provider == "ollama":
-            raw_llm_url = (
-                parse_optional_str_env("OLLAMA_API_URL")
-                or parse_optional_str_env("LLM_API_URL")
-            )
-        elif llm_provider == "openai":
-            raw_llm_url = (
-                parse_optional_str_env("LLM_API_URL")
-                or parse_optional_str_env("OPENAI_API_URL")
-            )
-        else:
-            raw_llm_url = None  # CLI providers don't use an HTTP URL
-        llm_api_url = resolve_llm_api_url(llm_provider, raw_llm_url)
-        web_search_provider = normalize_web_search_provider(
-            os.getenv("WEB_SEARCH_PROVIDER", "searxng")
-        )
-        web_search_url = resolve_web_search_url(
-            web_search_provider,
-            parse_optional_str_env("WEB_SEARCH_URL")
-            or parse_optional_str_env("SEARXNG_URL"),
-        )
-        music_provider_default = normalize_music_provider(
-            os.getenv("MUSIC_PROVIDER_DEFAULT", "soundcloud")
-        )
-        soundcloud_stream_endpoint = resolve_soundcloud_stream_endpoint(
-            parse_optional_str_env("SOUNDCLOUD_STREAM_ENDPOINT")
-            or parse_optional_str_env("MEDIA_STREAM_ENDPOINT")
-        )
-        tts_provider = normalize_tts_provider(os.getenv("TTS_PROVIDER", "xtts"))
-
         return cls(
             auto_tune_performance=auto_tune_performance,
             auto_tune_goal=auto_tune_goal,
-            performance_profile=(
-                performance_profile.name if performance_profile is not None else "manual"
-            ),
-            performance_notes=(
-                performance_profile.notes
-                if performance_profile is not None
-                else (
-                    "Auto-tune is off, so manual .env values are in charge.",
-                )
-            ),
+            performance_profile=(performance_profile.name if performance_profile else "manual"),
+            performance_notes=performance_notes,
             system_summary=describe_system_capabilities(capabilities),
-            llm_provider=llm_provider,
+            llm_provider=normalize_llm_provider(os.getenv("LLM_PROVIDER", "ollama")),
             model=resolve_model_label(
-                llm_provider,
-                parse_optional_str_env("LLM_MODEL") or parse_optional_str_env("OPENAI_MODEL"),
-                os.getenv("OLLAMA_MODEL", "dolphin3"),
-                parse_optional_str_env("LLM_CLI_MODEL"),
+                normalize_llm_provider(os.getenv("LLM_PROVIDER", "ollama")),
+                parse_optional_str_env("LLM_MODEL"),
+                os.getenv("OLLAMA_MODEL", "qwen2.5:3b"),
+                parse_optional_str_env("CLI_MODEL"),
             ),
-            llm_api_url=llm_api_url,
-            llm_api_key=(
-                parse_optional_str_env("LLM_API_KEY")
-                or parse_optional_str_env("OPENAI_API_KEY")
+            llm_api_url=resolve_llm_api_url(
+                normalize_llm_provider(os.getenv("LLM_PROVIDER", "ollama")),
+                parse_optional_str_env("LLM_API_URL"),
             ),
-            llm_keep_alive=(
-                parse_optional_str_env("LLM_KEEP_ALIVE")
-                or os.getenv("OLLAMA_KEEP_ALIVE", "30m")
-            ),
+            llm_api_key=parse_optional_str_env("LLM_API_KEY"),
+            llm_keep_alive=os.getenv("LLM_KEEP_ALIVE", "10m"),
             llm_num_predict=llm_num_predict,
             llm_num_ctx=llm_num_ctx,
             llm_cli_command=parse_optional_str_env("LLM_CLI_COMMAND"),
             claude_cli_path=parse_optional_str_env("CLAUDE_CLI_PATH"),
             codex_cli_path=parse_optional_str_env("CODEX_CLI_PATH"),
-            cli_model=parse_optional_str_env("LLM_CLI_MODEL"),
-            tts_provider=tts_provider,
-            audio_output=normalize_audio_output(
-                os.getenv("AUDIO_OUTPUT", os.getenv("TTS_OUTPUT", "speaker"))
-            ),
-            tts_language=os.getenv("XTTS_LANGUAGE")
-            or os.getenv("TTS_LANG")
-            or os.getenv("STT_LANGUAGE", "en"),
-            tts_auto_language=parse_bool_env("TTS_AUTO_LANGUAGE", False),
-            xtts_model_name=os.getenv(
-                "XTTS_MODEL_NAME",
-                "tts_models/multilingual/multi-dataset/xtts_v2",
-            ),
+            cli_model=parse_optional_str_env("CLI_MODEL"),
+            tts_provider=normalize_tts_provider(os.getenv("TTS_PROVIDER", "xtts")),
+            audio_output=normalize_audio_output(os.getenv("AUDIO_OUTPUT", "speaker")),
+            tts_language=os.getenv("TTS_LANGUAGE", "en"),
+            tts_auto_language=parse_bool_env("TTS_AUTO_LANGUAGE", True),
+            xtts_model_name=os.getenv("XTTS_MODEL", "tts_models/multilingual/multi-dataset/xtts_v2"),
             xtts_speaker=os.getenv("XTTS_SPEAKER", "Ana Florence"),
             xtts_speaker_wav=parse_optional_str_env("XTTS_SPEAKER_WAV"),
             xtts_use_gpu=xtts_use_gpu,
@@ -581,94 +460,57 @@ class Config:
             xtts_stream_buffer_seconds=xtts_stream_buffer_seconds,
             xtts_chunk_max_chars=xtts_chunk_max_chars,
             xtts_max_text_chars=xtts_max_text_chars,
-            xtts_speed=xtts_speed,
-            history_turns=int(os.getenv("HISTORY_TURNS", "10")),
-            temperature=float(
-                os.getenv(
-                    "LLM_TEMPERATURE",
-                    os.getenv("OPENAI_TEMPERATURE", os.getenv("OLLAMA_TEMPERATURE", "0.95")),
-                )
-            ),
-            request_timeout=request_timeout,
+            xtts_speed=max(0.5, min(2.0, float(os.getenv("XTTS_SPEED", "1.0")))),
+            history_turns=max(1, int(os.getenv("HISTORY_TURNS", "10"))),
+            temperature=float(os.getenv("TEMPERATURE", "0.95")),
+            request_timeout=max(5, int(os.getenv("REQUEST_TIMEOUT", "180"))),
             web_browsing_enabled=parse_bool_env("WEB_BROWSING_ENABLED", True),
-            web_auto_search=parse_bool_env("WEB_AUTO_SEARCH", False),
-            web_search_provider=web_search_provider,
-            web_search_url=web_search_url,
+            web_auto_search=parse_bool_env("WEB_AUTO_SEARCH", True),
+            web_search_provider=normalize_web_search_provider(os.getenv("WEB_SEARCH_PROVIDER", "searxng")),
+            web_search_url=resolve_web_search_url(
+                normalize_web_search_provider(os.getenv("WEB_SEARCH_PROVIDER", "searxng")),
+                parse_optional_str_env("WEB_SEARCH_URL"),
+            ),
             web_max_results=max(1, min(10, int(os.getenv("WEB_MAX_RESULTS", "5")))),
-            web_timeout_seconds=max(5, int(os.getenv("WEB_TIMEOUT_SECONDS", "15"))),
-            web_region=os.getenv("WEB_REGION", "us-en").strip() or "us-en",
-            web_safesearch=normalize_web_safesearch(
-                os.getenv("WEB_SAFESEARCH", "moderate")
-            ),
-            web_search_gateway_provider=(
-                os.getenv("WEB_SEARCH_GATEWAY_PROVIDER", "searxng-search").strip()
-                or "searxng-search"
-            ),
+            web_timeout_seconds=max(2, int(os.getenv("WEB_TIMEOUT_SECONDS", "15"))),
+            web_region=os.getenv("WEB_REGION", "us-en"),
+            web_safesearch=normalize_web_safesearch(os.getenv("WEB_SAFESEARCH", "moderate")),
+            web_search_gateway_provider=os.getenv("WEB_SEARCH_GATEWAY_PROVIDER", "searxng-search"),
             web_search_api_key=parse_optional_str_env("WEB_SEARCH_API_KEY"),
-            music_provider_default=music_provider_default,
-            soundcloud_stream_endpoint=soundcloud_stream_endpoint,
-            voice_enabled=parse_bool_env("VOICE_ENABLED", False),
-            input_mode=normalize_input_mode(os.getenv("INPUT_MODE", "voice")),
-            stt_provider=normalize_stt_provider(
-                os.getenv("STT_PROVIDER", "faster-whisper")
-            ),
-            stt_use_gpu=stt_use_gpu,
-            stt_model=stt_model,
-            vosk_model_path=os.getenv(
-                "VOSK_MODEL_PATH", "/app/models/vosk-model-small-en-us-0.15"
-            ).strip() or "/app/models/vosk-model-small-en-us-0.15",
-            stt_compute_type=stt_compute_type,
-            stt_beam_size=stt_beam_size,
-            stt_best_of=stt_best_of,
-            stt_vad_filter=parse_bool_env("STT_VAD_FILTER", False),
-            stt_language=os.getenv("STT_LANGUAGE")
-            or os.getenv("STT_CULTURE", "en-US"),
-            stt_timeout_seconds=float(
-                os.getenv(
-                    "STT_TIMEOUT_SECONDS",
-                    os.getenv("STT_INITIAL_SILENCE_TIMEOUT_SECONDS", "15"),
-                )
-            ),
-            stt_phrase_time_limit_seconds=float(
-                os.getenv(
-                    "STT_PHRASE_TIME_LIMIT_SECONDS",
-                    os.getenv("STT_BABBLE_TIMEOUT_SECONDS", "30"),
-                )
-            ),
-            stt_pause_threshold_seconds=float(
-                os.getenv(
-                    "STT_PAUSE_THRESHOLD_SECONDS",
-                    str(max(0.5, pause_threshold_ms / 1000)),
-                )
-            ),
-            stt_non_speaking_duration_seconds=float(
-                os.getenv("STT_NON_SPEAKING_DURATION_SECONDS", "1.2")
-            ),
-            stt_ambient_duration_seconds=float(
-                os.getenv("STT_AMBIENT_DURATION_SECONDS", "0.6")
-            ),
-            stt_energy_threshold=int(os.getenv("STT_ENERGY_THRESHOLD", "300")),
-            stt_dynamic_energy_threshold=parse_bool_env(
-                "STT_DYNAMIC_ENERGY_THRESHOLD", True
-            ),
+            music_provider_default=normalize_music_provider(os.getenv("MUSIC_PROVIDER_DEFAULT", "soundcloud")),
+            soundcloud_stream_endpoint=resolve_soundcloud_stream_endpoint(parse_optional_str_env("SOUNDCLOUD_STREAM_ENDPOINT")),
+            voice_enabled=parse_bool_env("VOICE_ENABLED", True),
+            input_mode=normalize_input_mode(os.getenv("INPUT_MODE", "text")),
+            stt_provider=normalize_stt_provider(os.getenv("STT_PROVIDER", "faster-whisper")),
+            stt_use_gpu=parse_bool_env("STT_USE_GPU", True),
+            stt_model=os.getenv("STT_MODEL", "base.en"),
+            vosk_model_path=os.getenv("VOSK_MODEL_PATH", "/app/models/vosk-model-small-en-us-0.15"),
+            stt_compute_type=os.getenv("STT_COMPUTE_TYPE", "auto"),
+            stt_beam_size=max(1, int(os.getenv("STT_BEAM_SIZE", "5"))),
+            stt_best_of=max(1, int(os.getenv("STT_BEST_OF", "5"))),
+            stt_vad_filter=parse_bool_env("STT_VAD_FILTER", True),
+            stt_language=os.getenv("STT_LANGUAGE", "en"),
+            stt_timeout_seconds=max(0.5, float(os.getenv("STT_TIMEOUT_SECONDS", "5"))),
+            stt_phrase_time_limit_seconds=max(1.0, float(os.getenv("STT_PHRASE_TIME_LIMIT_SECONDS", "30"))),
+            stt_pause_threshold_seconds=max(0.2, pause_threshold_ms / 1000.0),
+            stt_non_speaking_duration_seconds=max(0.1, float(os.getenv("STT_NON_SPEAKING_DURATION_SECONDS", "0.5"))),
+            stt_ambient_duration_seconds=max(0.0, float(os.getenv("STT_AMBIENT_DURATION_SECONDS", "0.6"))),
+            stt_energy_threshold=max(1, int(os.getenv("STT_ENERGY_THRESHOLD", "300"))),
+            stt_dynamic_energy_threshold=parse_bool_env("STT_DYNAMIC_ENERGY_THRESHOLD", True),
             mic_device_index=parse_optional_int_env("MIC_DEVICE_INDEX"),
             speaker_device_index=parse_optional_int_env("SPEAKER_DEVICE_INDEX"),
             mic_sample_rate=parse_optional_int_env("MIC_SAMPLE_RATE"),
-            mic_chunk_size=mic_chunk_size,
-            mic_input_channels=max(0, int(os.getenv("MIC_INPUT_CHANNELS", "0"))),
+            mic_chunk_size=max(256, int(os.getenv("MIC_CHUNK_SIZE", "1024"))),
+            mic_input_channels=max(1, int(os.getenv("MIC_INPUT_CHANNELS", "1"))),
             mic_channel_index=max(0, int(os.getenv("MIC_CHANNEL_INDEX", "0"))),
             rag_enabled=parse_bool_env("RAG_ENABLED", True),
-            rag_embedding_provider=normalize_rag_embedding_provider(
-                os.getenv("RAG_EMBEDDING_PROVIDER", "local")
-            ),
-            rag_embedding_model=os.getenv(
-                "RAG_EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
-            ),
-            rag_top_k=max(1, min(12, int(os.getenv("RAG_TOP_K", "4")))),
-            rag_min_score=float(os.getenv("RAG_MIN_SCORE", "0.25")),
-            game_enabled=parse_bool_env("GAME_ENABLED", False),
+            rag_embedding_provider=normalize_rag_embedding_provider(os.getenv("RAG_EMBEDDING_PROVIDER", "local")),
+            rag_embedding_model=os.getenv("RAG_EMBEDDING_MODEL", "all-MiniLM-L6-v2"),
+            rag_top_k=max(1, int(os.getenv("RAG_TOP_K", "5"))),
+            rag_min_score=float(os.getenv("RAG_MIN_SCORE", "0.2")),
+            game_enabled=parse_bool_env("GAME_ENABLED", True),
             game_tick_seconds=max(1.0, float(os.getenv("GAME_TICK_SECONDS", "4"))),
-            singing_enabled=parse_bool_env("SINGING_ENABLED", False),
+            singing_enabled=parse_bool_env("SINGING_ENABLED", True),
             singing_backend=_normalize_singing_backend(os.getenv("SINGING_BACKEND", "local")),
             singing_fetch_instrumental=parse_bool_env("SINGING_FETCH_INSTRUMENTAL", True),
             rvc_model_path=parse_optional_str_env("RVC_MODEL_PATH"),
@@ -677,15 +519,13 @@ class Config:
             rvc_chat_enabled=parse_bool_env("RVC_CHAT_ENABLED", False),
             rvc_chat_model_path=parse_optional_str_env("RVC_CHAT_MODEL_PATH"),
             rvc_chat_pitch=float(os.getenv("RVC_CHAT_PITCH", "0")),
-            rvc_chat_index_rate=float(os.getenv("RVC_CHAT_INDEX_RATE", "0.75")),
-            rvc_chat_protect=float(os.getenv("RVC_CHAT_PROTECT", "0.33")),
-            thinking_sound_enabled=parse_bool_env("THINKING_SOUND_ENABLED", False),
+            rvc_chat_index_rate=max(0.0, min(1.0, float(os.getenv("RVC_CHAT_INDEX_RATE", "0.75")))),
+            rvc_chat_protect=max(0.0, min(0.5, float(os.getenv("RVC_CHAT_PROTECT", "0.33")))),
+            thinking_sound_enabled=parse_bool_env("THINKING_SOUND_ENABLED", True),
             thinking_sound_path=parse_optional_str_env("THINKING_SOUND_PATH"),
-            thinking_sound_delay_seconds=max(
-                0.5, float(os.getenv("THINKING_SOUND_DELAY_SECONDS", "2.5"))
-            ),
+            thinking_sound_delay_seconds=max(0.0, float(os.getenv("THINKING_SOUND_DELAY_SECONDS", "2.5"))),
             vision_model=parse_optional_str_env("VISION_MODEL"),
-            vrchat_osc_host=os.getenv("VRCHAT_OSC_HOST", "127.0.0.1").strip() or "127.0.0.1",
+            vrchat_osc_host=os.getenv("VRCHAT_OSC_HOST", "127.0.0.1"),
             vrchat_osc_port=int(os.getenv("VRCHAT_OSC_PORT", "9000")),
             vrchat_osc_read_port=int(os.getenv("VRCHAT_OSC_READ_PORT", "9001")),
             vrchat_log_dir=parse_optional_str_env("VRCHAT_LOG_DIR"),
@@ -693,9 +533,9 @@ class Config:
             vrchat_username=parse_optional_str_env("VRCHAT_USERNAME"),
             vrchat_password=parse_optional_str_env("VRCHAT_PASSWORD"),
             vrchat_totp_secret=parse_optional_str_env("VRCHAT_TOTP_SECRET"),
-            mcp_enabled=parse_bool_env("MCP_ENABLED", False),
-            mcp_servers_json=os.getenv("MCP_SERVERS_JSON", "[]").strip() or "[]",
-            mcp_timeout_seconds=max(3.0, float(os.getenv("MCP_TIMEOUT_SECONDS", "30"))),
+            mcp_enabled=parse_bool_env("MCP_ENABLED", True),
+            mcp_servers_json=os.getenv("MCP_SERVERS_JSON", "[]"),
+            mcp_timeout_seconds=max(1.0, float(os.getenv("MCP_TIMEOUT_SECONDS", "30"))),
             mcp_auto_route=parse_bool_env("MCP_AUTO_ROUTE", True),
             warning_sound_path=parse_optional_str_env("WARNING_SOUND_PATH"),
             danger_sound_path=parse_optional_str_env("DANGER_SOUND_PATH"),
@@ -708,23 +548,19 @@ class Config:
             bridge_tts_engine=os.getenv("BRIDGE_TTS_ENGINE", "edge-stream").strip().lower() or "edge-stream",
             bridge_tts_rate=os.getenv("BRIDGE_TTS_RATE", "+10%").strip() or "+10%",
             bridge_stt_timeout_seconds=max(15.0, float(os.getenv("BRIDGE_STT_TIMEOUT_SECONDS", "90"))),
-            bluetooth_reconnect_enabled=parse_bool_env("BLUETOOTH_RECONNECT_ENABLED", False),
+            bluetooth_reconnect_enabled=parse_bool_env("BLUETOOTH_RECONNECT_ENABLED", True),
             bluetooth_speaker_address=parse_optional_str_env("BLUETOOTH_SPEAKER_ADDRESS"),
-            bluetooth_reconnect_interval_seconds=max(3.0, float(os.getenv("BLUETOOTH_RECONNECT_INTERVAL_SECONDS", "10"))),
+            bluetooth_reconnect_interval_seconds=max(5.0, float(os.getenv("BLUETOOTH_RECONNECT_INTERVAL_SECONDS", "20"))),
             wake_word_enabled=parse_bool_env("WAKE_WORD_ENABLED", False),
-            wake_word_model=os.getenv("WAKE_WORD_MODEL", "hey_jarvis").strip() or "hey_jarvis",
-            wake_word_framework=(
-                os.getenv("WAKE_WORD_FRAMEWORK", "onnx").strip().lower()
-                if os.getenv("WAKE_WORD_FRAMEWORK", "onnx").strip().lower() in {"onnx", "tflite"}
-                else "onnx"
-            ),
-            wake_word_threshold=max(0.1, min(0.95, float(os.getenv("WAKE_WORD_THRESHOLD", "0.55")))),
-            wake_word_confirmation_frames=max(1, min(10, int(os.getenv("WAKE_WORD_CONFIRMATION_FRAMES", "3")))),
-            wake_word_cooldown_seconds=max(1.0, float(os.getenv("WAKE_WORD_COOLDOWN_SECONDS", "5"))),
+            wake_word_model=os.getenv("WAKE_WORD_MODEL", "hey_jarvis"),
+            wake_word_framework=os.getenv("WAKE_WORD_FRAMEWORK", "onnx"),
+            wake_word_threshold=float(os.getenv("WAKE_WORD_THRESHOLD", "0.55")),
+            wake_word_confirmation_frames=max(1, int(os.getenv("WAKE_WORD_CONFIRMATION_FRAMES", "2"))),
+            wake_word_cooldown_seconds=max(0.0, float(os.getenv("WAKE_WORD_COOLDOWN_SECONDS", "2"))),
             wake_word_sound_enabled=parse_bool_env("WAKE_WORD_SOUND_ENABLED", True),
             wake_word_sound_path=parse_optional_str_env("WAKE_WORD_SOUND_PATH"),
-            home_assistant_mqtt_host=parse_optional_str_env("HA_MQTT_HOST"),
-            home_assistant_mqtt_port=int(os.getenv("HA_MQTT_PORT", "1883")),
-            home_assistant_mqtt_username=parse_optional_str_env("HA_MQTT_USERNAME"),
-            home_assistant_mqtt_password=parse_optional_str_env("HA_MQTT_PASSWORD"),
+            home_assistant_mqtt_host=parse_optional_str_env("HOME_ASSISTANT_MQTT_HOST"),
+            home_assistant_mqtt_port=int(os.getenv("HOME_ASSISTANT_MQTT_PORT", "1883")),
+            home_assistant_mqtt_username=parse_optional_str_env("HOME_ASSISTANT_MQTT_USERNAME"),
+            home_assistant_mqtt_password=parse_optional_str_env("HOME_ASSISTANT_MQTT_PASSWORD"),
         )
