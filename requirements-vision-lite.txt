@@ -1,0 +1,4 @@
+# Optional Raspberry Pi facial-expression fallback.
+# Keeps the base install small; install only when LOCAL_AFFECT_MODEL is wanted.
+opencv-python-headless>=4.10,<5
+numpy>=1.26,<3
