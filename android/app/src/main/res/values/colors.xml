@@ -1,0 +1,13 @@
+<resources>
+    <color name="neko_bg">#0D0B12</color>
+    <color name="neko_surface">#17131F</color>
+    <color name="neko_surface_2">#211A2C</color>
+    <color name="neko_primary">#B89CFF</color>
+    <color name="neko_primary_dark">#7C5AC7</color>
+    <color name="neko_text">#F7F1FF</color>
+    <color name="neko_muted">#B9AFC7</color>
+    <color name="neko_success">#79D8A7</color>
+    <color name="neko_warning">#FFC66D</color>
+    <color name="neko_icon_bg">#6E4DB5</color>
+    <color name="neko_white">#FFFFFF</color>
+</resources>
