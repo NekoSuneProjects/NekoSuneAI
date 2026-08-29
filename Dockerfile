@@ -2,7 +2,7 @@
 FROM python:3.10-slim-bookworm
 ARG APP_VERSION=1.2.1
 LABEL org.opencontainers.image.title="NekoSuneAI" org.opencontainers.image.version="${APP_VERSION}" org.opencontainers.image.source="https://github.com/NekoSuneProjects/NekoSuneAI"
-ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 AUTO_UPDATE_CHECK=false AUTO_UPDATE_INSTALL=false AUTO_TUNE_PERFORMANCE=true XTTS_USE_GPU=false STT_USE_GPU=false
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PIP_NO_CACHE_DIR=1 AUTO_UPDATE_CHECK=false AUTO_UPDATE_INSTALL=false AUTO_TUNE_PERFORMANCE=true XTTS_USE_GPU=false STT_USE_GPU=false YTDLP_CHANNEL=nightly YTDLP_AUTO_UPDATE=true YTDLP_AUTO_UPDATE_INTERVAL_MIN=360
 RUN apt-get update && apt-get install -y --no-install-recommends \
     alsa-utils bluez ca-certificates curl ffmpeg libasound2-plugins libatomic1 libportaudio2 \
     pipewire-bin pulseaudio-utils usbutils util-linux \
@@ -25,6 +25,8 @@ WORKDIR /app
 COPY requirements.txt ./
 RUN python -m pip install --upgrade pip \
     && python -m pip install -r requirements.txt \
+    && python -m pip install --pre --upgrade "yt-dlp[default,curl-cffi]" \
+    && python -m yt_dlp --update-to nightly || true \
     && python -c "import vosk; print('Vosk native library OK')"
 COPY requirements-wakeword.txt ./
 RUN python -m pip install -r requirements-wakeword.txt \
