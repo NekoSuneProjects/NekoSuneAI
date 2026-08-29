@@ -23,6 +23,45 @@ def _emotion_for(text: str) -> str:
     return "neutral"
 
 
+def _decorate_dashboard(body: bytes) -> bytes:
+    """Replace only the large dashboard logo with the live VRM stage.
+
+    The original static file stays lightweight and update-friendly. Small
+    loading/sidebar logos remain images, while the central companion stage is
+    upgraded at serve time.
+    """
+    text = body.decode("utf-8")
+    old = '<img src="logo.png" alt="NekoSuneAI avatar" class="avatar-logo relative z-10 w-40 h-40 object-contain" draggable="false">'
+    new = '<iframe id="vrm-avatar-frame" src="about:blank" title="NekoSuneAI VRM avatar" class="relative z-10 w-full h-[220px] border-0 bg-transparent" allow="autoplay"></iframe>'
+    text = text.replace(old, new, 1)
+    bridge = r'''<script>
+(function(){
+  const frame=()=>document.getElementById('vrm-avatar-frame');
+  const boot=()=>{const f=frame();if(f&&f.src==='about:blank')f.src='/avatar'+location.search};
+  window.nekoAvatarEmotion=e=>{try{frame()?.contentWindow?.postMessage({type:'neko-emotion',emotion:e||'neutral'},location.origin)}catch(_){}};
+  window.nekoAvatarSpeaking=a=>{try{frame()?.contentWindow?.postMessage({type:'neko-speaking',active:!!a},location.origin)}catch(_){}};
+  addEventListener('DOMContentLoaded',boot); setTimeout(boot,50);
+  const originalFetch=window.fetch.bind(window);
+  window.fetch=async function(...args){
+    const response=await originalFetch(...args);
+    try{
+      const u=String(args[0]||'');
+      if(u.includes('/api/events')){
+        const j=await response.clone().json();
+        for(const e of (j.events||[])){
+          if(e.type==='avatar_emotion')window.nekoAvatarEmotion(e.value);
+          if(e.type==='avatar_speaking')window.nekoAvatarSpeaking(e.value);
+          if(e.type==='status'&&String(e.value||'').toLowerCase().includes('ready'))window.nekoAvatarSpeaking(false);
+        }
+      }
+    }catch(_){}
+    return response;
+  };
+})();
+</script>'''
+    return text.replace("</body>", bridge + "</body>", 1).encode("utf-8")
+
+
 def serve(host: str, port: int, token: str | None = None) -> None:
     api = Api()
     access_token = token or secrets.token_urlsafe(24)
@@ -108,8 +147,10 @@ def serve(host: str, port: int, token: str | None = None) -> None:
             target = (STATIC_DIR / relative).resolve()
             if STATIC_DIR.resolve() not in target.parents and target != STATIC_DIR.resolve(): return self.send_error(403)
             if not target.is_file(): return self.send_error(404)
-            body = target.read_bytes(); self.send_response(200); self.send_header("Content-Type", mimetypes.guess_type(target.name)[0] or "application/octet-stream")
-            if target.name == "vrm.html": self.send_header("Cache-Control", "no-cache")
+            body = target.read_bytes()
+            if target.name == "index.html": body = _decorate_dashboard(body)
+            self.send_response(200); self.send_header("Content-Type", mimetypes.guess_type(target.name)[0] or "application/octet-stream")
+            if target.name in {"vrm.html", "index.html"}: self.send_header("Cache-Control", "no-cache")
             self.send_header("Content-Length", str(len(body))); self.end_headers(); self.wfile.write(body)
 
         def log_message(self, *_args): pass
