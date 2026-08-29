@@ -8,7 +8,7 @@ import secrets
 import socket
 import threading
 import time
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -31,8 +31,8 @@ class DevicePairingManager:
     be explicitly approved from the authenticated Docker dashboard.
 
     Approved phones receive a separate device token. Only a SHA-256 hash is
-    persisted on the Pi; the plaintext token is returned once through the
-    pending request and then lives on the phone.
+    persisted on the Pi; the plaintext token is returned through the approved
+    pairing request and then lives on the phone.
     """
 
     def __init__(self, storage_path: str | None = None, ttl_seconds: int = 300) -> None:
@@ -107,7 +107,11 @@ class DevicePairingManager:
     def pending(self) -> list[dict]:
         with self._lock:
             self._cleanup()
-            return [self._public_pending(x) for x in sorted(self._pending.values(), key=lambda x: x.created_epoch, reverse=True) if x.status == "pending"]
+            return [
+                self._public_pending(x)
+                for x in sorted(self._pending.values(), key=lambda x: x.created_epoch, reverse=True)
+                if x.status == "pending"
+            ]
 
     def approve(self, request_id: str) -> dict:
         with self._lock:
@@ -158,7 +162,10 @@ class DevicePairingManager:
             return False
         digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
         with self._lock:
-            return any(secrets.compare_digest(str(item.get("token_sha256", "")), digest) for item in self._paired.values())
+            return any(
+                secrets.compare_digest(str(item.get("token_sha256", "")), digest)
+                for item in self._paired.values()
+            )
 
     def paired(self) -> list[dict]:
         with self._lock:
@@ -181,6 +188,8 @@ class MdnsAdvertiser:
     def __init__(self, port: int, name: str = "NekoSuneAI") -> None:
         self.port = int(port)
         self.name = name
+        host_label = os.getenv("NEKOSUNEAI_INSTANCE_NAME", "").strip() or socket.gethostname()
+        self.instance_name = f"{name} - {host_label}"[:60]
         self._zc = None
         self._info = None
 
@@ -206,13 +215,18 @@ class MdnsAdvertiser:
             self._zc = Zeroconf()
             self._info = ServiceInfo(
                 "_nekosuneai._tcp.local.",
-                f"{self.name}._nekosuneai._tcp.local.",
+                f"{self.instance_name}._nekosuneai._tcp.local.",
                 addresses=[socket.inet_aton(ip)],
                 port=self.port,
-                properties={b"pairing": b"1", b"path": b"/", b"name": self.name.encode("utf-8")},
+                properties={
+                    b"pairing": b"1",
+                    b"path": b"/",
+                    b"name": self.name.encode("utf-8"),
+                    b"instance": self.instance_name.encode("utf-8"),
+                },
                 server=f"{socket.gethostname()}.local.",
             )
-            self._zc.register_service(self._info)
+            self._zc.register_service(self._info, allow_name_change=True)
             return True
         except Exception as exc:
             print(f"NekoSuneAI mDNS discovery unavailable: {exc}")
