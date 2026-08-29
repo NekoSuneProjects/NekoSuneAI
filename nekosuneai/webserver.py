@@ -34,6 +34,76 @@ def serve(host: str, port: int, token: str | None = None) -> None:
 
     api._monitor_notification = monitor_notification  # type: ignore[method-assign]
 
+    # Route common natural-language phone requests before the LLM. This applies
+    # to typed dashboard requests and to wake-word/voice turns because both pass
+    # through Api._pipeline on the Pi-hosted web instance.
+    original_pipeline = api._pipeline
+
+    def phone_aware_pipeline(user_text: str, from_voice: bool) -> str:
+        lower = user_text.strip().lower()
+        devices = android_hub.list_devices()
+        device = devices[0] if devices else None
+
+        is_find = any(phrase in lower for phrase in (
+            "find my phone", "where is my phone", "ring my phone", "make my phone ring"
+        ))
+        is_stop = any(phrase in lower for phrase in (
+            "stop ringing my phone", "stop my phone ringing", "found my phone", "stop phone ring"
+        ))
+        is_battery = "phone" in lower and any(word in lower for word in ("battery", "charge", "charging"))
+        is_status = "phone" in lower and any(phrase in lower for phrase in ("status", "how is", "performance", "memory"))
+        is_notices = "phone" in lower and any(word in lower for word in ("notification", "notifications", "message", "messages", "text", "texts"))
+
+        if not any((is_find, is_stop, is_battery, is_status, is_notices)):
+            return original_pipeline(user_text, from_voice)
+
+        user_name = api.profile.get("user_name", "You")
+        companion = api.profile.get("companion_name", "NekoSuneAI")
+        api._push_chat(user_name, user_text, "user")
+
+        if not device:
+            reply = "I can't see an Android companion phone yet. Open NekoSuneAI Companion on the phone and connect it to this Pi first."
+        elif is_find:
+            android_hub.enqueue(device["device_id"], "FIND_PHONE")
+            reply = f"Okay — I'm ringing {device.get('name', 'your phone')} at full ringtone volume until you stop it."
+        elif is_stop:
+            android_hub.enqueue(device["device_id"], "STOP_RING")
+            reply = "Stopped the find-phone ringtone."
+        elif is_battery:
+            telemetry = device.get("telemetry") or {}
+            battery = telemetry.get("battery_percent", "unknown")
+            charging = bool(telemetry.get("charging", False))
+            reply = f"Your phone battery is {battery}% and it is {'charging' if charging else 'not charging'}."
+        elif is_status:
+            telemetry = device.get("telemetry") or {}
+            reply = (
+                f"{device.get('name', 'Your phone')} is {'online' if device.get('online') else 'offline'}. "
+                f"Battery {telemetry.get('battery_percent', 'unknown')}%, "
+                f"available memory {telemetry.get('memory_available_mb', 'unknown')} MB, "
+                f"low-memory flag {'on' if telemetry.get('low_memory') else 'off'}."
+            )
+        else:
+            notices = android_hub.latest_notifications(device["device_id"], 5)
+            if not notices:
+                reply = "I haven't received any recent phone notifications."
+            else:
+                summary = "; ".join(
+                    f"{n.get('title') or n.get('app') or 'Phone'}: {n.get('text') or 'New notification'}"
+                    for n in notices[-5:]
+                )
+                reply = "Your latest phone notifications are: " + summary
+
+        api._push_chat(companion, reply, "assistant")
+        api._push_status("Ready.")
+        if api.state.voice_enabled:
+            try:
+                api._speak_async(reply, "neutral")
+            except Exception:
+                pass
+        return reply
+
+    api._pipeline = phone_aware_pipeline  # type: ignore[method-assign]
+
     class Handler(BaseHTTPRequestHandler):
         def _authorized(self) -> bool:
             query = parse_qs(urlparse(self.path).query)
@@ -165,9 +235,6 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 )
                 return self._json(200, {"commands": commands})
 
-            # Friendly Android/PWA route. The dashboard token is intentionally
-            # not baked into the manifest; mobile.html stores a supplied token
-            # in localStorage on the phone instead.
             if parsed.path in {"/mobile", "/mobile/"}:
                 relative = "mobile.html"
             else:
