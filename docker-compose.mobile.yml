@@ -1,0 +1,15 @@
+services:
+  ntfy:
+    image: binwiederhier/ntfy:latest
+    container_name: nekosuneai-ntfy
+    restart: unless-stopped
+    command: serve
+    environment:
+      NTFY_BASE_URL: ${NTFY_BASE_URL:-http://localhost:2586}
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+      NTFY_ATTACHMENT_CACHE_DIR: /var/cache/ntfy/attachments
+    volumes:
+      - ./data/ntfy/cache:/var/cache/ntfy
+      - ./data/ntfy/etc:/etc/ntfy
+    ports:
+      - "${NTFY_PORT:-2586}:80"
