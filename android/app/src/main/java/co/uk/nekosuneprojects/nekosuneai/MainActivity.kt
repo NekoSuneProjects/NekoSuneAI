@@ -17,6 +17,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -93,13 +94,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         root.addView(LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(TextView(this@MainActivity).apply {
-                text = "N"
-                gravity = Gravity.CENTER
-                textSize = 22f
-                setTextColor(bg)
-                typeface = Typeface.DEFAULT_BOLD
-                background = pill(violet, violet, 16f)
+            addView(ImageView(this@MainActivity).apply {
+                setImageResource(R.drawable.ic_neko_logo)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                contentDescription = "NekoSuneAI"
             }, LinearLayout.LayoutParams(dp(48), dp(48)))
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
