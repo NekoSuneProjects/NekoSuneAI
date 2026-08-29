@@ -30,7 +30,7 @@ class WakeWordSettingsActivity : AppCompatActivity() {
         val bg = Color.parseColor("#080914")
         val surface = Color.parseColor("#111329")
         val border = Color.parseColor("#292D55")
-        val text = Color.parseColor("#F4F2FF")
+        val textColor = Color.parseColor("#F4F2FF")
         val muted = Color.parseColor("#B3B7DC")
         val violet = Color.parseColor("#A78BFA")
         val cyan = Color.parseColor("#67E8F9")
@@ -42,25 +42,25 @@ class WakeWordSettingsActivity : AppCompatActivity() {
             setPadding(dp(20), dp(28), dp(20), dp(28))
             setBackgroundColor(bg)
         }
-        root.addView(TextView(this).apply { this.text = "BACKGROUND VOICE"; textSize = 10f; letterSpacing = .14f; setTextColor(violet); typeface = Typeface.DEFAULT_BOLD })
-        root.addView(TextView(this).apply { this.text = "Hey Jarvis"; textSize = 27f; setTextColor(text); typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(5), 0, dp(5)) })
+        root.addView(TextView(this).apply { text = "BACKGROUND VOICE"; textSize = 10f; letterSpacing = .14f; setTextColor(violet); typeface = Typeface.DEFAULT_BOLD })
+        root.addView(TextView(this).apply { text = "Hey Jarvis"; textSize = 27f; setTextColor(textColor); typeface = Typeface.DEFAULT_BOLD; setPadding(0, dp(5), 0, dp(5)) })
         root.addView(TextView(this).apply {
-            this.text = "Keep NekoSuneAI listening in the background. Say the wake phrase, then speak your request. The request is sent to the same paired Docker-hosted AI and the reply is spoken on your phone."
+            text = "Keep NekoSuneAI listening in the background. Say the wake phrase, then speak your request. The request is sent to the same paired Docker-hosted AI and the reply is spoken on your phone."
             textSize = 13f; setTextColor(muted); setLineSpacing(0f, 1.15f)
         })
 
         val card = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(16), dp(16), dp(16), dp(16)); background = rounded(surface, border, 16) }
-        card.addView(TextView(this).apply { this.text = "Wake phrase"; textSize = 12f; setTextColor(text); typeface = Typeface.DEFAULT_BOLD })
+        card.addView(TextView(this).apply { text = "Wake phrase"; textSize = 12f; setTextColor(textColor); typeface = Typeface.DEFAULT_BOLD })
         phraseInput = EditText(this).apply {
             setText(prefs.getString("wake_phrase", WakeWordService.DEFAULT_WAKE_PHRASE) ?: WakeWordService.DEFAULT_WAKE_PHRASE)
             hint = "hey jarvis"
-            setTextColor(text); setHintTextColor(Color.parseColor("#777DA9")); textSize = 15f
+            setTextColor(textColor); setHintTextColor(Color.parseColor("#777DA9")); textSize = 15f
             setPadding(dp(12), dp(11), dp(12), dp(11)); background = rounded(Color.parseColor("#0D0F24"), Color.parseColor("#343961"), 11)
         }
         card.addView(phraseInput, params(10))
         status = TextView(this).apply {
             val enabled = prefs.getBoolean("wake_word_enabled", false)
-            this.text = if (enabled) "● Background wake is ON" else "● Background wake is OFF"
+            text = if (enabled) "● Background wake is ON" else "● Background wake is OFF"
             textSize = 12f; setTextColor(cyan); setPadding(0, dp(12), 0, dp(4))
         }
         card.addView(status)
@@ -69,7 +69,7 @@ class WakeWordSettingsActivity : AppCompatActivity() {
             setOnClickListener { savePhrase(); ensurePermissionAndEnable() }
         }, params(10))
         card.addView(Button(this).apply {
-            text = "Turn off background wake"; isAllCaps = false; textSize = 14f; setTextColor(text); background = rounded(Color.parseColor("#181B38"), Color.parseColor("#3C4275"), 12)
+            text = "Turn off background wake"; isAllCaps = false; textSize = 14f; setTextColor(textColor); background = rounded(Color.parseColor("#181B38"), Color.parseColor("#3C4275"), 12)
             setOnClickListener {
                 prefs.edit().putBoolean("wake_word_enabled", false).apply()
                 stopService(Intent(this@WakeWordSettingsActivity, WakeWordService::class.java))
@@ -77,7 +77,7 @@ class WakeWordSettingsActivity : AppCompatActivity() {
             }
         }, params(8))
         card.addView(TextView(this).apply {
-            this.text = "A persistent Android notification is shown while the microphone listener is active. Android may stop background listening if battery optimisation force-stops the app."
+            text = "A persistent Android notification is shown while the microphone listener is active. Android may stop background listening if battery optimisation force-stops the app."
             textSize = 11f; setTextColor(muted); setPadding(0, dp(12), 0, 0)
         })
         root.addView(card, params(18))
