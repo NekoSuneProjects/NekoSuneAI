@@ -75,6 +75,53 @@ POST /api/android/vision
 
 The Pi runs the existing NekoSuneAI vision backend, keeps only a short factual description for roughly 20 seconds of conversational context, and does not persist the raw image. Leaving the Android camera screen stops sharing.
 
+## Lightweight Pi facial-affect fallback
+
+When a full vision-language model is unavailable, NekoSuneAI can optionally use a very small FER+ ONNX facial-expression model. This is intended for low-RAM/low-CPU Raspberry Pi use and analyses only a detected 64x64 grayscale face crop. It does **not** understand the whole room or identify the person.
+
+Install the optional dependencies:
+
+```bash
+pip install -r requirements-vision-lite.txt
+python tools/setup_local_affect_model.py
+```
+
+The default model location is:
+
+```text
+/app/data/models/emotion-ferplus-8.onnx
+```
+
+Override it with:
+
+```env
+LOCAL_AFFECT_MODEL=/app/data/models/your-ferplus-model.onnx
+```
+
+An INT8 FER+ ONNX model can be substituted at the same path when you want the smallest possible model. The detector uses OpenCV's bundled Haar face detector and OpenCV DNN, so no extra LLM runtime is needed for this fallback.
+
+The classifier labels are treated only as uncertain visible cues (neutral, happiness, surprise, sadness, anger, disgust, fear, contempt). NekoSuneAI never treats them as proof of the user's internal mood or a mental-health diagnosis.
+
+## Gentle emotional-support check-ins
+
+While camera sharing is explicitly active, several reasonably-confident negative-looking facial cues within a short time window can trigger one gentle check-in such as:
+
+```text
+Hey Neko, you seem a little down or tense right now. Are you okay?
+```
+
+It requires multiple frames and has a long cooldown so one bad frame cannot cause repeated questioning. Configure it with:
+
+```env
+SUPPORT_CHECKINS_ENABLED=true
+SUPPORT_CHECKIN_COOLDOWN_SECONDS=900
+SUPPORT_AFFECT_MIN_CONFIDENCE=0.45
+```
+
+Recent visual context is passed into the normal assistant conversation as tentative context. The user's own words always take priority. If the user describes grief, disappointment, loneliness or another difficult event, the assistant is instructed to respond gently, ask rather than assume, avoid diagnosis, and offer practical ways to feel a little better. When the user explicitly asks for ideas/resources and web search is enabled, the normal assistant can research current reputable suggestions.
+
+This support mode is companionship, not a replacement for human relationships or professional care. It must not guilt the user into staying with the assistant or claim that the assistant itself needs attention.
+
 ## Kinect / external camera vision
 
 Both Kinect generations can feed the same endpoint without bloating the base Docker image with generation-specific drivers. Kinect v1/360 can use `libfreenect`; Kinect v2 can use `libfreenect2`. Have the local capture process refresh a JPEG/PNG file and run:
