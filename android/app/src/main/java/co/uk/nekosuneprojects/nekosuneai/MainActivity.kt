@@ -79,6 +79,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 speechLauncher.launch(intent)
             }
         })
+        root.addView(Button(this).apply {
+            text = "📷 Let Neko see through phone camera"
+            setOnClickListener {
+                if (!api.configured()) replyView.text = "Connect to the Pi first."
+                else startActivity(Intent(this@MainActivity, CameraVisionActivity::class.java))
+            }
+        })
+        root.addView(TextView(this).apply {
+            text = "Camera vision is opt-in and foreground-only. The camera stops sharing as soon as you leave its preview screen."
+            textSize = 11f
+        })
 
         root.addView(TextView(this).apply { text = "VRM Avatar — loaded from your Pi"; textSize = 20f; setPadding(0, 26, 0, 8) })
         web = WebView(this).apply {
@@ -116,29 +127,35 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun sendChat(value: String) {
         val message = value.trim(); if (message.isBlank()) return
-        replyView.text = "Neko is thinking…"; web.evaluateJavascript("window.setNekoEmotion('neutral');window.setNekoSpeaking(false);", null)
+        replyView.text = "Neko is thinking…"
+        web.evaluateJavascript("window.setNekoEmotion('neutral');window.setNekoGesture('idle');window.setNekoSpeaking(false);", null)
         thread(name = "NekoRemoteChat") {
-            val reply = try { api.chat(message) } catch (e: Exception) { "I couldn't reach the Pi: ${e.message}" }
-            val emotion = emotionFor(reply)
+            val answer = try { api.chat(message) } catch (e: Exception) { ChatReply("I couldn't reach the Pi: ${e.message}") }
             runOnUiThread {
-                replyView.text = reply; chatInput.setText("")
-                web.evaluateJavascript("window.setNekoEmotion('$emotion');window.setNekoSpeaking(true);", null)
-                tts?.speak(reply, TextToSpeech.QUEUE_FLUSH, null, "neko-reply")
-                web.postDelayed({ web.evaluateJavascript("window.setNekoSpeaking(false);", null) }, (reply.length * 55L).coerceIn(1200L, 12000L))
+                replyView.text = answer.text; chatInput.setText("")
+                web.evaluateJavascript("window.setNekoEmotion('${safeJs(answer.emotion)}');window.setNekoGesture('${safeJs(answer.gesture)}');", null)
+                animateTtsVisemes(answer.text)
+                tts?.speak(answer.text, TextToSpeech.QUEUE_FLUSH, null, "neko-reply")
             }
         }
     }
 
-    private fun emotionFor(text: String): String {
-        val s = text.lowercase()
-        return when {
-            listOf("sorry", "sad", "unfortunately").any(s::contains) -> "sad"
-            listOf("danger", "warning", "angry").any(s::contains) -> "angry"
-            listOf("wow", "amazing", "awesome", "exciting").any(s::contains) -> "excited"
-            listOf("happy", "glad", "great", "nice", "okay").any(s::contains) -> "happy"
-            else -> "neutral"
+    private fun animateTtsVisemes(text: String) {
+        val vowels = text.lowercase().filter { it in "aeiouy" }.take(180)
+        if (vowels.isEmpty()) return
+        val duration = (text.length * 55L).coerceIn(1000L, 14000L)
+        val step = (duration / vowels.length.coerceAtLeast(1)).coerceIn(55L, 150L)
+        web.evaluateJavascript("window.setNekoSpeaking(true);", null)
+        vowels.forEachIndexed { i, c ->
+            val vis = when (c) { 'a' -> "aa"; 'e' -> "ee"; 'i','y' -> "ih"; 'o' -> "oh"; else -> "ou" }
+            web.postDelayed({ web.evaluateJavascript("window.setNekoViseme('$vis',0.72);", null) }, i * step)
         }
+        web.postDelayed({ web.evaluateJavascript("window.setNekoViseme('',0);window.setNekoSpeaking(false);window.setNekoGesture('idle');", null) }, duration)
     }
 
-    override fun onDestroy() { tts?.stop(); tts?.shutdown(); super.onDestroy() }
+    private fun safeJs(value: String): String = value.replace("'", "").replace("\\", "").take(24)
+
+    override fun onPause() { web.onPause(); super.onPause() }
+    override fun onResume() { super.onResume(); web.onResume() }
+    override fun onDestroy() { tts?.stop(); tts?.shutdown(); web.destroy(); super.onDestroy() }
 }
