@@ -18,7 +18,7 @@ from .reminders import ReminderManager
 from .scheduled_windows import WindowedMonitorManager
 from .support_checkins import SupportCheckinManager, support_context
 from .vision import describe_image, strip_data_uri
-from .voice_tone import analyze_voice_wav
+from .voice_tone import analyze_voice_wav, load_latest
 from .webgui import Api, STATIC_DIR
 from .youtube_music import YouTubeMusicPlayer, handle_music_request
 
@@ -76,7 +76,6 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     affect = LocalAffectDetector()
     support = SupportCheckinManager()
     vision_context: dict[str, object] = {"text": "", "epoch": 0.0, "source": ""}
-    voice_context: dict[str, object] = {"text": "", "epoch": 0.0}
 
     def emit_avatar(event: dict) -> None:
         try:
@@ -126,8 +125,9 @@ def serve(host: str, port: int, token: str | None = None) -> None:
         context_blocks: list[str] = []
         if time.time() - float(vision_context.get("epoch") or 0) <= 20 and vision_context.get("text"):
             context_blocks.append("Opt-in current camera/Kinect context: " + str(vision_context["text"]))
-        if time.time() - float(voice_context.get("epoch") or 0) <= 30 and voice_context.get("text"):
-            context_blocks.append("Tentative current voice-tone cue: " + str(voice_context["text"]))
+        tone = load_latest(30)
+        if tone is not None:
+            context_blocks.append(f"Tentative current voice-tone cue: {tone.label} (confidence {tone.confidence:.2f}); acoustic cue only, not proof of emotion")
         owner_summary = summary_for_prompt()
         if owner_summary:
             context_blocks.append(owner_summary)
@@ -171,27 +171,20 @@ def serve(host: str, port: int, token: str | None = None) -> None:
             self.wfile.write(body)
 
         def do_POST(self):
-            if not self._authorized():
-                return self._json(401, {"error": "unauthorized"})
+            if not self._authorized(): return self._json(401, {"error": "unauthorized"})
             parsed = urlparse(self.path)
             try:
                 length = int(self.headers.get("Content-Length", "0"))
-                if length > 1_800_000:
-                    raise ValueError("request too large")
+                if length > 1_800_000: raise ValueError("request too large")
                 payload = json.loads(self.rfile.read(length) or b"{}")
 
                 if parsed.path in {"/api/android/vision", "/api/vision/frame"}:
-                    api.initialize()
-                    image = strip_data_uri(str(payload.get("image_base64", "")))
-                    if not image:
-                        raise ValueError("image_base64 is required")
-                    cue = affect.detect(image)
-                    description = describe_image(api.config, image, VISION_PROMPT)
+                    api.initialize(); image = strip_data_uri(str(payload.get("image_base64", "")))
+                    if not image: raise ValueError("image_base64 is required")
+                    cue = affect.detect(image); description = describe_image(api.config, image, VISION_PROMPT)
                     context_parts: list[str] = []
-                    if description:
-                        context_parts.append(description[:900])
-                    if cue:
-                        context_parts.append(support_context(cue))
+                    if description: context_parts.append(description[:900])
+                    if cue: context_parts.append(support_context(cue))
                     if not context_parts:
                         detail = f" Local affect fallback: {affect.error}." if affect.error else ""
                         raise ValueError("No configured vision model or local affect fallback could analyse this frame." + detail)
@@ -201,57 +194,38 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                     checkin = support.observe(cue)
                     if checkin:
                         companion = api.profile.get("companion_name", "NekoSuneAI")
-                        api._push_chat(companion, checkin, "assistant")
-                        api._push_status("Checking in with you.")
-                        emit_avatar({"type": "avatar_emotion", "value": "relaxed"})
-                        emit_avatar({"type": "avatar_gesture", "value": "relaxed"})
+                        api._push_chat(companion, checkin, "assistant"); api._push_status("Checking in with you.")
+                        emit_avatar({"type": "avatar_emotion", "value": "relaxed"}); emit_avatar({"type": "avatar_gesture", "value": "relaxed"})
                         if getattr(api.state, "voice_enabled", False):
-                            try:
-                                drive_tts_avatar(checkin, emit_avatar, gesture="relaxed")
-                                api._speak_async(checkin, "gentle")
-                            except Exception:
-                                pass
+                            try: drive_tts_avatar(checkin, emit_avatar, gesture="relaxed"); api._speak_async(checkin, "gentle")
+                            except Exception: pass
                     return self._json(200, {"ok": True, "description": description or "", "affect": None if cue is None else {"label": cue.label, "confidence": round(cue.confidence, 4), "tentative": True}, "checkin": checkin or "", "local_affect_available": affect.available})
 
                 if parsed.path in {"/api/android/voice-tone", "/api/voice/tone"}:
-                    raw = str(payload.get("wav_base64", ""))
-                    if "," in raw:
-                        raw = raw.split(",", 1)[1]
-                    try:
-                        wav = base64.b64decode(raw)
-                    except Exception as exc:
-                        raise ValueError("invalid wav_base64") from exc
+                    raw = str(payload.get("wav_base64", "")); raw = raw.split(",",1)[1] if "," in raw else raw
+                    try: wav = base64.b64decode(raw)
+                    except Exception as exc: raise ValueError("invalid wav_base64") from exc
                     cue = analyze_voice_wav(wav)
-                    if cue is None:
-                        raise ValueError("A short PCM16 WAV utterance is required")
-                    voice_context.update({"text": f"{cue.label} (confidence {cue.confidence:.2f}); acoustic cue only, not proof of emotion", "epoch": time.time()})
+                    if cue is None: raise ValueError("A short PCM16 WAV utterance is required")
                     return self._json(200, {"ok": True, "tone": cue.as_dict(), "tentative": True})
 
                 if parsed.path == "/api/android/chat":
-                    api.initialize()
-                    message = str(payload.get("message", "")).strip()
-                    if not message:
-                        raise ValueError("message is required")
-                    reply = api._pipeline(message, False)
-                    mood = load_mood()
+                    api.initialize(); message = str(payload.get("message", "")).strip()
+                    if not message: raise ValueError("message is required")
+                    reply = api._pipeline(message, False); mood = load_mood()
                     return self._json(200, {"reply": reply, "emotion": mood.expression(), "gesture": mood.gesture()})
 
-                if parsed.path != "/api/rpc":
-                    return self._json(404, {"error": "not found"})
+                if parsed.path != "/api/rpc": return self._json(404, {"error": "not found"})
                 name = str(payload.get("method", ""))
-                if name.startswith("_") or name in {"restart_app"}:
-                    raise ValueError("method not allowed")
-                method = getattr(api, name)
-                result = method(*(payload.get("args") or []))
-                return self._json(200, {"result": result})
+                if name.startswith("_") or name in {"restart_app"}: raise ValueError("method not allowed")
+                method = getattr(api, name); result = method(*(payload.get("args") or [])); return self._json(200, {"result": result})
             except Exception as exc:
                 return self._json(400, {"error": str(exc)})
 
         def do_GET(self):
             parsed = urlparse(self.path)
             if parsed.path == "/oauth/callback":
-                query = parse_qs(parsed.query)
-                error = query.get("error", [""])[0]
+                query = parse_qs(parsed.query); error = query.get("error", [""])[0]
                 result = ({"ok": False, "msg": error} if error else api.complete_mcp_oauth(query.get("state", [""])[0], query.get("code", [""])[0]))
                 message = html.escape(str(result.get("msg", "OAuth complete.")))
                 body = ("<!doctype html><meta charset='utf-8'><title>NekoSuneAI OAuth</title><body style='background:#080914;color:#f4f2ff;font:18px system-ui;padding:40px'>" f"<h1>{'Connected' if result.get('ok') else 'Connection failed'}</h1><p>{message}</p>" "<script>if(window.opener){window.opener.postMessage({type:'neko-oauth-complete'},location.origin);setTimeout(()=>window.close(),900)}</script></body>").encode()
