@@ -1,0 +1,20 @@
+<resources>
+    <style name="Theme.NekoSuneAI" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">@color/neko_bg</item>
+        <item name="android:statusBarColor">@color/neko_bg</item>
+        <item name="android:windowBackground">@color/neko_bg</item>
+        <item name="colorPrimary">@color/neko_primary</item>
+        <item name="colorOnPrimary">@color/neko_bg</item>
+        <item name="colorSurface">@color/neko_surface</item>
+        <item name="colorOnSurface">@color/neko_text</item>
+    </style>
+
+    <style name="Theme.NekoSuneAI.Splash" parent="Theme.SplashScreen.IconBackground">
+        <item name="windowSplashScreenBackground">@color/neko_bg</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_neko_logo</item>
+        <item name="windowSplashScreenIconBackgroundColor">@color/neko_surface_2</item>
+        <item name="postSplashScreenTheme">@style/Theme.NekoSuneAI</item>
+    </style>
+</resources>
