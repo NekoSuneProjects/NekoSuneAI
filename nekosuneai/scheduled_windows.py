@@ -73,7 +73,7 @@ def _days_from_text(lower: str) -> list[int]:
 def parse_windowed_monitor(text: str) -> WindowedMonitor | None:
     lower = text.lower().strip()
     if not any(x in lower for x in ("monitor ", "track ", "schedule ")): return None
-    m = re.search(r"\b(?:from|between)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s+(?:to|until|and)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b", lower)
+    m = re.search(r"\b(?:(?:from|between)\s+)?(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s+(?:to|until|and)\s+(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\b", lower)
     if not m: return None
     routed = route_tool(text)
     if not routed: return None
