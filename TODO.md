@@ -1,164 +1,141 @@
 # NekoSuneAI — Roadmap / TODO
 
-Tracking the push toward full **Neuro-sama-style** capability, VRChat-first. This
-file was rewritten from scratch after a round of cleanup — most of what used to
-be here is either done differently now or gone (Image Review, built-in Radio).
-
-## ✅ Done (this push)
-
-- **RVC voice for normal chat** (`nekosuneai/rvc.py`) — optional real-time RVC
-  voice-conversion pass over every spoken reply (not just singing), with a Pitch
-  control and a couple of standard RVC knobs (index rate, protect) in Settings →
-  Voice. Forces non-streaming XTTS synthesis since the whole line has to render
-  before it can be converted.
-- **Radio removed** (`nekosuneai/media.py`) — the built-in station directory +
-  internet-radio.com search are gone. Music search/streaming stays.
-- **Image Review removed** — vision is VRChat-first now.
-- **Sticky wake-instructions + memory reset** (`nekosuneai/sticky.py`).
-- **Thinking music** (`nekosuneai/media_player.py`).
-- **OSC chatbox paging** (`games/vrchat.py`).
-- **VRChat friends system** (`games/vrchat_friends.py`).
-- **VRChat embodiment** (`games/vrchat.py`, `vrchat_logs.py`).
-- **Watch & React mode**.
-- **Per-language TTS voice**.
+Tracking the push toward full **Neuro-sama-style** capability, VRChat-first.
 
 ## 🏠 Smart assistant / Alexa & Google Home-style ideas
 
-These are integrations/features NekoSuneAI could gain so she can act more like a
-full home assistant rather than only a conversational AI. Prefer local/offline
-control where practical and make cloud/account integrations optional.
+Prefer local/offline control where practical and make cloud/account integrations optional.
 
 ### Audio, speakers & multi-room
-- [ ] **Alexa/Echo Bluetooth volume control** — detect the active PipeWire/
-      PulseAudio sink and support `volume 50`, `turn it up/down`, `mute`, and
-      `unmute` without needing an Amazon account API.
-- [ ] **Per-device speaker volume** — remember independent volume levels for
-      Alexa/Echo, Bluetooth speakers, HDMI, USB audio and Android nodes.
-- [ ] **Multi-room audio groups** — choose one speaker, a room, or all paired
-      NekoSuneAI nodes for music/TTS playback.
-- [ ] **Whole-home broadcast / intercom** — `announce dinner is ready everywhere`
-      or send speech to a specific room, Pi, PC or Android device.
-- [ ] **Do-not-disturb / quiet hours** — reduce volume or suppress non-critical
-      spoken notifications during configured hours.
-- [ ] **Adaptive volume** — optionally raise/lower TTS volume based on ambient
-      microphone noise, then restore the previous volume.
+- [ ] Alexa/Echo Bluetooth volume control — volume/up/down/mute/unmute through PipeWire/PulseAudio.
+- [ ] Per-device speaker volume and remembered levels.
+- [ ] Multi-room audio groups for one room, selected rooms, or whole home.
+- [ ] Whole-home broadcast/intercom between Pi, PC, speakers and Android nodes.
+- [ ] Do-not-disturb / quiet hours.
+- [ ] Adaptive TTS volume based on ambient noise.
+- [ ] Follow-me audio — move music/TTS to the room the user moves into.
+- [ ] Follow-me conversation — continue the same NekoSuneAI conversation on another room node/phone.
+- [ ] Whisper/night mode — whisper to Neko and have her answer quietly.
+- [ ] Intelligent interruption priorities — emergency > important > normal > optional.
+- [ ] Don't-interrupt mode — delay non-critical announcements while conversation/media is detected.
 
 ### Matter / smart-home devices
-- [ ] **Matter controller integration** — discover and control compatible local
-      lights, plugs, switches, thermostats, sensors, blinds and other devices.
-- [ ] **Matter device dashboard** — rooms, device state, online/offline status,
-      controls, rename, room assignment and favorites.
-- [ ] **Thread support/documentation** — use an existing Thread Border Router for
-      Matter-over-Thread while allowing Wi-Fi/Ethernet Matter devices directly.
-- [ ] **Home Assistant entity control** — expand the existing MQTT support so
-      natural-language commands can query/control HA lights, switches, sensors,
-      climate devices, scenes and automations.
-- [ ] **MQTT generic devices** — configurable discovery/control for DIY ESP32,
-      Raspberry Pi, Tasmota and similar MQTT hardware.
-- [ ] **Philips Hue local integration** — local bridge discovery and light/
-      scene/brightness/colour control.
-- [ ] **WLED integration** — local control of WLED strips, presets, brightness,
-      effects and segments.
-- [ ] **Shelly local integration** — discover/control compatible local relays,
-      plugs and power-monitoring devices.
+- [ ] Matter controller and local device discovery/control.
+- [ ] Matter device dashboard with rooms, state, rename and favorites.
+- [ ] Thread Border Router support/documentation for Matter-over-Thread.
+- [ ] Expanded Home Assistant entity control.
+- [ ] Generic MQTT device discovery/control.
+- [ ] Philips Hue local bridge integration.
+- [ ] WLED integration.
+- [ ] Shelly local integration.
+- [ ] Universal device aliases — `lamp`, `my light`, and `bedside light` can resolve to the same device.
+- [ ] Room-aware commands — `turn the light off` automatically targets the room the user is speaking from.
+- [ ] Self-healing integrations — detect offline devices/services and safely attempt reconnection.
+- [ ] Device battery prediction and low-battery warnings.
+- [ ] Energy monitoring, estimated electricity cost and unusual-consumption detection.
+- [ ] Electricity-price-aware routines for compatible appliances/tariffs.
 
 ### Routines & automation
-- [ ] **Named routines/scenes** — `good morning`, `good night`, `movie mode`, etc.
-      can run several NekoSuneAI actions together.
-- [ ] **Routine builder dashboard** — trigger + conditions + ordered actions,
-      with enable/disable controls.
-- [ ] **Sensor-triggered routines** — react to motion, door/window, temperature,
-      presence, battery and other smart-home state changes.
-- [ ] **Sunrise/sunset routines** — local astronomical triggers based on the
-      configured home location.
-- [ ] **Presence/occupancy awareness** — optionally use phone/node presence and
-      smart-home sensors to know whether somebody is home or which room is
-      occupied.
+- [ ] Named routines/scenes such as good morning, good night and movie mode.
+- [ ] Routine builder dashboard: trigger + conditions + ordered actions.
+- [ ] Sensor-triggered routines.
+- [ ] Sunrise/sunset routines.
+- [ ] Presence/occupancy awareness.
+- [ ] Natural-language routine creation — describe a routine instead of programming every field.
+- [ ] Temporary routines — `for the next three days, wake me at 8`.
+- [ ] Conditional/location reminders — `remind me about washing when I next go downstairs`.
+- [ ] Teach-by-demonstration — record a safe sequence of actions such as a streaming setup and save it as an editable routine.
+- [ ] Automation conflict detection when two routines fight over the same device.
+- [ ] Explain automations — answer `why did the hallway light turn on?` with the triggering rule/sensor.
+- [ ] Natural routine debugging — answer why a routine did not execute.
+- [ ] Undo previous safe device action where the prior state is known.
+- [ ] Preview/confirmation for large actions such as turning off many devices at once.
+
+### Conversational assistant improvements
+- [ ] Real conversational follow-ups without repeating device names/wake word every sentence.
+- [ ] User-defined natural commands such as teaching `make it cozy`.
+- [ ] Explain failures instead of returning generic device errors.
+- [ ] Proactive suggestions, e.g. lights left on in an unoccupied room.
+- [ ] Correction handling — `no, I meant the kitchen light` updates the previous command.
+- [ ] Immediate `Neko stop` interruption for TTS/music/actions.
+- [ ] Multiple-person profiles with separate preferences, permissions, calendars and memories.
+- [ ] Guest mode with limited safe smart-home access.
+- [ ] Optional local voice identification for household profiles.
+- [ ] Cross-device conversation/context memory between Pi, PC and Android nodes.
 
 ### Timers, alarms, reminders & lists
-- [ ] **Multiple named timers** — `set a pizza timer for 12 minutes`, list,
-      pause/cancel and announce when finished.
-- [ ] **Alarms** — one-off and repeating alarms with configurable sound/TTS and
-      snooze support.
-- [ ] **Reminder engine** — local reminders with spoken/dashboard/Android
-      notifications and recurring schedules.
-- [ ] **Shopping list** — voice add/remove/check-off items with dashboard and
-      Android synchronization.
-- [ ] **To-do list** — named lists, priorities, due dates and spoken queries.
-- [ ] **Calendar integration** — read upcoming events and optionally create
-      reminders/events through supported calendar providers.
+- [ ] Multiple named timers with list/pause/cancel.
+- [ ] One-off/repeating alarms, custom sound/TTS and snooze.
+- [ ] Local reminder engine with spoken/dashboard/Android notifications.
+- [ ] Shopping lists.
+- [ ] To-do lists with priorities/due dates.
+- [ ] Calendar integration.
+- [ ] Ask about previous announcements — `what did you just tell me?`.
+- [ ] Notification summarisation, deduplication and cooldowns.
+
+### 📹 CCTV / door / local security vision
+- [ ] **Generic CCTV camera integration** — add cameras by RTSP/ONVIF URL so NekoSuneAI is not tied to one camera brand.
+- [ ] **ONVIF discovery** — automatically find compatible IP cameras/NVRs on the LAN.
+- [ ] **Door/front-garden camera zones** — define door, driveway, garden, gate and ignored areas per camera.
+- [ ] **Person-at-door detection** — trigger when a person enters the configured doorway/porch zone instead of every motion event.
+- [ ] **Person/animal/vehicle/package classification** — distinguish people, pets, cars/vans/bikes and delivered packages locally where possible.
+- [ ] **Known-person recognition (strictly opt-in)** — household members can explicitly enroll themselves; Neko can say a known household member is at the door. Unknown visitors remain `unknown person` rather than being identified from outside data.
+- [ ] **Unknown-person alerts** — `There's an unknown person near the front door` with configurable sensitivity and cooldown.
+- [ ] **Doorbell event integration** — accept ONVIF/MQTT/Home Assistant/webhook events from compatible smart doorbells.
+- [ ] **Door arrival announcement** — broadcast `someone is at the front door` to selected NekoSuneAI speakers/Android nodes.
+- [ ] **Snapshot notifications** — optionally send an event snapshot to the dashboard/paired phone instead of continuously streaming footage.
+- [ ] **Live camera query** — `Neko, what's at the front door?`, `is the dog in the garden?`, `is there a car on the drive?`.
+- [ ] **Camera event timeline** — local event history with time, camera, zone and detection type.
+- [ ] **Recent-event questions** — `when was someone last at the door?` or `was there a delivery today?`.
+- [ ] **Loitering detection** — optional warning when an unknown person remains inside a configured external zone beyond a threshold.
+- [ ] **Package arrival/removed state** — detect a package appearing in a defined porch zone and optionally notify when it disappears.
+- [ ] **Vehicle arrival/departure events** — driveway zone notifications without attempting to identify arbitrary people.
+- [ ] **Pet-at-door detection** — notify when the household pet is waiting at a configured door where the model can distinguish it reliably.
+- [ ] **Privacy masks** — permanently exclude neighbours' property, windows, pavement sections or other areas from AI analysis.
+- [ ] **Camera privacy schedules** — disable selected indoor-camera analysis at chosen times or while household members are home.
+- [ ] **Local-first CCTV processing** — run detection on the Pi/another local node when hardware permits; cloud vision must be explicit opt-in.
+- [ ] **No automatic stranger identification** — do not search the internet/social networks to identify unknown visitors.
+- [ ] **Retention controls** — configurable event/snapshot retention and one-command deletion of locally stored camera history.
+- [ ] **Camera health monitoring** — warn when an important camera/NVR goes offline, freezes or stops producing frames.
+- [ ] **NVR integration** — optional support for systems such as Frigate/Home Assistant and generic RTSP/ONVIF NVRs.
+- [ ] **Event-driven processing** — use camera motion/object events to avoid continuously running expensive vision inference on the Pi.
 
 ### Media & entertainment
-- [ ] **Unified media controls** — play/pause/resume/stop/next/previous/seek and
-      volume across NekoSuneAI music outputs.
-- [ ] **Spotify Connect integration** — discover available Spotify devices and
-      transfer/control playback when authenticated by the user.
-- [ ] **Chromecast / Google Cast integration** — discover Cast targets and send
-      supported local/media playback to TVs and speakers.
-- [ ] **DLNA/UPnP media renderer support** — discover compatible TVs/speakers and
-      control playback locally.
-- [ ] **TV integration** — optional local integrations such as Android TV/ADB,
-      LG webOS and Samsung TV for power/input/volume/media controls where the
-      device permits it.
+- [ ] Unified play/pause/resume/stop/next/previous/seek/volume controls.
+- [ ] Spotify Connect integration.
+- [ ] Chromecast / Google Cast integration.
+- [ ] DLNA/UPnP media renderer support.
+- [ ] Android TV/ADB, LG webOS and Samsung TV integrations where supported.
 
 ### Phone / Android companion
-- [ ] **Find my phone** — command an authenticated Android node to ring loudly
-      until dismissed, including when the phone is normally quiet where Android
-      permissions allow it.
-- [ ] **Phone battery monitoring** — warn through NekoSuneAI when a paired phone
-      reaches configurable low/critical battery thresholds.
-- [ ] **Incoming notification relay** — optionally announce selected Android
-      notifications/SMS sender names while respecting privacy filters.
-- [ ] **Phone-as-presence sensor** — authenticated local node heartbeat for
-      home/away and room/node awareness.
-- [ ] **Remote phone controls** — configurable safe actions such as ring,
-      flashlight, media control and notification acknowledgement where Android
-      permissions permit.
+- [ ] Find my phone with authenticated loud ring.
+- [ ] Phone battery monitoring.
+- [ ] Selected incoming notification/SMS relay with privacy filters.
+- [ ] Phone-as-presence sensor.
+- [ ] Safe remote phone controls such as ring, flashlight and media control.
 
-### Information assistant features
-- [ ] **Weather station integration** — local sensors plus online forecast,
-      rain/storm/lightning alerts and spoken severe-weather warnings.
-- [ ] **Commute/travel status** — optional traffic/transit/travel-time queries
-      from configured locations.
-- [ ] **Package/delivery tracking** — optional carrier integrations with
-      arrival/status notifications.
-- [ ] **RSS/news briefing** — configurable feeds for a `morning briefing`
-      instead of relying on one proprietary news service.
-- [ ] **House status briefing** — `Neko, how is the house?` summarises important
-      sensors, temperatures, batteries, offline devices and alerts.
+### Information / briefings
+- [ ] Weather station + forecast/rain/storm/lightning alerts.
+- [ ] Commute/travel status.
+- [ ] Package/delivery tracking.
+- [ ] RSS/news briefing.
+- [ ] House-status briefing covering sensors, temperature, batteries, offline devices and alerts.
+- [ ] Personal morning/evening briefing combining calendar, weather, house status, phone battery, reminders, deliveries and important notifications.
+- [ ] Home timeline — query locally retained sensor events such as when a door last opened.
 
 ### Safety, privacy & reliability
-- [ ] **Local emergency alerts** — smoke/CO/water-leak/security sensor events can
-      interrupt normal TTS and broadcast a high-priority warning.
-- [ ] **Permission levels per user/device** — restrict sensitive smart-home
-      commands such as locks, garage doors or security controls.
-- [ ] **Confirmation for sensitive actions** — require explicit confirmation for
-      unlocking/opening/disarming or similarly consequential commands.
-- [ ] **Local-first credentials vault** — keep integration tokens/passwords out
-      of chat logs and the repository, with secrets supplied through protected
-      configuration.
-- [ ] **Integration health dashboard** — show connected/degraded/offline state,
-      last successful poll, latency and reconnect controls for every service.
-- [ ] **Graceful offline mode** — local timers, routines, Matter/MQTT control,
-      cached device names and basic voice commands continue if Internet access
-      disappears.
+- [ ] Local smoke/CO/water-leak/security emergency broadcasts.
+- [ ] Permission levels per user/device.
+- [ ] Confirmation for sensitive actions such as unlocking/opening/disarming.
+- [ ] Local-first credentials vault.
+- [ ] Integration health dashboard.
+- [ ] Graceful offline mode for local voice/home functions.
+- [ ] Custom wake words and multiple wake-word profiles.
+- [ ] Wake-word context based on the room/node that heard the request.
+- [ ] No forced ecosystem — Matter, MQTT, Home Assistant, Android, PCs and custom hardware can coexist.
 
-## 🔜 Deferred (heavier ML deps / bigger lift / opt-in)
-
-### VRChat (from the NekoSuneAI reference implementation)
-- [ ] **A* dead-reckoning navigation** — estimate position/heading from received
-      Velocity, occupancy grid + pathfinding, "go to X", frontier exploration,
-      per-world persisted maps. (`nav/navigator.py`, `world.py`, `locomotion.py`)
-- [ ] **YOLO/ONNX screen object detection** — `person` detection with
-      angle/closeness, feed obstacles into the nav grid. Heavy (onnxruntime +
-      model); make opt-in. (`vision/system.py`)
-- [ ] **RapidOCR nameplate reading** — read on-screen player nameplates to greet
-      people by name.
-
-### Media
-- [ ] **YouTube search + download for music** — in-app yt-dlp-backed search/
-      download/stream path.
-
-### Broader Neuro-sama parity
-- [ ] **Voice-per-language profiles** — beyond language code, pick a distinct
-      cloned voice per language.
+## 🎮 VRChat / heavier ML backlog
+- [ ] A* dead-reckoning navigation and persisted world maps.
+- [ ] YOLO/ONNX screen object detection (opt-in).
+- [ ] RapidOCR nameplate reading.
+- [ ] Voice-per-language profiles.
