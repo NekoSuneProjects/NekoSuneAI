@@ -7,17 +7,17 @@ Tracking the push toward full **Neuro-sama-style** capability, VRChat-first.
 Prefer local/offline control where practical and make cloud/account integrations optional.
 
 ### Audio, speakers & multi-room
-- [ ] Alexa/Echo Bluetooth volume control — volume/up/down/mute/unmute through PipeWire/PulseAudio.
-- [ ] Per-device speaker volume and remembered levels.
-- [ ] Multi-room audio groups for one room, selected rooms, or whole home.
+- [x] Alexa/Echo Bluetooth volume control — volume/up/down/mute/unmute through PipeWire/PulseAudio.
+- [x] Per-device speaker volume and remembered levels.
+- [x] Multi-room audio groups for one room, selected rooms, or whole home.
 - [ ] Whole-home broadcast/intercom between Pi, PC, speakers and Android nodes.
-- [ ] Do-not-disturb / quiet hours.
+- [x] Do-not-disturb / quiet hours.
 - [ ] Adaptive TTS volume based on ambient noise.
 - [ ] Follow-me audio — move music/TTS to the room the user moves into.
 - [ ] Follow-me conversation — continue the same NekoSuneAI conversation on another room node/phone.
-- [ ] Whisper/night mode — whisper to Neko and have her answer quietly.
-- [ ] Intelligent interruption priorities — emergency > important > normal > optional.
-- [ ] Don't-interrupt mode — delay non-critical announcements while conversation/media is detected.
+- [x] Whisper/night mode — whisper to Neko and have her answer quietly.
+- [x] Intelligent interruption priorities — emergency > important > normal > optional.
+- [x] Don't-interrupt mode — delay non-critical announcements while conversation/media is detected.
 
 ### Matter / smart-home devices
 - [ ] Matter controller and local device discovery/control.
@@ -67,11 +67,11 @@ Prefer local/offline control where practical and make cloud/account integrations
 - [ ] Multiple named timers with list/pause/cancel.
 - [ ] One-off/repeating alarms, custom sound/TTS and snooze.
 - [ ] Local reminder engine with spoken/dashboard/Android notifications.
-- [ ] Shopping lists.
-- [ ] To-do lists with priorities/due dates.
+- [x] Shopping lists.
+- [x] To-do lists with priorities/due dates.
 - [ ] Calendar integration.
-- [ ] Ask about previous announcements — `what did you just tell me?`.
-- [ ] Notification summarisation, deduplication and cooldowns.
+- [x] Ask about previous announcements — `what did you just tell me?`.
+- [x] Notification summarisation, deduplication and cooldowns.
 
 ### 📹 CCTV / door / local security vision
 - [ ] **Generic CCTV camera integration** — add cameras by RTSP/ONVIF URL so NekoSuneAI is not tied to one camera brand.
