@@ -206,6 +206,106 @@ locks, robotics and other physical systems.
 - [ ] Priority emergency broadcast to selected speakers/displays/phones.
 - [ ] Hardware emergency-disable switch that can stop Neko-controlled physical automations independently of the AI.
 
+## 🖨️ 3D printer / workshop integration
+
+### Printer connectivity & control
+- [ ] OctoPrint integration for printer status, jobs, temperature, camera and safe control actions.
+- [ ] Klipper/Moonraker integration for Klipper-based printers.
+- [ ] PrusaLink/Prusa Connect support where APIs permit it.
+- [ ] Bambu-style LAN/API integration where supported, keeping cloud login optional when possible.
+- [ ] Generic printer adapter interface so additional printer brands can be added without changing core assistant logic.
+- [ ] Multi-printer dashboard showing idle/printing/paused/error/offline state, progress and estimated finish time.
+- [ ] Natural commands such as `how is my print?`, `pause the printer`, `what temperature is the nozzle?`, and `which printer is free?`.
+- [ ] Require explicit confirmation before starting a print, homing axes, heating or other actions that can move/hot-end hardware.
+- [ ] Never allow the LLM to bypass printer firmware limits, thermal protection, endstops or emergency-stop behaviour.
+
+### Print monitoring & vision
+- [ ] Printer-camera monitoring via the printer/NVR/RTSP camera.
+- [ ] Optional local failed-print/spaghetti detection and warning.
+- [ ] Configurable auto-pause on high-confidence print failure, with user opt-in and clear reason logging.
+- [ ] Layer-shift, detached-print and obvious filament-tangle alerts where computer vision can identify them reliably.
+- [ ] `Neko, does my print look okay?` live snapshot analysis.
+- [ ] Print-event snapshots on start, warning, pause, failure and completion.
+- [ ] Timelapse trigger/integration where the printer stack already supports it.
+
+### Filament, maintenance & planning
+- [ ] Filament/spool inventory with material, colour, remaining weight and printer assignment.
+- [ ] Estimate filament remaining/used from slicer or printer job metadata.
+- [ ] Warn before a job if the selected spool is unlikely to contain enough filament.
+- [ ] Track nozzle/runtime hours and configurable maintenance intervals.
+- [ ] Maintenance reminders for lubrication, nozzle inspection, bed cleaning and other user-defined tasks.
+- [ ] Print history containing job duration, material use, failures and completion status.
+- [ ] Power/energy monitoring for compatible smart plugs/printers.
+- [ ] Enclosure temperature/humidity monitoring when sensors exist.
+- [ ] Compare printer build volume/material compatibility before suggesting which printer to use.
+- [ ] Optional slicer metadata import from G-code/3MF without automatically executing untrusted files.
+
+## 🕶️ Smart glasses / wearable NekoSuneAI node
+
+The glasses should act as a lightweight sensor/display/audio endpoint while the heavier NekoSuneAI
+brain runs on the phone, Pi, PC or server. Hardware support depends on whether a manufacturer exposes
+camera, microphone, speaker, IMU, display, buttons or an SDK/API.
+
+### Wearable connection architecture
+- [ ] Smart-glasses node protocol through the Android/phone companion or direct local network connection.
+- [ ] Encrypted authenticated glasses ↔ phone ↔ NekoSuneAI transport.
+- [ ] Bluetooth-audio fallback for glasses that expose only microphone/speaker functionality.
+- [ ] Capability discovery so Neko knows whether connected glasses provide camera, display, IMU, GPS, buttons, gestures or audio.
+- [ ] Graceful feature fallback when glasses do not expose a camera/display SDK.
+- [ ] Battery monitoring and low-battery warnings for the glasses.
+- [ ] Continue the same conversation/context between glasses, phone, Pi and PC.
+
+### Vision through glasses
+- [ ] `Neko, what am I looking at?` camera query when the user intentionally invokes vision.
+- [ ] Read visible text, labels, QR codes, signs, error messages and device model numbers.
+- [ ] Look at a configured 3D printer and ask whether the current print appears healthy.
+- [ ] Look at the user's own enrolled device and combine camera context with live telemetry/logs.
+- [ ] Contextual `this/that` device control using vision plus room/device mapping.
+- [ ] Object-memory sightings from wearable camera, with configurable retention and explicit privacy controls.
+- [ ] `Remember where this is` / `remember this location` for the user's own objects/equipment.
+- [ ] Avoid automatic face identification of strangers; household profile recognition remains strictly opt-in.
+
+### HUD / augmented information
+- [ ] Minimal JARVIS-style HUD showing time, weather, Neko state, notifications and urgent home alerts.
+- [ ] Optional small Neko VRM/avatar/listening indicator where the glasses display API allows rendering.
+- [ ] Live captions of Neko's replies for noisy environments.
+- [ ] Live translation/subtitles where supported.
+- [ ] Navigation prompts/arrows using phone GPS or compatible glasses location APIs.
+- [ ] Overlay the state/name of the user's mapped smart devices where spatial/AR capabilities allow it.
+- [ ] Show printer progress, server health, phone battery, house warnings and selected notifications in a compact HUD.
+- [ ] Privacy-first notification filtering so sensitive notification content is hidden unless explicitly permitted.
+
+### Wearable controls
+- [ ] Glasses button/tap/gesture mapped to wake, mute, stop speaking, push-to-talk or acknowledge notification.
+- [ ] IMU/head-gesture shortcuts where the hardware SDK safely supports them.
+- [ ] Voice command to capture a snapshot only when explicitly requested or when a user-created routine allows it.
+- [ ] Quiet/private reply mode using the glasses speaker instead of broadcasting through room speakers.
+- [ ] Wearable emergency shortcut that can trigger an approved local action/alert without navigating menus.
+
+## 🔌 Neko Peripheral Nodes
+
+Build a reusable hardware capability protocol instead of hardcoding every future device into the core AI.
+A node registers its identity, permissions, state and a strict set of capabilities Neko is allowed to call.
+
+- [ ] Generic authenticated node registration/pairing system.
+- [ ] Capability manifest such as `printer.status`, `printer.pause`, `camera.snapshot`, `display.notify`, `sensor.temperature`, `device.battery`, `audio.speak`.
+- [ ] Per-capability permission/confirmation policy.
+- [ ] Read-only vs state-changing capability classification.
+- [ ] Node heartbeat, latency, battery and online/offline status.
+- [ ] Local WebSocket/MQTT/HTTP transport adapters with encryption/authentication.
+- [ ] Remote transport option through the existing bridge without exposing unauthenticated LAN controls.
+- [ ] Dashboard for connected nodes, capabilities, permissions and last activity.
+- [ ] Android Phone Node.
+- [ ] Smart Glasses Node.
+- [ ] 3D Printer Node.
+- [ ] CCTV/NVR Node.
+- [ ] ESP32 Sensor Node.
+- [ ] PC/Desktop Node.
+- [ ] Raspberry Pi/Server Node.
+- [ ] Weather Station Node.
+- [ ] Robot/Robot Arm Node with safety-controller boundary.
+- [ ] Future vehicle-telemetry node restricted to supported read-only/safe capabilities by default.
+
 ## 🎮 VRChat / heavier ML backlog
 - [ ] A* dead-reckoning navigation and persisted world maps.
 - [ ] YOLO/ONNX screen object detection (opt-in).
