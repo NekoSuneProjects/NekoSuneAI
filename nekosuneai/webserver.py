@@ -18,6 +18,9 @@ from .mobile_notify import MobileNotifier
 from .mood_state import load_mood, update_from_interaction
 from .owner_learning import learn_from_text, list_profile, summary_for_prompt
 from .reminders import ReminderManager
+from .lists import ListManager
+from .notifications import NotificationGate
+from .audio_control import AudioController
 from .scheduled_windows import WindowedMonitorManager
 from .support_checkins import SupportCheckinManager, support_context
 from .vision import describe_image, strip_data_uri
@@ -111,6 +114,9 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     advertiser = MdnsAdvertiser(port)
     windowed_monitor: WindowedMonitorManager | None = None
     reminders: ReminderManager | None = None
+    lists: ListManager | None = None
+    notify_gate: NotificationGate | None = None
+    audio = AudioController()
     affect = LocalAffectDetector()
     support = SupportCheckinManager()
     vision_context: dict[str, object] = {"text": "", "epoch": 0.0, "source": ""}
@@ -118,6 +124,14 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     original_monitor_notification = api._monitor_notification
 
     def monitor_notification(message: str, level: str = "none") -> None:
+        nonlocal notify_gate
+        if notify_gate is None:
+            notify_gate = NotificationGate(getattr(api.config, "timezone", None) or "Europe/London")
+        try:
+            if not notify_gate.should_deliver(message, level):
+                return  # suppressed by quiet hours / dedup / cooldown
+        except Exception:
+            pass
         original_monitor_notification(message, level)
         if level in {"warning", "danger"}:
             api._queue_web_event({"type": "mobile_alert", "value": message, "level": level})
@@ -135,22 +149,30 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     original_initialize = api.initialize
 
     def initialize_with_services(*args, **kwargs):
-        nonlocal windowed_monitor, reminders
+        nonlocal windowed_monitor, reminders, lists, notify_gate
         result = original_initialize(*args, **kwargs)
+        tz = getattr(api.config, "timezone", None) or "Europe/London"
         if windowed_monitor is None:
             windowed_monitor = WindowedMonitorManager(api.config, api._monitor_notification)
             windowed_monitor.start()
         if reminders is None:
-            reminders = ReminderManager(api._monitor_notification, getattr(api.config, "timezone", None) or "Europe/London")
+            reminders = ReminderManager(api._monitor_notification, tz)
             reminders.start()
+        if lists is None:
+            lists = ListManager(tz)
+        if notify_gate is None:
+            notify_gate = NotificationGate(tz)
         return result
 
     api.initialize = initialize_with_services  # type: ignore[method-assign]
     original_pipeline = api._pipeline
 
     def integrated_pipeline(user_text: str, from_voice: bool) -> str:
-        nonlocal windowed_monitor, reminders
+        nonlocal windowed_monitor, reminders, lists, notify_gate
         learn_from_text(user_text)
+        # Active conversation — let don't-interrupt mode hold non-urgent alerts.
+        if notify_gate is not None:
+            notify_gate.mark_activity()
         mood = update_from_interaction(user_text)
         emit_avatar({"type": "avatar_emotion", "value": mood.expression()})
         emit_avatar({"type": "avatar_gesture", "value": mood.gesture()})
@@ -206,6 +228,21 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 reply = reminders.handle(user_text)
             except Exception as exc:
                 reply = f"I couldn't create that reminder: {exc}"
+        if reply is None and lists is not None:
+            try:
+                reply = lists.handle(user_text)
+            except Exception as exc:
+                reply = f"I couldn't update that list: {exc}"
+        if reply is None and notify_gate is not None:
+            try:
+                reply = notify_gate.handle(user_text)
+            except Exception as exc:
+                reply = f"I couldn't update notification settings: {exc}"
+        if reply is None:
+            try:
+                reply = audio.handle(user_text)
+            except Exception as exc:
+                reply = f"I couldn't change the audio: {exc}"
         if reply is None and windowed_monitor is not None:
             try:
                 reply = windowed_monitor.handle(user_text)
