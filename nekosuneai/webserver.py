@@ -29,6 +29,8 @@ from .webgui import Api, STATIC_DIR
 from .youtube_music import YouTubeMusicPlayer, handle_music_request
 from .interruptions import is_global_stop_command
 from .integration_health import append_runtime_item
+from .peripheral_nodes import PeripheralNodeRegistry
+from .routines import RoutineManager
 
 VISION_PROMPT = (
     "Describe the visible scene briefly for a conversational assistant. Focus on non-sensitive facts: "
@@ -82,6 +84,15 @@ def _decorate_dashboard(body: bytes) -> bytes:
     panel.innerHTML=`<div class="flex items-center justify-between gap-3 mb-2"><div><div class="section-kicker">ANDROID COMPANION</div><div class="text-[15px] font-bold text-nova-text mt-1">Device pairing request</div></div><span class="live-pill">LAN</span></div><div class="text-[11px] text-nova-muted2 mb-3">A phone found this NekoSuneAI server. Approve only devices you recognize.</div><div id="neko-pairing-list" class="space-y-2"></div>`;
     document.body.appendChild(panel);
   }
+  function mountAutomationsLink(){
+    if(document.getElementById('neko-automations-link'))return;
+    const link=document.createElement('a');
+    link.id='neko-automations-link';
+    link.href='/automations?token='+encodeURIComponent(token());
+    link.textContent='Nodes & Routines';
+    link.className='btn-secondary fixed left-4 bottom-4 z-[90] rounded-xl px-4 py-3 text-[12px] font-bold';
+    document.body.appendChild(link);
+  }
   async function pairingAction(requestId,action){
     try{await pairFetch('/api/pairing/'+action,{method:'POST',body:JSON.stringify({request_id:requestId})});await refreshPairing();}catch(_){}
   }
@@ -100,7 +111,7 @@ def _decorate_dashboard(body: bytes) -> bytes:
       list.querySelectorAll('[data-pair-reject]').forEach(b=>b.onclick=()=>pairingAction(b.dataset.pairReject,'reject'));
     }catch(_){panel.classList.add('hidden');}
   }
-  addEventListener('DOMContentLoaded',()=>{mountPairing();refreshPairing();setInterval(refreshPairing,3000)});
+  addEventListener('DOMContentLoaded',()=>{mountPairing();mountAutomationsLink();refreshPairing();setInterval(refreshPairing,3000)});
 })();
 </script>'''
     return text.replace("</body>", bridge + "</body>", 1).encode("utf-8")
@@ -129,14 +140,48 @@ def serve(host: str, port: int, token: str | None = None) -> None:
         snapshot = original_integration_health()
         devices = android_hub.list_devices()
         if not devices:
-            return append_runtime_item(snapshot, "Android companion", "disabled", "No companion has connected in this session")
-        online = [item for item in devices if item.get("online")]
-        status = "healthy" if online else "degraded"
-        detail = f"{len(online)} of {len(devices)} companion device(s) online" if online else "Paired companion devices have no recent heartbeat"
-        return append_runtime_item(snapshot, "Android companion", status, detail)
+            snapshot = append_runtime_item(snapshot, "Android companion", "disabled", "No companion has connected in this session")
+        else:
+            online = [item for item in devices if item.get("online")]
+            status = "healthy" if online else "degraded"
+            detail = f"{len(online)} of {len(devices)} companion device(s) online" if online else "Paired companion devices have no recent heartbeat"
+            snapshot = append_runtime_item(snapshot, "Android companion", status, detail)
+        nodes = peripheral_nodes.list_nodes()
+        if not nodes:
+            return append_runtime_item(snapshot, "Peripheral nodes", "disabled", "No peripheral nodes are paired")
+        online_nodes = [item for item in nodes if item.get("online")]
+        node_status = "healthy" if len(online_nodes) == len(nodes) else "degraded"
+        return append_runtime_item(
+            snapshot,
+            "Peripheral nodes",
+            node_status,
+            f"{len(online_nodes)} of {len(nodes)} paired node(s) online",
+        )
 
     api.get_integration_health = integration_health_with_devices  # type: ignore[method-assign]
     pairing = DevicePairingManager()
+    peripheral_nodes = PeripheralNodeRegistry()
+
+    def execute_routine_action(action: dict) -> dict:
+        item = peripheral_nodes.enqueue(
+            str(action.get("node_id", "")),
+            str(action.get("capability", "")),
+            dict(action.get("arguments") or {}),
+            confirmed=bool(action.get("confirmed", False)),
+            requested_by="routine",
+        )
+        result: dict = {"command": item}
+        undo = action.get("undo")
+        if isinstance(undo, dict):
+            result["undo"] = undo
+        return result
+
+    routines = RoutineManager(
+        execute_routine_action,
+        policy_resolver=lambda action: peripheral_nodes.action_policy(
+            str(action.get("node_id", "")), str(action.get("capability", ""))
+        ),
+    )
     advertiser = MdnsAdvertiser(port)
     windowed_monitor: WindowedMonitorManager | None = None
     reminders: ReminderManager | None = None
@@ -276,6 +321,11 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 reply = windowed_monitor.handle(user_text)
             except Exception as exc:
                 reply = f"I couldn't create that monitoring schedule: {exc}"
+        if reply is None:
+            try:
+                reply = routines.handle(user_text)
+            except Exception as exc:
+                reply = f"I couldn't use that routine: {exc}"
 
         context_blocks: list[str] = []
         if time.time() - float(vision_context.get("epoch") or 0) <= 20 and vision_context.get("text"):
@@ -324,6 +374,11 @@ def serve(host: str, port: int, token: str | None = None) -> None:
             supplied = self.headers.get("X-Neko-Device-Token", "")
             return bool(supplied) and (secrets.compare_digest(supplied, access_token) or pairing.authorize_device_token(supplied))
 
+        def _node_authorized(self, node_id: str) -> bool:
+            if self._dashboard_authorized():
+                return True
+            return peripheral_nodes.authorize(node_id, self.headers.get("X-Neko-Device-Token", ""))
+
         def _authorized(self) -> bool:
             return self._dashboard_authorized()
 
@@ -356,6 +411,44 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                     api._push_notification(f"Pairing request from {item.get('name', 'Android phone')} ({item.get('remote_ip', '')}). Approve it on the dashboard.")
                     return self._json(200, {"ok": True, **item})
 
+                if parsed.path == "/api/nodes/register":
+                    try:
+                        result = peripheral_nodes.register(
+                            str(payload.get("pairing_id", "")),
+                            str(payload.get("pairing_code", "")),
+                            str(payload.get("node_id", "")),
+                            str(payload.get("name", "Peripheral node")),
+                            str(payload.get("node_type", "generic")),
+                            payload.get("capabilities") or {},
+                            str(self.client_address[0]),
+                        )
+                    except PermissionError as exc:
+                        return self._json(403, {"error": str(exc)})
+                    api._push_notification(f"Paired peripheral node {result['node']['name']} successfully.")
+                    return self._json(200, {"ok": True, **result})
+
+                if parsed.path in {"/api/nodes/heartbeat", "/api/nodes/poll"}:
+                    node_id = str(payload.get("node_id", ""))
+                    if not self._node_authorized(node_id):
+                        return self._json(401, {"error": "unauthorized"})
+                    if parsed.path == "/api/nodes/heartbeat":
+                        result = peripheral_nodes.heartbeat(
+                            node_id,
+                            dict(payload.get("state") or {}),
+                            payload.get("latency_ms"),
+                            payload.get("battery_percent"),
+                            str(self.client_address[0]),
+                            payload.get("ack_command_id"),
+                        )
+                        battery = result.get("battery_percent")
+                        if isinstance(battery, (int, float)) and battery <= 10:
+                            api._push_notification(f"{result.get('name', 'Peripheral node')} battery is low at {battery:.0f}%.")
+                        return self._json(200, {"ok": True, "node": result})
+                    commands = peripheral_nodes.wait_commands(
+                        node_id, int(payload.get("after", 0)), float(payload.get("wait_seconds", 25))
+                    )
+                    return self._json(200, {"commands": commands})
+
                 if parsed.path in {"/api/pairing/approve", "/api/pairing/reject", "/api/pairing/revoke"}:
                     if not self._dashboard_authorized():
                         return self._json(401, {"error": "unauthorized"})
@@ -367,6 +460,72 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                     else:
                         result = pairing.revoke(str(payload.get("device_id", "")))
                     return self._json(200, result)
+
+                if parsed.path == "/api/nodes/pairing":
+                    if not self._dashboard_authorized():
+                        return self._json(401, {"error": "unauthorized"})
+                    return self._json(200, peripheral_nodes.create_pairing(
+                        str(payload.get("name", "New node")), int(payload.get("ttl_seconds", 300))
+                    ))
+
+                if parsed.path == "/api/nodes/command":
+                    if not self._dashboard_authorized():
+                        return self._json(401, {"error": "unauthorized"})
+                    item = peripheral_nodes.enqueue(
+                        str(payload.get("node_id", "")),
+                        str(payload.get("capability", "")),
+                        dict(payload.get("arguments") or {}),
+                        confirmed=bool(payload.get("confirmed", False)),
+                        requested_by=str(payload.get("requested_by", "dashboard")),
+                    )
+                    return self._json(200, {"ok": True, "command": item})
+
+                if parsed.path == "/api/nodes/policy":
+                    if not self._dashboard_authorized():
+                        return self._json(401, {"error": "unauthorized"})
+                    node = peripheral_nodes.set_policy(
+                        str(payload.get("node_id", "")),
+                        str(payload.get("capability", "")),
+                        str(payload.get("policy", "")),
+                    )
+                    return self._json(200, {"ok": True, "node": node})
+
+                if parsed.path == "/api/nodes/revoke":
+                    if not self._dashboard_authorized():
+                        return self._json(401, {"error": "unauthorized"})
+                    return self._json(200, {"ok": True, "revoked": peripheral_nodes.revoke(str(payload.get("node_id", "")))})
+
+                if parsed.path == "/api/routines":
+                    if not self._dashboard_authorized():
+                        return self._json(401, {"error": "unauthorized"})
+                    action = str(payload.get("action", "create"))
+                    if action == "create":
+                        result = routines.create(dict(payload.get("routine") or payload))
+                    elif action == "update":
+                        result = routines.update(str(payload.get("routine_id", "")), dict(payload.get("routine") or {}))
+                    elif action == "delete":
+                        result = {"deleted": routines.delete(str(payload.get("routine_id", "")))}
+                    else:
+                        raise ValueError("routine action must be create, update, or delete")
+                    return self._json(200, {"ok": True, "result": result})
+
+                if parsed.path in {"/api/routines/preview", "/api/routines/run", "/api/routines/event", "/api/routines/undo"}:
+                    if not self._dashboard_authorized():
+                        return self._json(401, {"error": "unauthorized"})
+                    if parsed.path == "/api/routines/preview":
+                        result = routines.preview(str(payload.get("routine", "")), dict(payload.get("context") or {}))
+                    elif parsed.path == "/api/routines/run":
+                        result = routines.run(
+                            str(payload.get("routine", "")),
+                            dict(payload.get("context") or {}),
+                            confirmed=bool(payload.get("confirmed", False)),
+                            reason=str(payload.get("reason", "dashboard")),
+                        )
+                    elif parsed.path == "/api/routines/event":
+                        result = routines.handle_event(str(payload.get("event", "")), dict(payload.get("context") or {}))
+                    else:
+                        result = routines.undo_last()
+                    return self._json(200, {"ok": True, "result": result})
 
                 device_paths = {
                     "/api/android/heartbeat", "/api/android/notification", "/api/android/command",
@@ -491,6 +650,27 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 return
             if parsed.path == "/api/pairing/status":
                 return self._json(200, pairing.status(query.get("request_id", [""])[0], query.get("device_id", [""])[0]))
+            if parsed.path == "/api/nodes":
+                if not self._dashboard_authorized():
+                    return self._json(401, {"error": "unauthorized"})
+                return self._json(200, {"nodes": peripheral_nodes.list_nodes()})
+            if parsed.path == "/api/nodes/audit":
+                if not self._dashboard_authorized():
+                    return self._json(401, {"error": "unauthorized"})
+                return self._json(200, {"audit": peripheral_nodes.audit(int(query.get("limit", ["100"])[0]))})
+            if parsed.path == "/api/routines":
+                if not self._dashboard_authorized():
+                    return self._json(401, {"error": "unauthorized"})
+                include_expired = query.get("include_expired", [""])[0].strip().lower() in {"1", "true", "yes", "on"}
+                return self._json(200, {"routines": routines.list(include_expired)})
+            if parsed.path == "/api/routines/conflicts":
+                if not self._dashboard_authorized():
+                    return self._json(401, {"error": "unauthorized"})
+                return self._json(200, {"conflicts": routines.conflicts()})
+            if parsed.path == "/api/routines/explain":
+                if not self._dashboard_authorized():
+                    return self._json(401, {"error": "unauthorized"})
+                return self._json(200, routines.explain(query.get("routine", [""])[0]))
             if parsed.path == "/api/pairing/pending":
                 if not self._dashboard_authorized():
                     return self._json(401, {"error": "unauthorized"})
@@ -543,6 +723,8 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 relative = "mobile.html"
             elif parsed.path in {"/avatar", "/avatar/"}:
                 relative = "vrm.html"
+            elif parsed.path in {"/automations", "/automations/"}:
+                relative = "automations.html"
             else:
                 relative = "index.html" if parsed.path in {"", "/"} else parsed.path.lstrip("/")
             target = (STATIC_DIR / relative).resolve()
@@ -555,7 +737,7 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 body = _decorate_dashboard(body)
             self.send_response(200)
             self.send_header("Content-Type", mimetypes.guess_type(target.name)[0] or "application/octet-stream")
-            if target.name in {"vrm.html", "index.html", "mobile.html", "mobile-sw.js", "manifest.webmanifest"}:
+            if target.name in {"vrm.html", "index.html", "mobile.html", "automations.html", "mobile-sw.js", "manifest.webmanifest"}:
                 self.send_header("Cache-Control", "no-cache")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
@@ -567,6 +749,7 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     print(f"NekoSuneAI web dashboard: http://{host}:{port}/?token={access_token}")
     print(f"NekoSuneAI mobile dashboard: http://{host}:{port}/mobile?token={access_token}")
     print(f"NekoSuneAI VRM avatar: http://{host}:{port}/avatar?token={access_token}")
+    print(f"NekoSuneAI nodes and routines: http://{host}:{port}/automations?token={access_token}")
     if advertiser.start():
         print(f"NekoSuneAI Android discovery: mDNS _nekosuneai._tcp.local. on port {port}")
     if mobile_notifier:

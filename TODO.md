@@ -36,20 +36,20 @@ Prefer local/offline control where practical and make cloud/account integrations
 - [ ] Electricity-price-aware routines for compatible appliances/tariffs.
 
 ### Routines & automation
-- [ ] Named routines/scenes such as good morning, good night and movie mode.
-- [ ] Routine builder dashboard: trigger + conditions + ordered actions.
-- [ ] Sensor-triggered routines.
+- [x] Named routines/scenes such as good morning, good night and movie mode.
+- [x] Routine builder dashboard: trigger + conditions + ordered actions.
+- [x] Sensor-triggered routines.
 - [ ] Sunrise/sunset routines.
 - [ ] Presence/occupancy awareness.
 - [ ] Natural-language routine creation — describe a routine instead of programming every field.
 - [ ] Temporary routines — `for the next three days, wake me at 8`.
 - [ ] Conditional/location reminders — `remind me about washing when I next go downstairs`.
 - [ ] Teach-by-demonstration — record a safe sequence of actions such as a streaming setup and save it as an editable routine.
-- [ ] Automation conflict detection when two routines fight over the same device.
-- [ ] Explain automations — answer `why did the hallway light turn on?` with the triggering rule/sensor.
-- [ ] Natural routine debugging — answer why a routine did not execute.
-- [ ] Undo previous safe device action where the prior state is known.
-- [ ] Preview/confirmation for large actions such as turning off many devices at once.
+- [x] Automation conflict detection when two routines fight over the same device.
+- [x] Explain automations — answer `why did the hallway light turn on?` with the triggering rule/sensor.
+- [x] Natural routine debugging — answer why a routine did not execute.
+- [x] Undo previous safe device action where the prior state is known.
+- [x] Preview/confirmation for large actions such as turning off many devices at once.
 
 ### Conversational assistant improvements
 - [ ] Real conversational follow-ups without repeating device names/wake word every sentence.
@@ -110,10 +110,10 @@ Prefer local/offline control where practical and make cloud/account integrations
 - [ ] Android TV/ADB, LG webOS and Samsung TV integrations where supported.
 
 ### Phone / Android companion
-- [ ] Find my phone with authenticated loud ring.
-- [ ] Phone battery monitoring.
+- [x] Find my phone with authenticated loud ring.
+- [x] Phone battery monitoring.
 - [ ] Selected incoming notification/SMS relay with privacy filters.
-- [ ] Phone-as-presence sensor.
+- [x] Phone-as-presence sensor.
 - [ ] Safe remote phone controls such as ring, flashlight and media control.
 
 ### Information / briefings
@@ -289,14 +289,14 @@ camera, microphone, speaker, IMU, display, buttons or an SDK/API.
 Build a reusable hardware capability protocol instead of hardcoding every future device into the core AI.
 A node registers its identity, permissions, state and a strict set of capabilities Neko is allowed to call.
 
-- [ ] Generic authenticated node registration/pairing system.
-- [ ] Capability manifest such as `printer.status`, `printer.pause`, `camera.snapshot`, `display.notify`, `sensor.temperature`, `device.battery`, `audio.speak`.
-- [ ] Per-capability permission/confirmation policy.
-- [ ] Read-only vs state-changing capability classification.
-- [ ] Node heartbeat, latency, battery and online/offline status.
+- [x] Generic authenticated node registration/pairing system.
+- [x] Capability manifest such as `printer.status`, `printer.pause`, `camera.snapshot`, `display.notify`, `sensor.temperature`, `device.battery`, `audio.speak`.
+- [x] Per-capability permission/confirmation policy.
+- [x] Read-only vs state-changing capability classification.
+- [x] Node heartbeat, latency, battery and online/offline status.
 - [ ] Local WebSocket/MQTT/HTTP transport adapters with encryption/authentication.
 - [ ] Remote transport option through the existing bridge without exposing unauthenticated LAN controls.
-- [ ] Dashboard for connected nodes, capabilities, permissions and last activity.
+- [x] Dashboard for connected nodes, capabilities, permissions and last activity.
 - [ ] Android Phone Node.
 - [ ] Smart Glasses Node.
 - [ ] 3D Printer Node.

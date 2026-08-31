@@ -42,6 +42,8 @@ data/history.jsonl
 data/profile.json
 data/profiles.json
 data/update_state.json
+data/peripheral_nodes.json
+data/routines.json
 data/music/
 audio/
 

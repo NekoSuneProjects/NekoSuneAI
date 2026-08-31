@@ -1,5 +1,16 @@
 # Changelog
 
+## Roadmap foundation batch
+
+- Add authenticated, one-use pairing for generic peripheral nodes with strict
+  capability manifests, read/write classification and per-capability policy.
+- Add persistent node heartbeat, battery, latency, online state, command queues,
+  revocation and a local audit trail.
+- Add persistent manual/event/sensor routines with deterministic conditions,
+  ordered actions, previews, large-action confirmation, conflict detection,
+  execution explanations and safe undo where a prior state is supplied.
+- Add an authenticated Nodes & Routines dashboard and HTTP API documentation.
+
 ## 1.2.1 wake-word image fix
 
 - Preload the official `hey_jarvis` model in Docker images and automatically

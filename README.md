@@ -578,6 +578,12 @@ OLLAMA_NUM_PREDICT=1200
 
 See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) and `.env.example` for the complete configuration surface.
 
+Peripheral nodes and local routines use capability-scoped commands rather than
+arbitrary remote execution. See
+[`docs/PERIPHERAL_NODES_AND_ROUTINES.md`](docs/PERIPHERAL_NODES_AND_ROUTINES.md)
+for pairing, permissions, heartbeat, routine and API examples. The Studio's
+**Nodes & Routines** button opens the authenticated visual manager.
+
 ---
 
 ## 📁 Project Layout
@@ -601,6 +607,7 @@ NekoSuneAI/
 ├── docs/
 │   ├── ANDROID_COMPANION.md
 │   ├── ANDROID_MOBILE.md
+│   ├── PERIPHERAL_NODES_AND_ROUTINES.md
 │   ├── PI_MUSIC_AND_SCHEDULES.md
 │   └── VOICE_TONE_HOOK.md
 └── nekosuneai/
@@ -618,6 +625,8 @@ NekoSuneAI/
     ├── mobile_notify.py             # ntfy-compatible alerts
     ├── youtube_music.py
     ├── reminders.py
+    ├── routines.py                    # local routines, conflicts and undo
+    ├── peripheral_nodes.py            # authenticated capability protocol
     ├── scheduled_windows.py
     ├── avatar_motion.py
     ├── vision.py
