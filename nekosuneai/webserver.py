@@ -27,6 +27,8 @@ from .vision import describe_image, strip_data_uri
 from .voice_tone import analyze_voice_wav, load_latest
 from .webgui import Api, STATIC_DIR
 from .youtube_music import YouTubeMusicPlayer, handle_music_request
+from .interruptions import is_global_stop_command
+from .integration_health import append_runtime_item
 
 VISION_PROMPT = (
     "Describe the visible scene briefly for a conversational assistant. Focus on non-sensitive facts: "
@@ -108,8 +110,32 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     api = Api()
     access_token = token or secrets.token_urlsafe(24)
     music = YouTubeMusicPlayer(lambda msg: api._push_chat("Music", msg, "system"))
+    original_stop_everything = api.stop_everything
+
+    def stop_everything_with_music():
+        result = original_stop_everything()
+        try:
+            music.stop(silent=True)
+        except Exception:
+            pass
+        return result
+
+    api.stop_everything = stop_everything_with_music  # type: ignore[method-assign]
     mobile_notifier = MobileNotifier.from_env()
     android_hub = AndroidDeviceHub()
+    original_integration_health = api.get_integration_health
+
+    def integration_health_with_devices():
+        snapshot = original_integration_health()
+        devices = android_hub.list_devices()
+        if not devices:
+            return append_runtime_item(snapshot, "Android companion", "disabled", "No companion has connected in this session")
+        online = [item for item in devices if item.get("online")]
+        status = "healthy" if online else "degraded"
+        detail = f"{len(online)} of {len(devices)} companion device(s) online" if online else "Paired companion devices have no recent heartbeat"
+        return append_runtime_item(snapshot, "Android companion", status, detail)
+
+    api.get_integration_health = integration_health_with_devices  # type: ignore[method-assign]
     pairing = DevicePairingManager()
     advertiser = MdnsAdvertiser(port)
     windowed_monitor: WindowedMonitorManager | None = None
@@ -169,6 +195,8 @@ def serve(host: str, port: int, token: str | None = None) -> None:
 
     def integrated_pipeline(user_text: str, from_voice: bool) -> str:
         nonlocal windowed_monitor, reminders, lists, notify_gate
+        if is_global_stop_command(user_text):
+            return str(api.stop_everything().get("msg") or "Stopped.")
         learn_from_text(user_text)
         # Active conversation — let don't-interrupt mode hold non-urgent alerts.
         if notify_gate is not None:

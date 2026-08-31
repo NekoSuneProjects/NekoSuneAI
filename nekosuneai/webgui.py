@@ -29,6 +29,9 @@ from .config import Config
 from .engine import GenerationRequest, generate_reply
 from .memory import MemoryStore
 from .media import handle_media_request
+from .media_player import stop_media_playback
+from .interruptions import is_global_stop_command
+from .integration_health import build_health_snapshot
 from .media_player import start_thinking_sound, stop_thinking_sound
 from .models import SessionState
 from .monitors import MonitorManager
@@ -516,6 +519,16 @@ class Api:
 
     # ── state ─────────────────────────────────────────────────────────────────
 
+    def get_integration_health(self) -> dict[str, Any]:
+        if not self.config:
+            return {"overall": "unavailable", "problem_count": 1, "checked_epoch": time.time(), "items": [{"name": "Application", "status": "unavailable", "detail": "Still initializing"}]}
+        connected=False
+        client=getattr(self.home_assistant,"client",None)
+        if client is not None:
+            try:connected=bool(client.is_connected())
+            except Exception:connected=False
+        return build_health_snapshot(self.config,home_connected=connected,voice_enabled=self.state.voice_enabled)
+
     def get_state(self) -> dict[str, Any]:
         cfg = self.config
         return {
@@ -625,6 +638,8 @@ class Api:
         if not self.session_started:
             return {"ok": False, "msg": "Start a session first."}
         text = text.strip()
+        if is_global_stop_command(text):
+            return self.stop_everything()
         if text.startswith("/"):
             return self._handle_command(text)
         if not self._acquire():
@@ -646,15 +661,30 @@ class Api:
 
     def stop_generation(self) -> dict[str, Any]:
         """Interrupt the current pipeline (LLM / TTS / playback)."""
-        if not self.busy:
-            return {"ok": False, "msg": "Nothing to stop."}
+        return self.stop_everything()
+
+    def stop_everything(self) -> dict[str, Any]:
+        """Immediately interrupt generation, TTS, alerts and direct media."""
         self._stop_event.set()
+        stopped_media = stop_media_playback()
         try:
             import sounddevice as sd
             sd.stop()
         except Exception:
             pass
-        return {"ok": True}
+        try:
+            from .bridge_voice import stop_stream_playback
+            stop_stream_playback()
+        except Exception:
+            pass
+        if os.name == "nt":
+            try:
+                import ctypes
+                ctypes.windll.winmm.mciSendStringW("stop ai_companion_audio", None, 0, None)
+                ctypes.windll.winmm.mciSendStringW("close ai_companion_audio", None, 0, None)
+            except Exception:
+                pass
+        return {"ok": True, "msg": "Stopped." if stopped_media else "Stopped current speech and actions."}
 
     def start_listen(self) -> dict[str, Any]:
         if (err := self._not_ready()): return err
@@ -731,6 +761,8 @@ class Api:
 
     def _pipeline(self, user_text: str, from_voice: bool) -> str:
         self._stop_event.clear()
+        if is_global_stop_command(user_text):
+            return self.stop_everything()["msg"]
         user_name = self.profile.get("user_name", "You")
         companion = self.profile.get("companion_name", "NekoSuneAI")
 

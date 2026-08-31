@@ -36,7 +36,7 @@ class AudioBootstrapTests(unittest.TestCase):
             os.environ,
             {"PULSE_SERVER": "unix:/run/user/1000/pulse/native"},
             clear=False,
-        ), patch.dict(sys.modules, {"sounddevice": fake}):
+        ), patch.dict(sys.modules, {"sounddevice": fake}), patch.object(nekosuneai.os, "name", "posix"):
             nekosuneai._repair_session_audio_default()
         self.assertEqual(fake.default.device, (0, 1))
 
@@ -46,7 +46,7 @@ class AudioBootstrapTests(unittest.TestCase):
             os.environ,
             {"PULSE_SERVER": "unix:/run/user/1000/pulse/native"},
             clear=False,
-        ), patch.dict(sys.modules, {"sounddevice": fake}):
+        ), patch.dict(sys.modules, {"sounddevice": fake}), patch.object(nekosuneai.os, "name", "posix"):
             nekosuneai._repair_session_audio_default()
         self.assertEqual(fake.default.device, (0, 1))
 
@@ -74,7 +74,7 @@ class AudioBootstrapTests(unittest.TestCase):
             os.environ,
             {"PULSE_SERVER": "unix:/run/user/1000/pulse/native"},
             clear=False,
-        ), patch.dict(sys.modules, {"sounddevice": fake}):
+        ), patch.dict(sys.modules, {"sounddevice": fake}), patch.object(nekosuneai.os, "name", "posix"):
             nekosuneai._repair_session_audio_default()
         self.assertEqual(fake.default.device, (1, 2))
 
@@ -84,7 +84,7 @@ class AudioBootstrapTests(unittest.TestCase):
             os.environ,
             {"PULSE_SERVER": "unix:/run/user/1000/pulse/native"},
             clear=False,
-        ), patch.dict(sys.modules, {"sounddevice": fake}):
+        ), patch.dict(sys.modules, {"sounddevice": fake}), patch.object(nekosuneai.os, "name", "posix"):
             nekosuneai._repair_session_audio_default()
         self.assertEqual(fake.default.device, (0, 1))
 

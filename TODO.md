@@ -57,16 +57,18 @@ Prefer local/offline control where practical and make cloud/account integrations
 - [ ] Explain failures instead of returning generic device errors.
 - [ ] Proactive suggestions, e.g. lights left on in an unoccupied room.
 - [ ] Correction handling — `no, I meant the kitchen light` updates the previous command.
-- [ ] Immediate `Neko stop` interruption for TTS/music/actions.
+- [x] Immediate `Neko stop` interruption for TTS/music/actions.
 - [ ] Multiple-person profiles with separate preferences, permissions, calendars and memories.
 - [ ] Guest mode with limited safe smart-home access.
 - [ ] Optional local voice identification for household profiles.
 - [ ] Cross-device conversation/context memory between Pi, PC and Android nodes.
 
 ### Timers, alarms, reminders & lists
-- [ ] Multiple named timers with list/pause/cancel.
+- [x] Multiple named timers with list/pause/resume/cancel and ambiguity-safe ID fallback.
 - [ ] One-off/repeating alarms, custom sound/TTS and snooze.
-- [ ] Local reminder engine with spoken/dashboard/Android notifications.
+  - [x] One-off/daily/weekday alarms with named TTS, snooze and dismiss controls.
+  - [ ] Per-alarm custom sound files.
+- [x] Local reminder engine with spoken/dashboard/Android notifications.
 - [x] Shopping lists.
 - [x] To-do lists with priorities/due dates.
 - [ ] Calendar integration.
@@ -128,7 +130,7 @@ Prefer local/offline control where practical and make cloud/account integrations
 - [ ] Permission levels per user/device.
 - [ ] Confirmation for sensitive actions such as unlocking/opening/disarming.
 - [ ] Local-first credentials vault.
-- [ ] Integration health dashboard.
+- [x] Integration health dashboard with healthy/degraded/disabled/unavailable states.
 - [ ] Graceful offline mode for local voice/home functions.
 - [ ] Custom wake words and multiple wake-word profiles.
 - [ ] Wake-word context based on the room/node that heard the request.

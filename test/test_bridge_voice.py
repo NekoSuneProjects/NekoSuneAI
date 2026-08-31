@@ -141,8 +141,8 @@ class BridgeVoiceTests(unittest.TestCase):
             self.assertTrue(bridge_voice.stream_was_played())
 
     def test_ffplay_prefers_pulse_inside_host_audio_session(self):
-        with patch.dict(bridge_voice.os.environ, {"PULSE_SERVER": "unix:/run/user/1000/pulse/native"}, clear=True):
-            env = bridge_voice._ffplay_environment()
+        with patch.dict(bridge_voice.os.environ, {"PULSE_SERVER": "unix:/run/user/1000/pulse/native"}, clear=True), patch.object(bridge_voice.os, "getuid", return_value=1000, create=True):
+            env = bridge_voice._ffplay_environment("posix")
         self.assertEqual(env.get("SDL_AUDIODRIVER"), "pulseaudio")
 
 

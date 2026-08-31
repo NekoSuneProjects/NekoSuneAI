@@ -284,6 +284,11 @@ tailwind.config = {
                   <div class="flex items-center gap-3 p-2.5 rounded-xl bg-pink-300/5 border border-pink-300/10"><span class="text-pink-200 text-lg">◇</span><div><div class="font-semibold">Scheduled monitors</div><div class="text-nova-muted">Persistent updates until you say stop</div></div></div>
                   <div class="flex items-center gap-3 p-2.5 rounded-xl bg-cyan-300/5 border border-cyan-300/10"><span class="text-cyan-200 text-lg">◉</span><div><div class="font-semibold">Wake word</div><div id="d-wake-status" class="text-nova-muted">Checking microphone listener…</div></div></div>
                 </div>
+                <div class="mt-4 pt-3 border-t border-nova-border/70">
+                  <div class="flex items-center justify-between"><div class="section-kicker">Integration health</div><button onclick="loadIntegrationHealth()" class="text-[10px] text-cyan-200 hover:text-white">Refresh</button></div>
+                  <div id="d-health-summary" class="text-[11px] text-nova-muted mt-2">Checking local integrations…</div>
+                  <div id="d-health-items" class="mt-2 space-y-1.5"></div>
+                </div>
               </div>
             </div>
           </section>
@@ -671,7 +676,7 @@ function showPage(key) {
   if (key === 'watch')      loadWatchReact();
   if (key === 'profiles')   loadProfiles();
   if (key === 'settings')   { syncSettings(); loadAppSettings(); }
-  if (key === 'dashboard')  { syncDashboard(); loadWakeStatus(); }
+  if (key === 'dashboard')  { syncDashboard(); loadWakeStatus(); loadIntegrationHealth(); }
 }
 
 async function loadWakeStatus() {
@@ -683,6 +688,21 @@ async function loadWakeStatus() {
   } catch (_) { el.textContent = 'Status unavailable'; }
 }
 setInterval(loadWakeStatus, 3000);
+
+async function loadIntegrationHealth() {
+  const summary = $('d-health-summary'); const wrap = $('d-health-items');
+  if (!summary || !wrap || !_appReady) return;
+  try {
+    const health = await api().get_integration_health();
+    const colours = {healthy:'text-emerald-300', degraded:'text-amber-300', unavailable:'text-red-300', disabled:'text-nova-muted'};
+    summary.textContent = health.problem_count ? `${health.problem_count} integration(s) need attention` : 'Configured integrations look healthy';
+    summary.className = `text-[11px] mt-2 ${colours[health.overall] || 'text-nova-muted'}`;
+    wrap.innerHTML = (health.items || []).map(item => `<div class="flex gap-2 justify-between text-[10px]"><span class="text-nova-muted2">${escHtml(item.name)}</span><span class="${colours[item.status] || 'text-nova-muted'}" title="${escHtml(item.detail)}">${escHtml(item.status.toUpperCase())}</span></div>`).join('');
+  } catch (_) {
+    summary.textContent = 'Health snapshot unavailable'; summary.className = 'text-[11px] text-red-300 mt-2'; wrap.innerHTML = '';
+  }
+}
+setInterval(loadIntegrationHealth, 15000);
 
 // ── State sync ───────────────────────────────────────────────────────────
 
@@ -1538,6 +1558,7 @@ async function init() {
   // App is now fully initialized — unlock UI and dismiss loading screen
   _appReady = true;
   syncDashboard();
+  loadIntegrationHealth();
   syncSettings();
   dismissLoader();
 }

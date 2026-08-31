@@ -94,16 +94,30 @@ def _request(
 
 
 _LAST_STREAM_PLAYED = False
+_ACTIVE_STREAM_PLAYER: subprocess.Popen | None = None
 
 
 def stream_was_played() -> bool:
     return _LAST_STREAM_PLAYED
 
 
-def _ffplay_environment() -> dict[str, str]:
+def stop_stream_playback() -> bool:
+    """Terminate currently streaming Bridge TTS, if any."""
+    global _ACTIVE_STREAM_PLAYER
+    player=_ACTIVE_STREAM_PLAYER
+    _ACTIVE_STREAM_PLAYER=None
+    if player is None:return False
+    try:
+        player.kill();player.wait(timeout=3)
+    except Exception:
+        pass
+    return True
+
+
+def _ffplay_environment(platform_name: str | None = None) -> dict[str, str]:
     """Prefer the host desktop audio session when ffplay runs in Docker."""
     env = os.environ.copy()
-    if os.name == "nt" or env.get("SDL_AUDIODRIVER"):
+    if (platform_name or os.name) == "nt" or env.get("SDL_AUDIODRIVER"):
         return env
 
     runtime_dir = Path(env.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}")
@@ -117,6 +131,7 @@ def _ffplay_environment() -> dict[str, str]:
 
 def _finish_stream_player(player: subprocess.Popen | None, *, timeout: float) -> bool:
     """Close/wait for ffplay and return True only when it really succeeded."""
+    global _ACTIVE_STREAM_PLAYER
     if player is None:
         return False
     if player.stdin and not player.stdin.closed:
@@ -133,10 +148,12 @@ def _finish_stream_player(player: subprocess.Popen | None, *, timeout: float) ->
         except subprocess.TimeoutExpired:
             pass
         return False
+    finally:
+        if _ACTIVE_STREAM_PLAYER is player:_ACTIVE_STREAM_PLAYER=None
 
 
 def synthesize(text: str, config: Config) -> Path:
-    global _LAST_STREAM_PLAYED
+    global _LAST_STREAM_PLAYED, _ACTIVE_STREAM_PLAYER
     _LAST_STREAM_PLAYED = False
     fast = config.bridge_tts_engine in {"edge", "edge-stream", "fast", "stream"}
     output_path = AUDIO_DIR / ("latest_reply_remote.mp3" if fast else "latest_reply_remote.wav")
@@ -150,6 +167,7 @@ def synthesize(text: str, config: Config) -> Path:
             stdin=subprocess.PIPE,
             env=_ffplay_environment(),
         )
+        _ACTIVE_STREAM_PLAYER=player
 
     def receive_audio(chunk: bytes) -> None:
         nonlocal player_broken
