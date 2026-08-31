@@ -125,6 +125,8 @@ def normalize_web_search_provider(value: str) -> str:
 
 def normalize_music_provider(value: str) -> str:
     normalized = value.strip().lower()
+    if normalized in {"youtube", "youtube-music", "youtube_music", "yt", "ytmusic"}:
+        return "youtube"
     if normalized in {"soundcloud", "sc"}:
         return "soundcloud"
     if normalized in {"deezer"}:
