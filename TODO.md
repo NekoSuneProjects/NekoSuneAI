@@ -570,6 +570,149 @@ Treat hazard detection as a deterministic safety layer around NekoSuneAI rather 
 - [ ] Require user acknowledgement before automatically restarting hardware after a serious smoke/heat/electrical event.
 - [ ] Peripheral Node capabilities such as `hardware.temperature`, `hardware.fan`, `power.current`, `safety.smoke`, `safety.heat`, `safety.leak`, `safety.alert`, and `safety.shutdown`.
 
+## 🖥️ VPS / infrastructure & service monitoring
+
+Run a lightweight authenticated Neko Server Node on VPSs, dedicated servers, Raspberry Pis and supported hosts so Neko can monitor infrastructure without running heavy AI workloads on every machine.
+
+### VPS / server node
+- [ ] Lightweight Linux server agent with encrypted authenticated connection back to NekoSuneAI.
+- [ ] CPU usage, load average, RAM, swap, disk usage, inode usage and uptime monitoring.
+- [ ] Disk I/O, filesystem latency and rapidly-growing-disk detection.
+- [ ] Network bandwidth, packet loss, latency and connection-state monitoring.
+- [ ] Process and systemd-service health monitoring with restart-loop detection.
+- [ ] Docker/Compose container state, health checks, CPU/RAM usage and restart-count monitoring.
+- [ ] Detect Linux OOM kills, kernel errors, filesystem errors and unexpected reboots.
+- [ ] GPU temperature, utilisation, VRAM and driver-health monitoring when a VPS/dedicated host exposes a GPU.
+- [ ] SMART/NVMe health and temperature monitoring on dedicated hardware when host access exposes it.
+- [ ] Read physical temperature/fan/power sensors only when the host/hypervisor exposes trustworthy telemetry.
+- [ ] Explicitly show `unavailable` for physical CPU temperature, fan RPM, SMART or other sensors hidden by normal VPS hypervisors rather than inventing readings.
+- [ ] Server tags/groups such as production, development, game servers, streaming, storage and home.
+- [ ] Commands such as `Neko, how are all my servers?`, `which VPS is using the most RAM?`, and `why did this server restart?`.
+
+### Websites, APIs & service health
+- [ ] HTTP/HTTPS uptime checks with configurable expected status code and response-time limits.
+- [ ] API endpoint health checks with optional authenticated health endpoints.
+- [ ] WebSocket connectivity checks.
+- [ ] TCP service checks for configured ports/services without general Internet scanning.
+- [ ] DNS resolution checks and authoritative DNS health monitoring for configured domains.
+- [ ] TLS/SSL certificate expiry and invalid-certificate warnings.
+- [ ] Domain-expiry reminders where reliable registration data/API access exists.
+- [ ] Database health checks for configured PostgreSQL/MySQL/MariaDB services using least-privilege monitoring credentials.
+- [ ] Redis availability, memory usage and persistence-health checks.
+- [ ] Reverse-proxy health for Nginx, Nginx Proxy Manager, Caddy or Traefik where integrations/log access exist.
+- [ ] Detect HTTP 4xx/5xx rate changes and response-time regressions from configured services.
+- [ ] Optional application-specific health endpoints for Neko projects.
+
+### Logs, failures & diagnostics
+- [ ] Structured ingestion of selected systemd/journald, Docker and application logs with per-source allowlists.
+- [ ] Error-rate and repeated-exception detection without uploading every log line to the LLM.
+- [ ] Group duplicate errors into one incident instead of notification spam.
+- [ ] Detect restart loops, crash loops and dependency failures.
+- [ ] Keep sensitive tokens/passwords/headers redacted before logs reach AI context or notifications.
+- [ ] Natural diagnostics such as `why is the website down?` using current service state, dependency health and recent errors.
+- [ ] Incident evidence bundle containing relevant health checks and redacted log excerpts.
+
+### Infrastructure dependency map
+- [ ] Map relationships such as domain → DNS → reverse proxy → web app → API → database/Redis.
+- [ ] Correlate downstream failures so one database outage does not create ten unrelated alerts.
+- [ ] Identify likely root cause and affected dependent services.
+- [ ] `Neko, what broke when VPS-2 went offline?` dependency-impact query.
+- [ ] Maintenance mode to suppress expected child alerts while a host/service is intentionally offline.
+
+### Backups, storage & maintenance
+- [ ] Monitor configured backup jobs and alert when a scheduled backup does not occur.
+- [ ] Verify backup age, size and completion state without assuming a backup is valid merely because a file exists.
+- [ ] Optional restore-test workflow for user-approved disposable test environments.
+- [ ] NAS/storage capacity and disk-health monitoring through supported local APIs/agents.
+- [ ] Warn before disks become critically full using predicted growth rate.
+- [ ] Package/security-update availability summary without silently applying major upgrades.
+- [ ] Configurable maintenance windows for approved automatic safe actions.
+
+### Safe infrastructure actions
+- [ ] Allowlisted actions such as restart a known container/service, collect diagnostics or enter maintenance mode.
+- [ ] Require confirmation for host reboot/shutdown, destructive database actions, firewall changes or other high-impact operations unless a deterministic emergency policy explicitly covers them.
+- [ ] Never give the AI arbitrary root-shell execution by default.
+- [ ] Per-node/action permissions and audit log showing who/what requested each infrastructure change.
+- [ ] Health check after automated restart/recovery and escalate if the service remains unhealthy.
+- [ ] Capabilities such as `server.status`, `server.metrics`, `service.status`, `service.restart`, `docker.status`, `website.check`, `backup.status` and `network.latency`.
+
+## 💬 Discord / community operations
+
+Use a properly authorised Discord bot in servers where the owner/admin has explicitly installed it. Monitoring should be configurable by server/channel and should not turn private community conversations into unrestricted AI training data.
+
+### Discord server monitoring
+- [ ] Monitor configured Discord guild/bot connection health and gateway reconnects.
+- [ ] Track selected important channels for mentions, reports, support requests and configured keywords/events.
+- [ ] Detect unanswered support/ticket threads after a configurable amount of time.
+- [ ] Summarise selected channels while respecting channel/role permissions.
+- [ ] Track joins/leaves, moderation-log events and bot status where permissions permit.
+- [ ] Detect unusual message floods, repeated spam and raid-like join/message patterns.
+- [ ] Watch configured project bots and notify when a required bot goes offline or repeatedly disconnects.
+- [ ] Optional channel activity statistics without profiling individual members unnecessarily.
+- [ ] Commands such as `Neko, what happened in Discord while I was away?` and `are there support tickets waiting?`.
+
+### Community briefing & triage
+- [ ] Daily/owner-requested community briefing summarising unanswered questions, reports, important mentions, project discussion and bot incidents.
+- [ ] Prioritise owner/admin mentions and support/moderation queues separately from normal chatter.
+- [ ] Deduplicate repeated reports about the same outage/problem.
+- [ ] Correlate Discord reports with monitored infrastructure incidents, e.g. several `site is down` messages plus failing API checks.
+- [ ] Create a concise incident summary for moderators/admins without exposing unrelated private conversation.
+- [ ] Allow configurable channels to be completely excluded from AI summaries/history.
+
+### Moderation assistance
+- [ ] Flag likely spam, scam links, repeated flooding and raid patterns for moderator review.
+- [ ] Deterministic anti-flood rules can perform preconfigured actions when explicitly enabled.
+- [ ] Ambiguous harassment/context decisions stay human-reviewed rather than auto-banning from an LLM judgment alone.
+- [ ] Moderator evidence view containing the relevant messages/events and rule that triggered the flag.
+- [ ] Configurable escalation: log only, alert moderators, slowmode suggestion, timeout suggestion or approved deterministic action.
+- [ ] Keep moderation actions permission-gated and fully auditable.
+
+### Discord + project integrations
+- [ ] Post configured service status/incidents to a selected status/admin channel.
+- [ ] Post GitHub Actions/build failures and release notifications to selected development channels.
+- [ ] Link Discord support reports to the matching service/project when confidence is high.
+- [ ] Optional game-server status messages/player counts for configured community servers.
+- [ ] Community event/reminder integration with calendar and Neko announcement systems.
+- [ ] Never allow ordinary Discord users to invoke owner-only PC/server/smart-home actions.
+
+## 📡 Neko Operations Center
+
+Create one operations view that combines physical hardware, VPSs, websites, applications, Discord/community systems, GitHub, game servers and Neko nodes.
+
+### Unified operations dashboard
+- [ ] Global health states using `OK`, `INFO`, `WARNING`, `CRITICAL`, and `EMERGENCY`.
+- [ ] Views for Home, Hardware Safety, VPS/Servers, Websites/APIs, Docker, Discord, GitHub, Game Servers, Streaming and Neko Peripheral Nodes.
+- [ ] Overall `Neko, status report` that prioritises active problems instead of listing every healthy service.
+- [ ] Incident timeline combining alerts from multiple integrations.
+- [ ] Acknowledge, mute and maintenance-state controls with expiration times.
+- [ ] Group repeated symptoms into one incident where possible.
+- [ ] Root-cause/dependency correlation across infrastructure and community reports.
+- [ ] Historical uptime/latency/resource graphs with configurable data retention.
+
+### External/project monitoring
+- [ ] GitHub repository monitoring for failed Actions workflows, releases, important issues/PRs and configured branch health.
+- [ ] Docker/container fleet overview across Pi, home servers and VPS nodes.
+- [ ] Minecraft/other game-server status, player count, tick/TPS/performance where supported.
+- [ ] VPN/Tailscale/WireGuard node reachability for configured user-owned infrastructure.
+- [ ] Internet/WAN connectivity and latency monitoring from selected nodes.
+- [ ] Email delivery/service health checks for configured systems without reading unrelated mailbox content.
+- [ ] Cloudflare/DNS/tunnel health where supported APIs/account permissions are configured.
+
+### Correlation & proactive intelligence
+- [ ] Correlate user/community complaints with live service telemetry before suggesting a likely cause.
+- [ ] Detect patterns such as memory leaks, gradually increasing disk usage or repeating nightly failures.
+- [ ] Predict likely disk-full conditions and certificate expirations before they become outages.
+- [ ] Distinguish one-off transient failures from persistent incidents using configurable retry windows.
+- [ ] Explain why an alert was raised and what evidence supports the conclusion.
+- [ ] Suggested remediation can be generated separately from automatic execution.
+
+### Away/asleep summary
+- [ ] `What happened while I was asleep/out?` combines home safety events, VPS incidents, website outages, Discord activity, GitHub failures, streaming events and other enabled sources.
+- [ ] Summaries prioritise emergencies/critical issues, then unresolved warnings, then noteworthy information.
+- [ ] Avoid repeating incidents already acknowledged by the owner.
+- [ ] Include what automatically recovered, what remains broken and what needs owner attention.
+- [ ] Optional Android notification when a new CRITICAL/EMERGENCY operational incident occurs.
+
 ## 🎮 VRChat / heavier ML backlog
 - [ ] A* dead-reckoning navigation and persisted world maps.
 - [ ] YOLO/ONNX screen object detection (opt-in).
