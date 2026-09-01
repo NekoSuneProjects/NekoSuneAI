@@ -23,16 +23,16 @@ Prefer local/offline control where practical and make cloud/account integrations
 - [ ] Matter controller and local device discovery/control.
 - [ ] Matter device dashboard with rooms, state, rename and favorites.
 - [ ] Thread Border Router support/documentation for Matter-over-Thread.
-- [ ] Expanded Home Assistant entity control.
-- [ ] Generic MQTT device discovery/control.
+- [x] Expanded Home Assistant entity control.
+- [x] Generic MQTT device discovery/control.
 - [ ] Philips Hue local bridge integration.
 - [ ] WLED integration.
 - [ ] Shelly local integration.
-- [ ] Universal device aliases — `lamp`, `my light`, and `bedside light` can resolve to the same device.
-- [ ] Room-aware commands — `turn the light off` automatically targets the room the user is speaking from.
+- [x] Universal device aliases — `lamp`, `my light`, and `bedside light` can resolve to the same device.
+- [x] Room-aware commands — `turn the light off` automatically targets the room the user is speaking from.
 - [ ] Self-healing integrations — detect offline devices/services and safely attempt reconnection.
-- [ ] Device battery prediction and low-battery warnings.
-- [ ] Energy monitoring, estimated electricity cost and unusual-consumption detection.
+- [x] Device battery prediction and low-battery warnings.
+- [x] Energy monitoring, estimated electricity cost and unusual-consumption detection.
 - [ ] Electricity-price-aware routines for compatible appliances/tariffs.
 
 ### Routines & automation

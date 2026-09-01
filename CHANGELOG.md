@@ -10,6 +10,12 @@
   ordered actions, previews, large-action confirmation, conflict detection,
   execution explanations and safe undo where a prior state is supplied.
 - Add an authenticated Nodes & Routines dashboard and HTTP API documentation.
+- Expand the same dashboard with Home Assistant and generic MQTT discovery,
+  state, room/alias management and allowlisted on/off controls.
+- Add room-aware natural device commands, low-battery forecasting, estimated
+  energy costs and cooldown-protected unusual power-use warnings.
+- Feed discovered MQTT state changes into sensor-triggered local routines and
+  reconnect/resubscribe to known topics after broker interruptions.
 
 ## 1.2.1 wake-word image fix
 

@@ -44,6 +44,7 @@ data/profiles.json
 data/update_state.json
 data/peripheral_nodes.json
 data/routines.json
+data/smart_home_devices.json
 data/music/
 audio/
 

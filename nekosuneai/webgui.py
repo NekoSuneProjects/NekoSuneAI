@@ -340,6 +340,7 @@ class Api:
         self.wake_word: WakeWordListener | None = None
         self._wake_activation_lock = threading.Lock()
         self.home_assistant: HomeAssistantMqtt | None = None
+        self.current_room = os.getenv("NEKOSUNEAI_ROOM", "").strip()
         self.bluetooth_watchdog: Any = None
         self._web_events: list[dict[str, Any]] = []
         self._web_events_lock = threading.Lock()
@@ -368,7 +369,11 @@ class Api:
         self.monitor_manager.start()
         self.wake_word = WakeWordListener(self.config, self._wake_detected)
         self.wake_word.start()
-        self.home_assistant = HomeAssistantMqtt(self.config, self._home_assistant_command)
+        self.home_assistant = HomeAssistantMqtt(
+            self.config,
+            self._home_assistant_command,
+            self._monitor_notification,
+        )
         self.home_assistant.start()
         from .bluetooth_watchdog import BluetoothSpeakerWatchdog
         self.bluetooth_watchdog = BluetoothSpeakerWatchdog(self.config, self._push_notification)
@@ -522,12 +527,49 @@ class Api:
     def get_integration_health(self) -> dict[str, Any]:
         if not self.config:
             return {"overall": "unavailable", "problem_count": 1, "checked_epoch": time.time(), "items": [{"name": "Application", "status": "unavailable", "detail": "Still initializing"}]}
-        connected=False
+        connected = bool(getattr(self.home_assistant, "connected", False))
         client=getattr(self.home_assistant,"client",None)
-        if client is not None:
+        if client is not None and not connected:
             try:connected=bool(client.is_connected())
             except Exception:connected=False
         return build_health_snapshot(self.config,home_connected=connected,voice_enabled=self.state.voice_enabled)
+
+    def get_smart_home_devices(self) -> dict[str, Any]:
+        if not self.home_assistant:
+            return {"status": {"configured": False, "connected": False}, "devices": [], "room": self.current_room}
+        return {
+            "status": self.home_assistant.status(),
+            "devices": self.home_assistant.list_devices(),
+            "room": self.current_room,
+        }
+
+    def set_smart_home_aliases(self, device_id: str, aliases: list[str], room: str = "") -> dict[str, Any]:
+        if not self.home_assistant:
+            return {"ok": False, "msg": "MQTT smart-home integration is not initialized."}
+        try:
+            device = self.home_assistant.set_aliases(device_id, aliases, room)
+            return {"ok": True, "device": device}
+        except Exception as exc:
+            return {"ok": False, "msg": str(exc)}
+
+    def set_current_room(self, room: str) -> dict[str, Any]:
+        self.current_room = str(room).strip()[:80]
+        return {"ok": True, "room": self.current_room}
+
+    def send_smart_home_command(
+        self,
+        device_id: str,
+        action: str,
+        value: Any = None,
+        confirmed: bool = False,
+    ) -> dict[str, Any]:
+        if not self.home_assistant:
+            return {"ok": False, "msg": "MQTT smart-home integration is not initialized."}
+        try:
+            message = self.home_assistant.command_device(device_id, action, value, confirmed)
+            return {"ok": True, "msg": message}
+        except Exception as exc:
+            return {"ok": False, "msg": str(exc)}
 
     def get_state(self) -> dict[str, Any]:
         cfg = self.config
@@ -825,6 +867,23 @@ class Api:
             self._push_chat(companion, media_action.response, "assistant")
             self._push_status("Media request handled.")
             return "Media request handled."
+
+        # Local Home Assistant / generic MQTT devices. Resolution is restricted
+        # to discovered devices and their declared topics; room context comes
+        # from this Neko node's configured room rather than an LLM guess.
+        if self.home_assistant:
+            try:
+                smart_reply = self.home_assistant.handle(user_text, self.current_room or None)
+            except Exception as exc:
+                smart_reply = f"I couldn't control that smart-home device: {exc}"
+            if smart_reply is not None:
+                append_history("user", user_text)
+                append_history("assistant", smart_reply)
+                self._push_chat(companion, smart_reply, "assistant")
+                self._push_status("Smart-home request handled.")
+                if self.state.voice_enabled and not self._stopped():
+                    self._speak(smart_reply, "neutral")
+                return smart_reply
 
         if self._stopped():
             self._push_status("Stopped.")

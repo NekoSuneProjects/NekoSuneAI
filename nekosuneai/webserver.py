@@ -233,6 +233,8 @@ def serve(host: str, port: int, token: str | None = None) -> None:
             lists = ListManager(tz)
         if notify_gate is None:
             notify_gate = NotificationGate(tz)
+        if getattr(api, "home_assistant", None) is not None:
+            api.home_assistant.devices.event_callback = lambda event, context: routines.handle_event(event, context)
         return result
 
     api.initialize = initialize_with_services  # type: ignore[method-assign]
@@ -443,6 +445,8 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                         battery = result.get("battery_percent")
                         if isinstance(battery, (int, float)) and battery <= 10:
                             api._push_notification(f"{result.get('name', 'Peripheral node')} battery is low at {battery:.0f}%.")
+                        routines.handle_event(f"node.{node_id}.heartbeat", {"node": result})
+                        routines.handle_event("node.heartbeat", {"node": result})
                         return self._json(200, {"ok": True, "node": result})
                     commands = peripheral_nodes.wait_commands(
                         node_id, int(payload.get("after", 0)), float(payload.get("wait_seconds", 25))

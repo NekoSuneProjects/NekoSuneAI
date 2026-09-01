@@ -584,6 +584,11 @@ arbitrary remote execution. See
 for pairing, permissions, heartbeat, routine and API examples. The Studio's
 **Nodes & Routines** button opens the authenticated visual manager.
 
+Home Assistant and generic MQTT devices also appear in that manager with
+rooms, aliases, battery and energy telemetry. See
+[`docs/SMART_HOME_MQTT.md`](docs/SMART_HOME_MQTT.md) for local discovery and
+command examples.
+
 ---
 
 ## 📁 Project Layout
@@ -608,6 +613,7 @@ NekoSuneAI/
 │   ├── ANDROID_COMPANION.md
 │   ├── ANDROID_MOBILE.md
 │   ├── PERIPHERAL_NODES_AND_ROUTINES.md
+│   ├── SMART_HOME_MQTT.md
 │   ├── PI_MUSIC_AND_SCHEDULES.md
 │   └── VOICE_TONE_HOOK.md
 └── nekosuneai/
@@ -627,6 +633,7 @@ NekoSuneAI/
     ├── reminders.py
     ├── routines.py                    # local routines, conflicts and undo
     ├── peripheral_nodes.py            # authenticated capability protocol
+    ├── smart_home.py                   # HA/MQTT discovery, aliases and telemetry
     ├── scheduled_windows.py
     ├── avatar_motion.py
     ├── vision.py
