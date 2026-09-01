@@ -1,3 +1,5 @@
+import http.server
+
 from nekosuneai.avatar_http_patch import install_avatar_http_patch
 from nekosuneai.scam_call_patch import install_scam_call_patch
 from nekosuneai.call_sync_patch import install_call_sync_patch
@@ -27,6 +29,15 @@ install_vosk_model_auto_patch()
 install_avatar_http_patch()
 install_scam_call_patch()
 install_call_sync_patch()
+
+# scam_call_patch imports webserver while installing its own HTTP wrapper. That
+# leaves webserver's local ThreadingHTTPServer name pointing at that older
+# wrapper even after call_sync_patch replaces http.server.ThreadingHTTPServer.
+# Rebind it to the final wrapper so /api/call-events and the caller-sync POST
+# route do not fall through to BaseHTTPRequestHandler's HTML 404 response.
+from nekosuneai import webserver as _webserver
+_webserver.ThreadingHTTPServer = http.server.ThreadingHTTPServer
+
 install_mcp_oauth_recovery()
 install_settings_dashboard_patch()
 install_settings_backend_patch()
