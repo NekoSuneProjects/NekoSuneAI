@@ -13,9 +13,6 @@ services:
     cpus: ${NEKOSUNEAI_CPU_LIMIT:-3.5}
     pids_limit: ${NEKOSUNEAI_PIDS_LIMIT:-256}
     stop_grace_period: 15s
-    # Start as root only for the entrypoint. It scans the host runtime sessions,
-    # finds the owner of a working PulseAudio/PipeWire socket, then drops to that
-    # UID/GID before NekoSuneAI starts. No PUID/PGID setup is normally required.
     stdin_open: true
     tty: true
     network_mode: host
@@ -48,13 +45,14 @@ services:
       DASHBOARD_SESSION_TTL_SECONDS: ${DASHBOARD_SESSION_TTL_SECONDS:-43200}
       DASHBOARD_COOKIE_SECURE: ${DASHBOARD_COOKIE_SECURE:-auto}
 
-      # Publish warnings/danger alerts to the local ntfy service. NekoSuneAI is
-      # on host networking, so it reaches ntfy through its published host port.
+      # NekoSuneAI publishes locally, while paired Android clients receive the
+      # public HTTPS ntfy URL from /api/android/ntfy-config.
       MOBILE_NOTIFY_ENABLED: ${MOBILE_NOTIFY_ENABLED:-true}
       MOBILE_NOTIFY_URL: http://127.0.0.1:${NTFY_PORT:-2586}
       MOBILE_NOTIFY_TOPIC: ${MOBILE_NOTIFY_TOPIC:-nekosuneai-alerts}
       MOBILE_NOTIFY_TOKEN: ${MOBILE_NOTIFY_TOKEN:-}
       MOBILE_NOTIFY_MIN_LEVEL: ${MOBILE_NOTIFY_MIN_LEVEL:-warning}
+      NTFY_BASE_URL: ${NTFY_BASE_URL:-}
 
   ntfy:
     image: binwiederhier/ntfy:latest
@@ -62,8 +60,8 @@ services:
     restart: unless-stopped
     command: serve
     environment:
-      # Change this to your HTTPS notification domain behind the reverse proxy,
-      # for example https://notify.example.com.
+      # Set this to the HTTPS hostname in your reverse proxy, for example
+      # https://notify.example.com. Port 2586 stays private/LAN-side.
       NTFY_BASE_URL: ${NTFY_BASE_URL:-http://192.168.1.107:2586}
       NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
       NTFY_ATTACHMENT_CACHE_DIR: /var/cache/ntfy/attachments
