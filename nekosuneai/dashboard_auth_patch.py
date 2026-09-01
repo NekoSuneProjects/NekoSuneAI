@@ -124,8 +124,6 @@ def install_dashboard_auth_patch() -> None:
                     return super()._dashboard_authorized()
 
                 def _device_authorized(self) -> bool:
-                    # Read-only avatar config is intentionally public so /avatar
-                    # works as a clean domain URL with no cookie or query token.
                     if urlparse(self.path).path == "/api/avatar/config":
                         return True
                     return super()._device_authorized()
@@ -171,11 +169,27 @@ def install_dashboard_auth_patch() -> None:
         if not getattr(original_decorate, "_neko_session_auth", False):
             def decorate(body):
                 rendered = original_decorate(body)
-                if isinstance(rendered, (bytes, bytearray)):
-                    marker = b"</body>"; ui = SESSION_UI.encode("utf-8")
-                    return rendered.replace(marker, ui + marker, 1) if marker in rendered else rendered + ui
+                was_bytes = isinstance(rendered, (bytes, bytearray))
+                text = bytes(rendered).decode("utf-8") if was_bytes else str(rendered)
+                # The original dashboard pairing widget predates cookie sessions
+                # and refuses to poll unless ?token= exists. With admin login,
+                # same-origin fetch automatically carries the HttpOnly session
+                # cookie, so remove that obsolete browser-token dependency.
+                text = text.replace(
+                    "const pairFetch=(url,options={})=>originalFetch(url,{...options,headers:{...(options.headers||{}),'X-Neko-Token':token(),'Content-Type':'application/json'}});",
+                    "const pairFetch=(url,options={})=>originalFetch(url,{...options,credentials:'same-origin',headers:{...(options.headers||{}),'Content-Type':'application/json'}});",
+                )
+                text = text.replace(
+                    "link.href='/automations?token='+encodeURIComponent(token());",
+                    "link.href='/automations';",
+                )
+                text = text.replace(
+                    "if(!panel||!list||!token()){if(panel)panel.classList.add('hidden');return;}",
+                    "if(!panel||!list){if(panel)panel.classList.add('hidden');return;}",
+                )
                 marker = "</body>"
-                return rendered.replace(marker, SESSION_UI + marker, 1) if marker in rendered else rendered + SESSION_UI
+                text = text.replace(marker, SESSION_UI + marker, 1) if marker in text else text + SESSION_UI
+                return text.encode("utf-8") if was_bytes else text
             decorate._neko_session_auth = True
             webserver._decorate_dashboard = decorate
     except Exception:
