@@ -52,7 +52,7 @@ class ScamCallSettingsActivity : AppCompatActivity() {
 
         root.addView(TextView(this).apply { text = "CALL PROTECTION"; textSize = 10f; letterSpacing = .13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(violet) })
         root.addView(TextView(this).apply { text = "Scam caller checker"; textSize = 24f; typeface = Typeface.DEFAULT_BOLD; setTextColor(textColor); setPadding(0, dp(4), 0, dp(4)) })
-        root.addView(TextView(this).apply { text = "Incoming numbers are checked by your paired Docker NekoSuneAI against public web reputation results. Only flagged calls are stored in the Docker dashboard."; textSize = 13f; setTextColor(muted) })
+        root.addView(TextView(this).apply { text = "Incoming numbers are checked by your paired Docker NekoSuneAI against public web reputation results. Android provides the number through its protected caller ID and spam role, so NekoSuneAI does not request your contacts or full call history. Only flagged calls are stored in the Docker dashboard."; textSize = 13f; setTextColor(muted) })
 
         status = TextView(this).apply { setPadding(dp(12), dp(10), dp(12), dp(10)); setTextColor(cyan); background = rounded(Color.parseColor("#17213A"), Color.parseColor("#345D77"), 12) }
         root.addView(status, params(14))
@@ -120,6 +120,7 @@ class ScamCallSettingsActivity : AppCompatActivity() {
 
         setContentView(scroll)
         refreshStatus()
+        if (intent.getBooleanExtra("enable_now", false)) requestScreeningRole()
     }
 
     private fun requestScreeningRole() {

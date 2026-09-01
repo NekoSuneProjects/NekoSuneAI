@@ -1,6 +1,8 @@
 package co.uk.nekosuneprojects.nekosuneai
 
 import android.Manifest
+import android.app.AlertDialog
+import android.app.role.RoleManager
 import android.content.Intent
 import android.graphics.Color
 import android.graphics.Typeface
@@ -41,6 +43,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var serverInput: EditText
     private lateinit var tokenInput: EditText
     private lateinit var discoveredBox: LinearLayout
+    private var callProtectionStatus: TextView? = null
     private var tts: TextToSpeech? = null
     @Volatile private var pairingBusy = false
     private val foundServers = linkedSetOf<String>()
@@ -103,6 +106,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         rail.addView(ImageView(this).apply { setImageResource(R.drawable.ic_neko_logo); scaleType = ImageView.ScaleType.FIT_CENTER }, LinearLayout.LayoutParams(dp(46), dp(46)))
         rail.addView(navButton("Face", "◉") { showCompanionPage() }, marginTop(16))
         rail.addView(navButton("Chat", "✦") { showChatPage() }, marginTop(8))
+        rail.addView(navButton("Protect", "♢") { showProtectionPage() }, marginTop(8))
+        rail.addView(navButton("Tools", "⚡") { showToolsPage() }, marginTop(8))
         rail.addView(navButton("Music", "♫") { showMediaPage() }, marginTop(8))
         rail.addView(navButton("Vision", "⌾") { showVisionPage() }, marginTop(8))
         rail.addView(navButton("Remote", "⌁") { showRemotePage() }, marginTop(8))
@@ -178,9 +183,74 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         contentHost.addView(card, marginTop(12))
     }
 
+    private fun showProtectionPage() {
+        resetPage("Call Protection", "Check incoming caller numbers with your paired NekoSuneAI server")
+        val setup = card()
+        setup.addView(kicker("SCAM & SPAM CALLS"))
+        setup.addView(title("Caller-number screening"))
+        setup.addView(body("Android supplies the incoming number only after you choose NekoSuneAI as the caller ID and spam/call-screening app. It does not need access to your contacts or full call history."))
+        callProtectionStatus = body("").apply {
+            setPadding(dp(11), dp(9), dp(11), dp(9))
+            background = pill(Color.parseColor("#17213A"), Color.parseColor("#345D77"), 11f)
+        }
+        setup.addView(callProtectionStatus, marginTop(10))
+        setup.addView(primaryButton("Allow caller-number screening", "🛡") {
+            startActivity(Intent(this, ScamCallSettingsActivity::class.java).putExtra("enable_now", true))
+        }, marginTop(10))
+        setup.addView(secondaryButton("Call protection settings") {
+            startActivity(Intent(this, ScamCallSettingsActivity::class.java))
+        }, marginTop(8))
+        setup.addView(secondaryButton("Android caller ID & spam app settings") {
+            startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+        }, marginTop(8))
+        setup.addView(body("Incoming calls are never delayed or automatically blocked. The number is sent securely to your paired server for public reputation checking. Only flagged results are retained in the server dashboard. Optional SMS replies remain off until you enable them."), marginTop(10))
+        contentHost.addView(setup, marginTop(12))
+        refreshCallProtectionStatus()
+    }
+
+    private fun showToolsPage() {
+        resetPage("Assistant Tools", "Recent NekoSuneAI server features from your phone")
+
+        val briefings = card()
+        briefings.addView(kicker("INFORMATION & SAFETY"))
+        briefings.addView(title("Briefings and home status"))
+        briefings.addView(body("These shortcuts use your paired server, its configured sensors, weather station, RSS feeds and retained home timeline."))
+        briefings.addView(primaryButton("House & safety status") { runRemoteCommand("house status briefing") }, marginTop(9))
+        briefings.addView(secondaryButton("Weather station report") { runRemoteCommand("weather station report") }, marginTop(8))
+        briefings.addView(secondaryButton("RSS / news briefing") { runRemoteCommand("news briefing") }, marginTop(8))
+        briefings.addView(secondaryButton("Recent home timeline") { runRemoteCommand("home timeline last 24 hours") }, marginTop(8))
+        contentHost.addView(briefings, marginTop(12))
+
+        val home = card()
+        home.addView(kicker("SMART HOME & ROUTINES"))
+        home.addView(title("Talk to your home"))
+        home.addView(body("Ask for device state, room occupancy, routines and explanations using the same safety confirmations as the server."))
+        home.addView(primaryButton("Open smart-home chat") { showChatPage(); chatInput.setText("What is my smart home status?") }, marginTop(9))
+        home.addView(secondaryButton("Explain a routine") { showChatPage(); chatInput.setText("Explain why my routine ran") }, marginTop(8))
+        contentHost.addView(home, marginTop(12))
+
+        val gaming = card()
+        gaming.addView(kicker("GAMING & STREAMING"))
+        gaming.addView(title("Windows Gaming Agent and OBS"))
+        gaming.addView(body("Check the paired gaming node and stream without exposing unrestricted desktop control."))
+        gaming.addView(primaryButton("Gaming / stream status") { runRemoteCommand("streaming status") }, marginTop(9))
+        gaming.addView(secondaryButton("Run stream preflight") { showChatPage(); chatInput.setText("check a stream for "); chatInput.requestFocus() }, marginTop(8))
+        gaming.addView(secondaryButton("Emergency stop AI game input") { confirmStopGameInput() }, marginTop(8))
+        contentHost.addView(gaming, marginTop(12))
+
+        val background = card()
+        background.addView(kicker("PHONE ASSISTANT"))
+        background.addView(title("Background features"))
+        background.addView(primaryButton("Hey Jarvis / wake-word settings") { startActivity(Intent(this, WakeWordSettingsActivity::class.java)) }, marginTop(8))
+        background.addView(secondaryButton("Notification access") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }, marginTop(8))
+        background.addView(secondaryButton("Call protection") { showProtectionPage() }, marginTop(8))
+        contentHost.addView(background, marginTop(12))
+    }
+
     private fun showRemotePage() {
         resetPage("Remote", "Phone tools and anywhere-access controls")
         val card = card(); card.addView(kicker("PHONE REMOTE")); card.addView(title("Portable controls"));
+        card.addView(primaryButton("🛡 Call protection") { showProtectionPage() })
         card.addView(secondaryButton("Allow notification access") { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) })
         card.addView(secondaryButton("Test Find My Phone") { ContextCompat.startForegroundService(this, Intent(this, FindPhoneService::class.java).apply { action = FindPhoneService.ACTION_START }) }, marginTop(8))
         card.addView(secondaryButton("Stop phone ringing") { startService(Intent(this, FindPhoneService::class.java).apply { action = FindPhoneService.ACTION_STOP }) }, marginTop(8))
@@ -295,6 +365,30 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
     }
 
+    private fun refreshCallProtectionStatus() {
+        val roleManager = getSystemService(RoleManager::class.java)
+        val available = roleManager.isRoleAvailable(RoleManager.ROLE_CALL_SCREENING)
+        val enabled = available && roleManager.isRoleHeld(RoleManager.ROLE_CALL_SCREENING)
+        callProtectionStatus?.apply {
+            text = when {
+                !api.configured() -> "● Pair this phone before checking caller numbers."
+                !available -> "● Android call screening is unavailable on this phone."
+                enabled -> "● Call screening ON · incoming numbers can be checked."
+                else -> "● Call screening OFF · tap Allow caller-number screening."
+            }
+            setTextColor(if (enabled) cyan else Color.parseColor("#FCD34D"))
+        }
+    }
+
+    private fun confirmStopGameInput() {
+        AlertDialog.Builder(this)
+            .setTitle("Stop all AI game input?")
+            .setMessage("This immediately asks the Windows Gaming Agent to release controls and disable further AI input until you enable it again.")
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("Stop input") { _, _ -> runRemoteCommand("stop all game input") }
+            .show()
+    }
+
     private fun animateTtsVisemes(value: String) {
         if (!::web.isInitialized) return
         val vowels = value.lowercase().filter { it in "aeiouy" }.take(180); if (vowels.isEmpty()) return
@@ -320,7 +414,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun safeJs(value: String): String = value.replace("'", "").replace("\\", "").take(24)
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    override fun onResume() { super.onResume(); if (api.configured() && ::connectionStatus.isInitialized) connectionStatus.text = "● ${api.rememberedConnectionLabel()}" }
+    override fun onResume() { super.onResume(); if (api.configured() && ::connectionStatus.isInitialized) connectionStatus.text = "● ${api.rememberedConnectionLabel()}"; refreshCallProtectionStatus() }
     override fun onPause() { if (::web.isInitialized) web.onPause(); super.onPause() }
     override fun onDestroy() { discovery.stop(); if (::web.isInitialized) web.destroy(); tts?.stop(); tts?.shutdown(); super.onDestroy() }
 }
