@@ -183,13 +183,23 @@ class DevicePairingManager:
 
 
 class MdnsAdvertiser:
-    """Advertise the Pi dashboard to Android NSD using zeroconf when available."""
+    """Advertise the NekoSuneAI server to Android NSD.
+
+    The mDNS record always contains the local IPv4/port so discovery still works
+    without DNS. When NEKOSUNEAI_PUBLIC_URL is configured with HTTPS, the same
+    record also advertises that public origin and Android should prefer it for
+    pairing and all later API traffic.
+    """
 
     def __init__(self, port: int, name: str = "NekoSuneAI") -> None:
         self.port = int(port)
         self.name = name
         host_label = os.getenv("NEKOSUNEAI_INSTANCE_NAME", "").strip() or socket.gethostname()
         self.instance_name = f"{name} - {host_label}"[:60]
+        self.public_url = os.getenv("NEKOSUNEAI_PUBLIC_URL", "").strip().rstrip("/")
+        if self.public_url and not self.public_url.lower().startswith("https://"):
+            print("NekoSuneAI discovery: ignoring NEKOSUNEAI_PUBLIC_URL because it is not HTTPS")
+            self.public_url = ""
         self._zc = None
         self._info = None
 
@@ -212,21 +222,31 @@ class MdnsAdvertiser:
             from zeroconf import ServiceInfo, Zeroconf
 
             ip = self._local_ipv4()
+            properties = {
+                b"pairing": b"1",
+                b"path": b"/",
+                b"name": self.name.encode("utf-8"),
+                b"instance": self.instance_name.encode("utf-8"),
+                b"local_url": f"http://{ip}:{self.port}".encode("utf-8"),
+            }
+            if self.public_url:
+                properties[b"public_url"] = self.public_url.encode("utf-8")
+                properties[b"preferred_scheme"] = b"https"
+
             self._zc = Zeroconf()
             self._info = ServiceInfo(
                 "_nekosuneai._tcp.local.",
                 f"{self.instance_name}._nekosuneai._tcp.local.",
                 addresses=[socket.inet_aton(ip)],
                 port=self.port,
-                properties={
-                    b"pairing": b"1",
-                    b"path": b"/",
-                    b"name": self.name.encode("utf-8"),
-                    b"instance": self.instance_name.encode("utf-8"),
-                },
+                properties=properties,
                 server=f"{socket.gethostname()}.local.",
             )
             self._zc.register_service(self._info, allow_name_change=True)
+            if self.public_url:
+                print(f"NekoSuneAI discovery: advertising HTTPS pairing origin {self.public_url} with local fallback http://{ip}:{self.port}")
+            else:
+                print(f"NekoSuneAI discovery: advertising local pairing origin http://{ip}:{self.port}")
             return True
         except Exception as exc:
             print(f"NekoSuneAI mDNS discovery unavailable: {exc}")
