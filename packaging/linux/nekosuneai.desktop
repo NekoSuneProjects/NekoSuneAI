@@ -1,9 +1,0 @@
-[Desktop Entry]
-Type=Application
-Name=NekoSuneAI
-Comment=Your VRChat-first AI companion
-Exec=/usr/bin/nekosuneai --gui
-Icon=nekosuneai
-Terminal=false
-Categories=Utility;Chat;
-StartupWMClass=NekoSuneAI
