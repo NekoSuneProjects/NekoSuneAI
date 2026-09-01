@@ -17,6 +17,7 @@ jobs:
   build:
     name: Build Windows Gaming Node
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -26,15 +27,32 @@ jobs:
           cache: pip
           cache-dependency-path: requirements-windows-gaming-node.txt
 
-      - name: Install only Gaming Node dependencies
+      - name: Install build dependencies
         shell: pwsh
-        run: python -m pip install -r requirements-windows-gaming-node.txt
+        timeout-minutes: 10
+        run: |
+          # vgamepad normally tries to launch the interactive ViGEmBus MSI while
+          # pip is preparing/building the package. That blocks unattended
+          # GitHub Actions runners indefinitely. The release EXE only needs the
+          # vgamepad Python files + bundled ViGEmClient DLL; users install the
+          # ViGEmBus driver on the actual gaming PC when controller emulation is
+          # required.
+          $env:VGAMEPAD_SKIP_VIGEMBUS_INSTALL = 'true'
+          python -m pip install --disable-pip-version-check -r requirements-windows-gaming-node.txt
+
+      - name: Verify virtual controller package
+        shell: pwsh
+        run: |
+          $env:VGAMEPAD_SKIP_VIGEMBUS_INSTALL = 'true'
+          python -c "import vgamepad; print('vgamepad package import OK')"
 
       - name: Build standalone EXE
         shell: pwsh
+        timeout-minutes: 10
         run: |
           pyinstaller `
             --noconfirm `
+            --clean `
             --onefile `
             --name NekoSuneAI-Windows-Gaming-Node `
             --icon data/logo.ico `
@@ -47,10 +65,11 @@ jobs:
 
       - name: Smoke test executable
         shell: pwsh
-        run: .\dist\NekoSuneAI-Windows-Gaming-Node.exe --help
+        timeout-minutes: 2
+        run: |
+          .\dist\NekoSuneAI-Windows-Gaming-Node.exe --help
 
-      - name: Package only Gaming Node runtime files
-        id: package
+      - name: Package Gaming Node and console Remote Play profiles
         shell: pwsh
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
@@ -64,26 +83,23 @@ jobs:
           @'
           NekoSuneAI Windows Gaming Node
 
-          This release contains only the Windows Gaming Node runtime, its config example,
-          documentation and reviewed game/Remote Play profiles. Docker, Android, server,
-          development and unrelated repository files are not included in the release ZIP.
-
-          1. Copy windows-gaming-agent.example.json to windows-gaming-agent.json.
-          2. Set your NekoSuneAI Docker/Pi server URL.
-          3. Pair the node from the NekoSuneAI dashboard.
-          4. Start a reviewed profile with --game <id>.
+          1. Copy windows-gaming-agent.example.json to windows-gaming-agent.json and configure your Docker/Pi NekoSuneAI server URL.
+          2. Pair the node from the NekoSuneAI dashboard.
+          3. Run a reviewed game profile with --game <id>.
 
           Examples:
             NekoSuneAI-Windows-Gaming-Node.exe --config windows-gaming-agent.json --skills-root game-skills --game minecraft
             NekoSuneAI-Windows-Gaming-Node.exe --config windows-gaming-agent.json --skills-root game-skills --game xbox-remote-play
             NekoSuneAI-Windows-Gaming-Node.exe --config windows-gaming-agent.json --skills-root game-skills --game playstation-remote-play
 
-          Xbox/PlayStation profiles currently integrate with authenticated Windows Remote Play clients.
-          Direct-console protocol support can be added as a separate backend without changing the branch layout.
+          Controller emulation is bundled in the EXE, but the ViGEmBus driver must be installed on the gaming PC before Xbox 360 / DualShock 4 virtual controller support can work. The GitHub build deliberately does not install drivers on the CI runner.
+
+          Xbox/PlayStation Remote Play currently uses the authenticated Windows Remote Play client as the streaming window. The package does not bypass console authentication or pairing.
           '@ | Set-Content "$root/README-WINDOWS-GAMING-NODE.txt"
 
           Compress-Archive -Path "$root/*" -DestinationPath "release/NekoSuneAI-Windows-Gaming-Node-$version-build-${{ github.run_number }}.zip" -Force
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        id: package
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -100,8 +116,9 @@ jobs:
           prerelease: true
           generate_release_notes: false
           body: |
-            Standalone NekoSuneAI Windows Gaming Node.
+            Windows Gaming Node build for NekoSuneAI.
 
-            Release ZIP contains only the Windows Gaming Node executable, config example,
-            documentation, and bundled game/console Remote Play profiles.
+            Includes the standalone Windows Gaming Node executable plus bundled reviewed game-skill profiles, including Xbox Remote Play and PlayStation Remote Play templates.
+
+            Virtual controller support is bundled, but ViGEmBus must be installed on the target Windows gaming PC. The CI build does not attempt interactive driver installation.
           files: release/*.zip
