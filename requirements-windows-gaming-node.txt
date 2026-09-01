@@ -6,4 +6,5 @@ psutil>=6,<8
 obsws-python>=1.7,<2
 pytesseract>=0.3.13,<1
 vgamepad>=0.1.0,<1
+zeroconf>=0.136,<1
 pyinstaller>=6.10,<7
