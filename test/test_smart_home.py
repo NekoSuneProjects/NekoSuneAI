@@ -121,6 +121,26 @@ def test_ambiguous_and_read_only_devices_fail_safely(tmp_path):
         manager.command("temperature", "on")
 
 
+def test_sensitive_lock_action_requires_explicit_confirmation(tmp_path):
+    published = []
+    manager = SmartHomeManager(
+        lambda topic, payload, retain=False: published.append((topic, payload, retain)),
+        storage_path=tmp_path / "devices.json",
+    )
+    manager.discover(
+        "homeassistant/lock/house/front_door/config",
+        json.dumps({
+            "unique_id": "front_door", "name": "Front Door", "component": "lock",
+            "command_topic": "house/front-door/set", "state_topic": "house/front-door/state",
+        }),
+    )
+    with pytest.raises(PermissionError, match="explicit confirmation"):
+        manager.command("front_door", "unlock")
+    assert published == []
+    assert manager.command("front_door", "unlock", confirmed=True) == "Sent unlock to Front Door."
+    assert published == [("house/front-door/set", "UNLOCK", False)]
+
+
 def test_discovered_devices_persist_without_history_leaking_from_public_view(tmp_path):
     path = tmp_path / "devices.json"
     manager = SmartHomeManager(lambda *_args: None, storage_path=path)

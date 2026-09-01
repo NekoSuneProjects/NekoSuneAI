@@ -591,6 +591,10 @@ command examples. Local presence sensors can drive room-aware routines and
 one-shot reminders; routine triggers also support daily/weekday schedules and
 locally calculated sunrise/sunset times.
 
+Local smoke/CO/leak/security sensor transitions, retained home-event queries,
+house status summaries and opt-in source-attributed RSS briefings are documented
+in [`docs/SAFETY_AND_BRIEFINGS.md`](docs/SAFETY_AND_BRIEFINGS.md).
+
 ---
 
 ## 📁 Project Layout

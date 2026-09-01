@@ -22,6 +22,10 @@
   occupancy questions, presence routines and one-shot location reminders.
 - Add constrained natural-language smart-home routine creation and finite
   multi-day alarms such as `for the next three days, wake me at 8`.
+- Add deduplicated local smoke, CO, gas, leak and security sensor broadcasts,
+  with clear transitions and a bounded credential-redacting incident timeline.
+- Add offline-capable house status summaries, authenticated home-timeline
+  queries and opt-in source-attributed RSS/Atom briefings with uncertainty.
 
 ## 1.2.1 wake-word image fix
 

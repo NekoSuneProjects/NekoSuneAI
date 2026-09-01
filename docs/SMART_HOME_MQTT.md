@@ -133,3 +133,9 @@ The generic event includes `presence.room`, `presence.occupied`, and the local
 sensor ID. Presence-triggered routines and one-shot reminders consume this
 event. For example, `remind me about washing when I next go downstairs` stays
 local, fires on the next matching occupied transition, and then deactivates.
+
+Safety-class binary sensors (`smoke`, `carbon_monoxide`, `gas`, `moisture`, or
+`safety`) use the same local state path for transition-only emergency
+broadcasts and clear notices. See
+[`SAFETY_AND_BRIEFINGS.md`](SAFETY_AND_BRIEFINGS.md) for limitations and the
+retained event timeline.

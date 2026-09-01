@@ -117,18 +117,18 @@ Prefer local/offline control where practical and make cloud/account integrations
 - [ ] Safe remote phone controls such as ring, flashlight and media control.
 
 ### Information / briefings
-- [ ] Weather station + forecast/rain/storm/lightning alerts.
+- [x] Weather station + forecast/rain/storm/lightning alerts.
 - [ ] Commute/travel status.
 - [ ] Package/delivery tracking.
-- [ ] RSS/news briefing.
-- [ ] House-status briefing covering sensors, temperature, batteries, offline devices and alerts.
+- [x] RSS/news briefing.
+- [x] House-status briefing covering sensors, temperature, batteries, offline devices and alerts.
 - [ ] Personal morning/evening briefing combining calendar, weather, house status, phone battery, reminders, deliveries and important notifications.
-- [ ] Home timeline — query locally retained sensor events such as when a door last opened.
+- [x] Home timeline — query locally retained sensor events such as when a door last opened.
 
 ### Safety, privacy & reliability
-- [ ] Local smoke/CO/water-leak/security emergency broadcasts.
+- [x] Local smoke/CO/water-leak/security emergency broadcasts.
 - [ ] Permission levels per user/device.
-- [ ] Confirmation for sensitive actions such as unlocking/opening/disarming.
+- [x] Confirmation for sensitive actions such as unlocking/opening/disarming.
 - [ ] Local-first credentials vault.
 - [x] Integration health dashboard with healthy/degraded/disabled/unavailable states.
 - [ ] Graceful offline mode for local voice/home functions.

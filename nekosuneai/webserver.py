@@ -32,6 +32,9 @@ from .interruptions import is_global_stop_command
 from .integration_health import append_runtime_item
 from .peripheral_nodes import PeripheralNodeRegistry
 from .routines import RoutineManager
+from .home_events import HomeEventTimeline
+from .home_safety import HomeSafetyManager
+from .briefings import BriefingManager
 
 VISION_PROMPT = (
     "Describe the visible scene briefly for a conversational assistant. Focus on non-sensitive facts: "
@@ -234,6 +237,19 @@ def serve(host: str, port: int, token: str | None = None) -> None:
             mobile_notifier.send(message, level)
 
     api._monitor_notification = monitor_notification  # type: ignore[method-assign]
+    home_timeline = HomeEventTimeline()
+    home_safety = HomeSafetyManager(api._monitor_notification, home_timeline)
+
+    def smart_devices() -> list[dict]:
+        integration = getattr(api, "home_assistant", None)
+        return integration.list_devices() if integration is not None else []
+
+    briefings = BriefingManager(
+        home_timeline,
+        smart_devices,
+        peripheral_nodes.list_nodes,
+        home_safety.active_incidents,
+    )
 
     def emit_avatar(event: dict) -> None:
         try:
@@ -248,6 +264,7 @@ def serve(host: str, port: int, token: str | None = None) -> None:
         result = original_initialize(*args, **kwargs)
         tz = getattr(api.config, "timezone", None) or "Europe/London"
         routines.timezone = ZoneInfo(tz)
+        briefings.timezone = ZoneInfo(tz)
         if windowed_monitor is None:
             windowed_monitor = WindowedMonitorManager(api.config, api._monitor_notification)
             windowed_monitor.start()
@@ -264,6 +281,26 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 routines.handle_event(event, context)
                 if reminders is not None:
                     reminders.handle_event(event, context)
+                device = context.get("device") if isinstance(context.get("device"), dict) else None
+                if device is not None and event.startswith("smart_home.") and event != "smart_home.state":
+                    state = dict(device.get("state") or {})
+                    value = state.get("value")
+                    summary = f"{device.get('name', device.get('id', 'Device'))} reported"
+                    summary += f" {value}" if value not in (None, "") else " a state update"
+                    home_timeline.record(
+                        "sensor", event, summary,
+                        room=str(device.get("room") or ""), source=str(device.get("id") or ""),
+                    )
+                    home_safety.ingest(device)
+                if event == "presence.changed":
+                    presence = context.get("presence") if isinstance(context.get("presence"), dict) else {}
+                    occupied = bool(presence.get("occupied"))
+                    room = str(presence.get("room") or "")
+                    home_timeline.record(
+                        "presence", f"presence.{'occupied' if occupied else 'vacant'}",
+                        f"{room or 'Room'} became {'occupied' if occupied else 'vacant'}.",
+                        room=room, source=str(presence.get("device_id") or ""),
+                    )
             api.home_assistant.devices.event_callback = smart_home_event
         return result
 
@@ -358,6 +395,11 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 reply = routines.handle(user_text)
             except Exception as exc:
                 reply = f"I couldn't use that routine: {exc}"
+        if reply is None:
+            try:
+                reply = briefings.handle(user_text)
+            except Exception as exc:
+                reply = f"I couldn't build that briefing: {exc}"
 
         context_blocks: list[str] = []
         if time.time() - float(vision_context.get("epoch") or 0) <= 20 and vision_context.get("text"):
@@ -477,6 +519,11 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                             api._push_notification(f"{result.get('name', 'Peripheral node')} battery is low at {battery:.0f}%.")
                         routines.handle_event(f"node.{node_id}.heartbeat", {"node": result})
                         routines.handle_event("node.heartbeat", {"node": result})
+                        home_timeline.record(
+                            "node", "node.heartbeat", f"{result.get('name', node_id)} sent a heartbeat.",
+                            source=node_id,
+                            details={"battery_percent": result.get("battery_percent"), "latency_ms": result.get("latency_ms")},
+                        )
                         return self._json(200, {"ok": True, "node": result})
                     commands = peripheral_nodes.wait_commands(
                         node_id, int(payload.get("after", 0)), float(payload.get("wait_seconds", 25))
@@ -705,6 +752,15 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 if not self._dashboard_authorized():
                     return self._json(401, {"error": "unauthorized"})
                 return self._json(200, routines.explain(query.get("routine", [""])[0]))
+            if parsed.path == "/api/home/timeline":
+                if not self._dashboard_authorized():
+                    return self._json(401, {"error": "unauthorized"})
+                hours = max(1, min(int(query.get("hours", ["24"])[0]), 24 * home_timeline.retention_days))
+                return self._json(200, {"events": home_timeline.query(
+                    since_epoch=time.time() - hours * 3600,
+                    category=query.get("category", [""])[0], room=query.get("room", [""])[0],
+                    limit=int(query.get("limit", ["100"])[0]),
+                )})
             if parsed.path == "/api/pairing/pending":
                 if not self._dashboard_authorized():
                     return self._json(401, {"error": "unauthorized"})
