@@ -24,24 +24,17 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
-          cache-dependency-path: |
-            requirements.txt
-            requirements-windows-agent.txt
+          cache-dependency-path: requirements-windows-gaming-node.txt
 
-      - name: Install build dependencies
+      - name: Install only Gaming Node dependencies
         shell: pwsh
-        run: |
-          python -m pip install --upgrade pip
-          python -m pip install -r requirements.txt
-          python -m pip install -r requirements-windows-agent.txt
-          python -m pip install "pyinstaller>=6.10,<7"
+        run: python -m pip install -r requirements-windows-gaming-node.txt
 
       - name: Build standalone EXE
         shell: pwsh
         run: |
           pyinstaller `
             --noconfirm `
-            --clean `
             --onefile `
             --name NekoSuneAI-Windows-Gaming-Node `
             --icon data/logo.ico `
@@ -54,10 +47,10 @@ jobs:
 
       - name: Smoke test executable
         shell: pwsh
-        run: |
-          .\dist\NekoSuneAI-Windows-Gaming-Node.exe --help
+        run: .\dist\NekoSuneAI-Windows-Gaming-Node.exe --help
 
-      - name: Package Gaming Node and console Remote Play profiles
+      - name: Package only Gaming Node runtime files
+        id: package
         shell: pwsh
         run: |
           $version = (Get-Content VERSION -Raw).Trim()
@@ -71,21 +64,26 @@ jobs:
           @'
           NekoSuneAI Windows Gaming Node
 
-          1. Copy windows-gaming-agent.example.json to windows-gaming-agent.json and configure your Docker/Pi NekoSuneAI server URL.
-          2. Pair the node from the NekoSuneAI dashboard.
-          3. Run a reviewed game profile with --game <id>.
+          This release contains only the Windows Gaming Node runtime, its config example,
+          documentation and reviewed game/Remote Play profiles. Docker, Android, server,
+          development and unrelated repository files are not included in the release ZIP.
+
+          1. Copy windows-gaming-agent.example.json to windows-gaming-agent.json.
+          2. Set your NekoSuneAI Docker/Pi server URL.
+          3. Pair the node from the NekoSuneAI dashboard.
+          4. Start a reviewed profile with --game <id>.
 
           Examples:
             NekoSuneAI-Windows-Gaming-Node.exe --config windows-gaming-agent.json --skills-root game-skills --game minecraft
             NekoSuneAI-Windows-Gaming-Node.exe --config windows-gaming-agent.json --skills-root game-skills --game xbox-remote-play
             NekoSuneAI-Windows-Gaming-Node.exe --config windows-gaming-agent.json --skills-root game-skills --game playstation-remote-play
 
-          Xbox/PlayStation Remote Play requires the official Windows Remote Play client already installed and signed in. Virtual controller support uses ViGEm/vgamepad where compatible. The package does not bypass console authentication or pairing.
+          Xbox/PlayStation profiles currently integrate with authenticated Windows Remote Play clients.
+          Direct-console protocol support can be added as a separate backend without changing the branch layout.
           '@ | Set-Content "$root/README-WINDOWS-GAMING-NODE.txt"
 
           Compress-Archive -Path "$root/*" -DestinationPath "release/NekoSuneAI-Windows-Gaming-Node-$version-build-${{ github.run_number }}.zip" -Force
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-        id: package
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -102,9 +100,8 @@ jobs:
           prerelease: true
           generate_release_notes: false
           body: |
-            Windows Gaming Node build for NekoSuneAI.
+            Standalone NekoSuneAI Windows Gaming Node.
 
-            Includes the standalone Windows Gaming Node executable plus bundled reviewed game-skill profiles, including Xbox Remote Play and PlayStation Remote Play templates.
-
-            Console Remote Play uses the official Windows Xbox/PlayStation client and does not bypass Microsoft/Sony authentication or console pairing.
+            Release ZIP contains only the Windows Gaming Node executable, config example,
+            documentation, and bundled game/console Remote Play profiles.
           files: release/*.zip
