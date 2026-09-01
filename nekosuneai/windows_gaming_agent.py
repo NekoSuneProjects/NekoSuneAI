@@ -22,19 +22,30 @@ import sys
 import threading
 import time
 from collections import deque
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
 import requests
 from ctypes import wintypes
 
+from .game_skills import GameSkillLibrary, SkillLearningStore, validate_skill_step
+
 
 SAFE_KEYS = {
     "w": 0x57, "a": 0x41, "s": 0x53, "d": 0x44, "e": 0x45, "f": 0x46,
+    "c": 0x43, "i": 0x49, "m": 0x4D, "q": 0x51, "r": 0x52, "t": 0x54, "x": 0x58,
+    "shift": 0x10, "ctrl": 0x11, "alt": 0x12,
+    "1": 0x31, "2": 0x32, "3": 0x33, "4": 0x34, "5": 0x35,
     "space": 0x20, "escape": 0x1B, "enter": 0x0D, "tab": 0x09,
     "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
 }
+SAFE_MOUSE_BUTTONS = {"left", "right", "middle"}
+SAFE_CONTROLLER_BUTTONS = {
+    "a", "b", "x", "y", "left_shoulder", "right_shoulder", "back", "start",
+    "left_thumb", "right_thumb", "dpad_up", "dpad_down", "dpad_left", "dpad_right",
+}
+SAFE_CONTROLLER_AXES = {"left_x", "left_y", "right_x", "right_y", "left_trigger", "right_trigger"}
 TRANSITION_WORDS = {"loading", "connecting", "respawn", "you died", "paused", "main menu"}
 
 
@@ -47,28 +58,57 @@ class GameProfile:
     competitive_or_anticheat: bool = False
     allow_vision: bool = True
     allow_input: bool = False
+    allow_keyboard: bool = True
+    allow_mouse: bool = False
+    allow_controller: bool = False
     allow_obs: bool = True
     allow_twitch: bool = False
+    platform: str = "windows"
+    input_backend: str = "keyboard_mouse"
+    multiplayer_policy: str = "single_player"
+    automation_permitted: bool = True
+    realtime_enabled: bool = True
+    realtime_max_intent_seconds: float = 8.0
+    realtime_repeat_delay: float = 0.04
+    learning_enabled: bool = True
     capture_fps: float = 1.0
     capture_width: int = 960
     skills: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
+    skill_metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
+    guide_summary: str = ""
 
     @classmethod
     def load(cls, path: str | Path) -> "GameProfile":
         raw = json.loads(Path(path).read_text("utf-8"))
+        return cls.from_mapping(raw)
+
+    @classmethod
+    def from_mapping(cls, raw: dict[str, Any]) -> "GameProfile":
         known = {key: raw[key] for key in cls.__dataclass_fields__ if key in raw}
         profile = cls(**known)
         profile.capture_fps = max(0.1, min(float(profile.capture_fps), 10.0))
         profile.capture_width = max(320, min(int(profile.capture_width), 1920))
-        if profile.competitive_or_anticheat:
+        profile.realtime_max_intent_seconds = max(0.25, min(float(profile.realtime_max_intent_seconds), 8.0))
+        profile.realtime_repeat_delay = max(0.02, min(float(profile.realtime_repeat_delay), 1.0))
+        if profile.multiplayer_policy not in {"single_player", "private_server", "permitted_multiplayer", "prohibited"}:
+            raise ValueError("invalid multiplayer_policy")
+        if profile.competitive_or_anticheat or profile.multiplayer_policy == "prohibited":
             profile.allow_input = False
+        if profile.multiplayer_policy != "single_player" and not profile.automation_permitted:
+            profile.allow_input = False
+        if profile.input_backend not in {"keyboard_mouse", "xbox360", "dualshock4"}:
+            raise ValueError("input_backend must be keyboard_mouse, xbox360, or dualshock4")
         if not profile.window_title_pattern:
             raise ValueError("window_title_pattern is required so desktop-wide control is impossible")
         for name, steps in profile.skills.items():
             if not re.fullmatch(r"[a-z0-9_.-]{1,64}", name) or not isinstance(steps, list):
                 raise ValueError("skill names and steps are invalid")
             if len(steps) > 20:
-                raise ValueError("a skill may contain at most 20 steps")
+                raise ValueError("a profile skill may contain at most 20 steps")
+            for step in steps:
+                if not isinstance(step, dict):
+                    raise ValueError("skill steps must be objects")
+                validate_skill_step(step)
         return profile
 
 
@@ -98,25 +138,110 @@ class WindowsWindow:
         return rect.left, rect.top, rect.right, rect.bottom
 
 
+class VirtualGamepad:
+    """Optional ViGEm-backed controller used by PC and Remote Play profiles."""
+
+    def __init__(self, backend: str) -> None:
+        try:
+            import vgamepad as vg
+        except ImportError as exc:
+            raise RuntimeError("install requirements-windows-agent.txt for virtual controller support") from exc
+        self.vg = vg
+        self.backend = backend
+        self.pad = vg.VDS4Gamepad() if backend == "dualshock4" else vg.VX360Gamepad()
+
+    def button(self, name: str, down: bool) -> None:
+        vg = self.vg
+        if self.backend == "dualshock4":
+            names = {
+                "a": "DS4_BUTTON_CROSS", "b": "DS4_BUTTON_CIRCLE", "x": "DS4_BUTTON_SQUARE",
+                "y": "DS4_BUTTON_TRIANGLE", "left_shoulder": "DS4_BUTTON_SHOULDER_LEFT",
+                "right_shoulder": "DS4_BUTTON_SHOULDER_RIGHT", "back": "DS4_BUTTON_SHARE",
+                "start": "DS4_BUTTON_OPTIONS", "left_thumb": "DS4_BUTTON_THUMB_LEFT",
+                "right_thumb": "DS4_BUTTON_THUMB_RIGHT",
+            }
+            if name.startswith("dpad_"):
+                directions = {
+                    "dpad_up": "DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NORTH",
+                    "dpad_down": "DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_SOUTH",
+                    "dpad_left": "DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_WEST",
+                    "dpad_right": "DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_EAST",
+                }
+                enum_name, member = directions[name].split(".")
+                direction = (
+                    getattr(getattr(vg, enum_name), member) if down
+                    else vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NONE
+                )
+                self.pad.directional_pad(direction=direction)
+            else:
+                value = getattr(vg.DS4_BUTTONS, names[name])
+                (self.pad.press_button if down else self.pad.release_button)(button=value)
+        else:
+            names = {
+                "a": "XUSB_GAMEPAD_A", "b": "XUSB_GAMEPAD_B", "x": "XUSB_GAMEPAD_X", "y": "XUSB_GAMEPAD_Y",
+                "left_shoulder": "XUSB_GAMEPAD_LEFT_SHOULDER", "right_shoulder": "XUSB_GAMEPAD_RIGHT_SHOULDER",
+                "back": "XUSB_GAMEPAD_BACK", "start": "XUSB_GAMEPAD_START",
+                "left_thumb": "XUSB_GAMEPAD_LEFT_THUMB", "right_thumb": "XUSB_GAMEPAD_RIGHT_THUMB",
+                "dpad_up": "XUSB_GAMEPAD_DPAD_UP", "dpad_down": "XUSB_GAMEPAD_DPAD_DOWN",
+                "dpad_left": "XUSB_GAMEPAD_DPAD_LEFT", "dpad_right": "XUSB_GAMEPAD_DPAD_RIGHT",
+            }
+            value = getattr(vg.XUSB_BUTTON, names[name])
+            (self.pad.press_button if down else self.pad.release_button)(button=value)
+        self.pad.update()
+
+    def axis(self, name: str, value: float) -> None:
+        value = max(-1.0, min(float(value), 1.0))
+        if name == "left_x": self.pad.left_joystick_float(x_value_float=value, y_value_float=0.0)
+        elif name == "left_y": self.pad.left_joystick_float(x_value_float=0.0, y_value_float=value)
+        elif name == "right_x": self.pad.right_joystick_float(x_value_float=value, y_value_float=0.0)
+        elif name == "right_y": self.pad.right_joystick_float(x_value_float=0.0, y_value_float=value)
+        elif name == "left_trigger": self.pad.left_trigger_float(value_float=max(0.0, value))
+        elif name == "right_trigger": self.pad.right_trigger_float(value_float=max(0.0, value))
+        self.pad.update()
+
+    def reset(self) -> None:
+        self.pad.reset()
+        self.pad.update()
+
+
 class InputSafetyController:
     def __init__(
         self,
         profile: GameProfile,
         foreground: Callable[[], tuple[int, str]] = WindowsWindow.foreground,
         key_event: Callable[[int, bool], None] | None = None,
+        mouse_event: Callable[[str, bool, int, int], None] | None = None,
+        gamepad: Any | None = None,
     ) -> None:
         self.profile = profile
         self.foreground = foreground
         self.key_event = key_event or self._windows_key_event
+        self.mouse_event = mouse_event or self._windows_mouse_event
+        self.gamepad = gamepad
         self.disabled = threading.Event()
         self._held: set[int] = set()
+        self._held_mouse: set[str] = set()
+        self._held_controller: set[str] = set()
         self._lock = threading.RLock()
+        self._run_lock = threading.RLock()
 
     @staticmethod
     def _windows_key_event(code: int, down: bool) -> None:
         if platform.system() != "Windows":
             raise RuntimeError("game input is available only on Windows")
         ctypes.windll.user32.keybd_event(code, 0, 0 if down else 0x0002, 0)
+
+    @staticmethod
+    def _windows_mouse_event(button: str, down: bool, dx: int = 0, dy: int = 0) -> None:
+        if platform.system() != "Windows":
+            raise RuntimeError("game input is available only on Windows")
+        flags = {
+            ("left", True): 0x0002, ("left", False): 0x0004,
+            ("right", True): 0x0008, ("right", False): 0x0010,
+            ("middle", True): 0x0020, ("middle", False): 0x0040,
+        }
+        flag = 0x0001 if button == "move" else flags[(button, down)]
+        ctypes.windll.user32.mouse_event(flag, int(dx), int(dy), 0, 0)
 
     def approved_window(self) -> bool:
         _handle, title = self.foreground()
@@ -135,12 +260,24 @@ class InputSafetyController:
                 except Exception:
                     pass
             self._held.clear()
+            for button in list(self._held_mouse):
+                try: self.mouse_event(button, False, 0, 0)
+                except Exception: pass
+            self._held_mouse.clear()
+            if self.gamepad is not None:
+                try: self.gamepad.reset()
+                except Exception: pass
+            self._held_controller.clear()
 
     def enable(self) -> None:
         self.stop_all()
         self.disabled.clear()
 
     def run_skill(self, name: str) -> dict[str, Any]:
+        with self._run_lock:
+            return self._run_skill_locked(name)
+
+    def _run_skill_locked(self, name: str) -> dict[str, Any]:
         if self.disabled.is_set():
             raise PermissionError("AI game input is locally disabled")
         if self.profile.competitive_or_anticheat:
@@ -160,21 +297,141 @@ class InputSafetyController:
                 if self.disabled.is_set() or time.monotonic() >= deadline or not self.approved_window():
                     raise RuntimeError("skill stopped by timeout, emergency stop, or window change")
                 key = str(step.get("key", "")).lower()
-                if key not in SAFE_KEYS:
-                    raise ValueError(f"key is not allowlisted: {key}")
                 duration = max(0.02, min(float(step.get("seconds", 0.1)), 2.0))
-                code = SAFE_KEYS[key]
-                with self._lock:
-                    self.key_event(code, True)
-                    self._held.add(code)
-                time.sleep(duration)
-                with self._lock:
-                    self.key_event(code, False)
-                    self._held.discard(code)
+                if key:
+                    if not self.profile.allow_keyboard or key not in SAFE_KEYS:
+                        raise ValueError(f"key is not allowlisted: {key}")
+                    code = SAFE_KEYS[key]
+                    with self._lock: self.key_event(code, True); self._held.add(code)
+                    time.sleep(duration)
+                    with self._lock: self.key_event(code, False); self._held.discard(code)
+                elif "mouse_button" in step:
+                    button = str(step["mouse_button"]).lower()
+                    if not self.profile.allow_mouse or button not in SAFE_MOUSE_BUTTONS:
+                        raise ValueError(f"mouse button is not allowlisted: {button}")
+                    with self._lock: self.mouse_event(button, True, 0, 0); self._held_mouse.add(button)
+                    time.sleep(duration)
+                    with self._lock: self.mouse_event(button, False, 0, 0); self._held_mouse.discard(button)
+                elif "mouse_move" in step:
+                    if not self.profile.allow_mouse:
+                        raise ValueError("mouse movement is not allowed in this profile")
+                    move = dict(step.get("mouse_move") or {})
+                    dx = max(-250, min(int(move.get("x", 0)), 250))
+                    dy = max(-250, min(int(move.get("y", 0)), 250))
+                    self.mouse_event("move", True, dx, dy)
+                    time.sleep(duration)
+                elif "button" in step:
+                    button = str(step["button"]).lower()
+                    if not self.profile.allow_controller or button not in SAFE_CONTROLLER_BUTTONS or self.gamepad is None:
+                        raise ValueError(f"controller button is not allowlisted: {button}")
+                    with self._lock: self.gamepad.button(button, True); self._held_controller.add(button)
+                    time.sleep(duration)
+                    with self._lock: self.gamepad.button(button, False); self._held_controller.discard(button)
+                elif "axis" in step:
+                    axis = str(step["axis"]).lower()
+                    if not self.profile.allow_controller or axis not in SAFE_CONTROLLER_AXES or self.gamepad is None:
+                        raise ValueError(f"controller axis is not allowlisted: {axis}")
+                    self.gamepad.axis(axis, float(step.get("value", 0.0)))
+                    time.sleep(duration)
+                    self.gamepad.axis(axis, 0.0)
+                elif step.get("wait") is not None:
+                    time.sleep(duration)
+                else:
+                    raise ValueError("skill step does not contain an approved input")
                 completed += 1
         finally:
             self.stop_all()
         return {"ok": True, "skill": name, "steps": completed}
+
+
+class RealtimeActionLoop:
+    """Continue a short approved intent locally while the Pi plans the next one."""
+
+    def __init__(
+        self,
+        profile: GameProfile,
+        controller: InputSafetyController,
+        safe_to_act: Callable[[], bool],
+        record_result: Callable[[str, bool, float, str], Any],
+    ) -> None:
+        self.profile = profile
+        self.controller = controller
+        self.safe_to_act = safe_to_act
+        self.record_result = record_result
+        self._stop = threading.Event()
+        self._wake = threading.Event()
+        self._lock = threading.RLock()
+        self._thread: threading.Thread | None = None
+        self._skill = ""
+        self._expires = 0.0
+        self._generation = 0
+        self.last_result: dict[str, Any] = {}
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="realtime-game-actions")
+        self._thread.start()
+
+    def set_intent(self, skill: str, seconds: float) -> dict[str, Any]:
+        if not self.profile.realtime_enabled:
+            raise PermissionError("real-time intents are disabled in this game profile")
+        if skill not in self.profile.skills:
+            raise ValueError("real-time intent is not an approved skill")
+        if not bool((self.profile.skill_metadata.get(skill) or {}).get("realtime", False)):
+            raise PermissionError("this skill is not marked safe for real-time repetition")
+        ttl = max(0.25, min(float(seconds), self.profile.realtime_max_intent_seconds))
+        with self._lock:
+            self._skill, self._expires = skill, time.monotonic() + ttl
+            self._generation += 1
+        self._wake.set()
+        return {"ok": True, "intent": skill, "expires_in_seconds": ttl, "generation": self._generation}
+
+    def cancel(self, disable: bool = False) -> None:
+        with self._lock:
+            self._skill, self._expires = "", 0.0
+            self._generation += 1
+        self.controller.stop_all(disable=disable)
+        self._wake.set()
+
+    def status(self) -> dict[str, Any]:
+        with self._lock:
+            remaining = max(0.0, self._expires - time.monotonic())
+            return {
+                "active": bool(self._skill and remaining > 0), "skill": self._skill,
+                "remaining_seconds": round(remaining, 2), "generation": self._generation,
+                "last_result": dict(self.last_result),
+            }
+
+    def _loop(self) -> None:
+        while not self._stop.is_set():
+            with self._lock:
+                skill, expires, generation = self._skill, self._expires, self._generation
+            if not skill or time.monotonic() >= expires:
+                if skill:
+                    self.cancel()
+                self._wake.wait(0.25); self._wake.clear(); continue
+            if not self.safe_to_act():
+                self.controller.stop_all()
+                self._wake.wait(0.1); self._wake.clear(); continue
+            started = time.monotonic()
+            try:
+                result = self.controller.run_skill(skill)
+                elapsed = (time.monotonic() - started) * 1000
+                self.record_result(skill, True, elapsed, "")
+                self.last_result = {**result, "duration_ms": round(elapsed, 2), "generation": generation}
+            except Exception as exc:
+                elapsed = (time.monotonic() - started) * 1000
+                self.record_result(skill, False, elapsed, str(exc))
+                self.last_result = {"ok": False, "skill": skill, "error": str(exc)[:240], "generation": generation}
+                self.cancel(disable=isinstance(exc, PermissionError))
+            self._wake.wait(self.profile.realtime_repeat_delay); self._wake.clear()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self.cancel()
+        self._wake.set()
 
 
 class EmergencyHotkey:
@@ -210,8 +467,13 @@ class WindowVision:
         self.last_capture = 0.0
         self.last_hash = ""
         self.memory: deque[dict[str, Any]] = deque(maxlen=20)
+        self._lock = threading.RLock()
 
     def capture(self, detailed: bool = False) -> dict[str, Any]:
+        with self._lock:
+            return self._capture_unlocked(detailed)
+
+    def _capture_unlocked(self, detailed: bool = False) -> dict[str, Any]:
         if not self.profile.allow_vision:
             return {"ok": False, "reason": "vision disabled in profile"}
         handle, title = self.foreground()
@@ -385,9 +647,17 @@ class WindowsGamingAgent:
         self.token = str(config.get("device_token") or "")
         self.verify_tls = bool(config.get("verify_tls", True))
         self.session = requests.Session()
-        self.input = InputSafetyController(profile)
+        gamepad = VirtualGamepad(profile.input_backend) if profile.allow_controller else None
+        self.input = InputSafetyController(profile, gamepad=gamepad)
         self.emergency_hotkey = EmergencyHotkey(self.input)
         self.vision = WindowVision(profile)
+        learning_template = str(config.get("game_learning_file") or "data/game-learning/{game_id}.json")
+        learning_path = Path(learning_template.format(game_id=profile.game_id))
+        self.learning = SkillLearningStore(learning_path, profile.game_id)
+        self.realtime = RealtimeActionLoop(
+            profile, self.input, self._safe_to_act,
+            self._record_skill_result,
+        )
         self.obs = ObsController(
             str(config.get("obs_host", "127.0.0.1")), int(config.get("obs_port", 4455)),
             str(config.get("obs_password", "")),
@@ -408,12 +678,30 @@ class WindowsGamingAgent:
         }
         if self.profile.allow_input:
             caps["game.skill"] = {"kind": "write"}
+            if self.profile.realtime_enabled and any(
+                bool((self.profile.skill_metadata.get(name) or {}).get("realtime", False))
+                for name in self.profile.skills
+            ):
+                caps["game.plan"] = {"kind": "write"}
+        if self.profile.platform in {"xbox_remote_play", "playstation_remote_play"}:
+            caps["console.status"] = {"kind": "read"}
         if self.profile.allow_obs:
             for name in ("obs.status", "obs.stream.status", "obs.scene", "obs.stream.start", "obs.stream.stop", "obs.record", "obs.replay.save"):
                 caps[name] = {"kind": "read" if name in {"obs.status", "obs.stream.status"} else "write"}
         if self.profile.allow_twitch:
             caps.update({"twitch.chat.read": {"kind": "read"}, "twitch.chat.send": {"kind": "write"}})
         return caps
+
+    def _safe_to_act(self) -> bool:
+        if self.input.disabled.is_set() or not self.input.approved_window():
+            return False
+        latest = self.vision.capture()
+        return bool(latest.get("ok") and latest.get("input_safe", True))
+
+    def _record_skill_result(self, skill: str, ok: bool, duration_ms: float, reason: str = "") -> dict[str, Any]:
+        if not self.profile.learning_enabled:
+            return {}
+        return self.learning.record(skill, ok, duration_ms, reason)
 
     def pair(self, pairing_id: str, pairing_code: str) -> str:
         response = self.session.post(
@@ -436,8 +724,22 @@ class WindowsGamingAgent:
         state: dict[str, Any] = {
             "game_id": self.profile.game_id, "active_window": title[:120],
             "input_disabled": self.input.disabled.is_set(), "observation": self.vision.capture(),
-            "last_command_result": self._last_result, "skills": sorted(self.profile.skills),
+            "last_command_result": self._last_result,
+            "skills": self.learning.ranked(sorted(self.profile.skills)),
+            "skill_metadata": self.profile.skill_metadata,
+            "skill_learning": self.learning.snapshot(list(self.profile.skills)),
+            "realtime": self.realtime.status(), "platform": self.profile.platform,
+            "multiplayer_policy": self.profile.multiplayer_policy,
+            "game_guide": self.profile.guide_summary[:1_500],
         }
+        if self.profile.platform in {"xbox_remote_play", "playstation_remote_play"}:
+            state["console"] = {
+                "platform": self.profile.platform.removesuffix("_remote_play"),
+                "remote_play_active": self.input.approved_window(),
+                "current_title": "",
+                "title_detection": "unavailable from the generic Remote Play window",
+                "control_path": "approved Windows Remote Play window + virtual controller",
+            }
         try:
             import psutil
             processes = {str(proc.info.get("name") or "").casefold() for proc in psutil.process_iter(["name"])}
@@ -470,9 +772,19 @@ class WindowsGamingAgent:
         args = dict(command.get("arguments") or {})
         confirmed = bool(command.get("confirmed"))
         if capability == "game.input.stop":
-            self.input.stop_all(disable=True); return {"ok": True, "input_disabled": True}
+            self.realtime.cancel(disable=True); return {"ok": True, "input_disabled": True}
         if capability == "game.skill":
-            return self.input.run_skill(str(args.get("name", "")))
+            self.realtime.cancel()
+            skill, started = str(args.get("name", "")), time.monotonic()
+            try:
+                result = self.input.run_skill(skill)
+                self._record_skill_result(skill, True, (time.monotonic() - started) * 1000)
+                return result
+            except Exception as exc:
+                self._record_skill_result(skill, False, (time.monotonic() - started) * 1000, str(exc))
+                raise
+        if capability == "game.plan":
+            return self.realtime.set_intent(str(args.get("name", "")), float(args.get("seconds", 3.0)))
         if capability == "game.capture":
             return self.vision.capture(detailed=True)
         if capability == "obs.scene":
@@ -513,43 +825,52 @@ class WindowsGamingAgent:
             raise RuntimeError("pair the agent first and store device_token in its config")
         try:
             self.emergency_hotkey.start()
+            self.realtime.start()
             if self.twitch is not None: self.twitch.start()
             while not self._stop.is_set():
                 try: self.heartbeat_once()
                 except Exception:
-                    self.input.stop_all()
+                    self.realtime.cancel()
                     if self._stop.wait(3): break
         finally:
             self.emergency_hotkey.stop()
+            self.realtime.stop()
             if self.twitch is not None: self.twitch.stop()
             self.input.stop_all(disable=True)
 
 
-def install_startup(config_path: Path, profile_path: Path) -> Path:
+def install_startup(config_path: Path, profile_path: Path | None = None, game: str = "", skills_root: Path | None = None) -> Path:
     if platform.system() != "Windows":
         raise RuntimeError("startup installation is available only on Windows")
     startup = Path(os.environ["APPDATA"]) / "Microsoft/Windows/Start Menu/Programs/Startup"
     target = startup / "NekoSuneAI-Windows-Gaming-Agent.cmd"
-    target.write_text(
-        f'@echo off\r\n"{sys.executable}" -m nekosuneai.windows_gaming_agent --config "{config_path}" --profile "{profile_path}"\r\n',
-        "utf-8",
-    )
+    selection = f'--profile "{profile_path}"' if profile_path else f'--skills-root "{skills_root}" --game "{game}"'
+    target.write_text(f'@echo off\r\n"{sys.executable}" -m nekosuneai.windows_gaming_agent --config "{config_path}" {selection}\r\n', "utf-8")
     return target
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="NekoSuneAI paired Windows Gaming Agent")
     parser.add_argument("--config", required=True)
-    parser.add_argument("--profile", required=True)
+    parser.add_argument("--profile", help="legacy standalone profile JSON")
+    parser.add_argument("--skills-root", default="game-skills", help="folder containing versioned game skill packages")
+    parser.add_argument("--game", help="game package id, such as minecraft or skyrim")
     parser.add_argument("--pairing-id", default="")
     parser.add_argument("--pairing-code", default="")
     parser.add_argument("--install-startup", action="store_true")
     args = parser.parse_args()
-    config_path, profile_path = Path(args.config).resolve(), Path(args.profile).resolve()
+    if bool(args.profile) == bool(args.game):
+        parser.error("choose exactly one of --profile or --game")
+    config_path = Path(args.config).resolve()
+    profile_path = Path(args.profile).resolve() if args.profile else None
+    skills_root = Path(args.skills_root).resolve()
     config = json.loads(config_path.read_text("utf-8"))
-    profile = GameProfile.load(profile_path)
+    if profile_path:
+        profile = GameProfile.load(profile_path)
+    else:
+        profile = GameProfile.from_mapping(GameSkillLibrary(skills_root).load(args.game).profile_mapping())
     if args.install_startup:
-        print(install_startup(config_path, profile_path)); return
+        print(install_startup(config_path, profile_path, args.game or "", skills_root)); return
     agent = WindowsGamingAgent(config, profile)
     if args.pairing_id and args.pairing_code:
         config["device_token"] = agent.pair(args.pairing_id, args.pairing_code)

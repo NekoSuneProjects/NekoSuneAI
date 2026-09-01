@@ -22,6 +22,11 @@ Copy-Item config\windows-gaming-agent.example.json config\windows-gaming-agent.j
 Copy-Item config\game-profiles\offline-single-player.example.json config\game-profiles\my-game.json
 ```
 
+Alternatively, select a versioned package with `--skills-root game-skills
+--game minecraft`. See
+[`GAME_SKILLS_AND_REMOTE_PLAY.md`](GAME_SKILLS_AND_REMOTE_PLAY.md) for bundled
+games, bounded learning, real-time intents and console Remote Play.
+
 Keep `windows-gaming-agent.json` private: it contains the one-time node token,
 OBS password and optional Twitch OAuth token. Use authenticated HTTPS or a
 trusted VPN/Tailscale route; the agent authenticates every request but does not
@@ -72,6 +77,8 @@ Pairing alone never enables autonomous input. The Pi sends only exact named
 skills advertised by the profile; the Windows agent validates the foreground
 window and releases input locally. Setting the policy back to `confirm` or
 pressing the emergency hotkey stops further autonomous actions.
+For uninterrupted movement while the Pi thinks, review the package and also
+set `game.plan` to `allow`; each local intent still expires within eight seconds.
 
 ## OBS
 

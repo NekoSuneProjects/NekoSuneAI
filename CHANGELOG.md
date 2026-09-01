@@ -2,6 +2,12 @@
 
 ## Roadmap foundation batch
 
+- Add independently selectable data-only game skill packages for Minecraft,
+  Terraria, Cyberpunk 2077, No Man's Sky, Skyrim and more.
+- Add bounded keyboard/mouse/virtual-controller input, short real-time Windows
+  intents and aggregate per-skill reliability learning.
+- Add fail-closed Xbox and PlayStation Remote Play templates without console
+  modification, credential handling or unsupported wake/launch claims.
 - Add authenticated, one-use pairing for generic peripheral nodes with strict
   capability manifests, read/write classification and per-capability policy.
 - Add persistent node heartbeat, battery, latency, online state, command queues,

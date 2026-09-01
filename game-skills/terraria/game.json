@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "game_id": "terraria",
+  "display_name": "Terraria",
+  "profile": {"platform": "windows", "executable_names": ["Terraria.exe"], "window_title_pattern": "Terraria", "multiplayer_policy": "private_server", "automation_permitted": false, "allow_vision": true, "allow_input": false, "allow_keyboard": true, "allow_mouse": true, "allow_controller": false, "allow_obs": true, "allow_twitch": true, "capture_fps": 2.0, "capture_width": 960, "realtime_enabled": true},
+  "skills": {
+    "terraria.move_left": {"description": "Move left.", "realtime": true, "steps": [{"key": "a", "seconds": 0.2}]},
+    "terraria.move_right": {"description": "Move right.", "realtime": true, "steps": [{"key": "d", "seconds": 0.2}]},
+    "terraria.jump": {"description": "Jump.", "realtime": false, "steps": [{"key": "space", "seconds": 0.08}]},
+    "terraria.use_item": {"description": "Use the selected item at the cursor.", "realtime": true, "steps": [{"mouse_button": "left", "seconds": 0.2}]},
+    "terraria.interact": {"description": "Interact or use alternate action.", "realtime": false, "steps": [{"mouse_button": "right", "seconds": 0.08}]},
+    "terraria.inventory": {"description": "Open inventory.", "realtime": false, "steps": [{"key": "escape", "seconds": 0.08}]},
+    "terraria.aim_left": {"description": "Move cursor left a bounded amount.", "realtime": true, "steps": [{"mouse_move": {"x": -60, "y": 0}, "seconds": 0.02}]},
+    "terraria.aim_right": {"description": "Move cursor right a bounded amount.", "realtime": true, "steps": [{"mouse_move": {"x": 60, "y": 0}, "seconds": 0.02}]}
+  }
+}

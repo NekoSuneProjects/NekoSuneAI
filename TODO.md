@@ -317,7 +317,7 @@ Build one gaming-control layer so Neko can understand consoles, PCs, TVs and str
 - [ ] Turn on / wake from Rest Mode through supported paired-device or Remote Play-style mechanisms where available.
 - [ ] Put PS5 into Rest Mode through a supported authenticated integration.
 - [ ] Power/status commands such as `is the PS5 on?`, `wake the PS5`, and `put the PS5 to sleep`.
-- [ ] PS Remote Play / compatible local bridge integration for supported controls without bypassing Sony account/device protections.
+- [x] PS Remote Play / compatible local bridge integration for supported controls without bypassing Sony account/device protections.
 - [ ] Launch game/app shortcuts only where an authenticated supported interface exposes them; otherwise report that direct launch is unavailable.
 - [ ] Read currently active title/activity where exposed by supported integrations.
 - [ ] Remote/media navigation controls where the platform/integration allows them.
@@ -337,8 +337,8 @@ Build one gaming-control layer so Neko can understand consoles, PCs, TVs and str
 - [ ] Detect Switch/dock presence on the LAN/TV setup where practical.
 - [ ] HDMI-CEC-based TV/dock wake/input switching for a stock Switch setup where supported.
 - [ ] Optional safe Bluetooth/HID controller bridge for simple approved navigation only when the user's hardware supports it.
-- [ ] Do not require console modification/custom firmware for the core integration.
-- [ ] Clearly mark unsupported stock-console actions such as arbitrary remote game launching rather than pretending they succeeded.
+- [x] Do not require console modification/custom firmware for the core integration.
+- [x] Clearly mark unsupported stock-console actions such as arbitrary remote game launching rather than pretending they succeeded.
 
 ### Steam / Steam Deck / PC gaming
 - [ ] Steam/Steam Deck node integration with online state and current-game status.
@@ -393,14 +393,14 @@ Keep the Raspberry Pi/Docker instance as NekoSuneAI's persistent brain while a W
 - [x] Maintain a short-lived visual working memory of recent frames/events for game reasoning.
 
 ### Input & real-time control
-- [ ] Keyboard/mouse control through an explicit allowlisted input layer.
-- [ ] Virtual game-controller support for games that work better with controller input.
+- [x] Keyboard/mouse control through an explicit allowlisted input layer.
+- [x] Virtual game-controller support for games that work better with controller input.
 - [x] High-level action API instead of requiring the LLM to generate individual keypresses every frame.
-- [ ] Local fast-control loops on Windows for movement, steering, aiming/camera turning and obstacle avoidance while the Pi gives higher-level goals.
+- [x] Local fast-control loops on Windows for movement, steering and bounded camera turning while the Pi gives higher-level goals.
 - [x] Configurable action timeouts so a stuck action automatically releases held keys/buttons.
 - [x] Automatic release of all virtual inputs when the connection to Neko is lost.
 - [ ] Manual user input can optionally override/pause Neko immediately.
-- [ ] Record action/result telemetry so Neko can learn which game skills are reliable.
+- [x] Record action/result telemetry so Neko can learn which game skills are reliable.
 
 ### Game adapters & skills
 - [x] Generic vision-only game adapter for offline/single-player games without APIs/mods.
@@ -416,11 +416,11 @@ Keep the Raspberry Pi/Docker instance as NekoSuneAI's persistent brain while a W
 ### Minecraft autonomous play
 - [ ] Minecraft adapter with screen vision plus optional mod/plugin telemetry.
 - [ ] Read health, hunger, coordinates, inventory and nearby entities from an approved mod/API when available.
-- [ ] Minecraft skills such as walking, looking, jumping, interacting, mining, placing blocks, eating and opening inventory.
+- [x] Minecraft skills such as walking, looking, jumping, interacting, mining, placing blocks, eating and opening inventory.
 - [ ] Higher-level skills such as `find tree`, `collect wood`, `find shelter`, `craft item`, and `return home` built on local movement/action primitives.
 - [ ] Navigation/pathfinding handled locally where practical rather than sending every movement decision to the Pi.
-- [ ] Detect death/respawn/menu states and stop unsafe repeated inputs.
-- [ ] Server-specific automation policy so Neko only uses autonomous play where server/game rules permit it.
+- [x] Detect death/respawn/menu states and stop unsafe repeated inputs.
+- [x] Server-specific automation policy so Neko only uses autonomous play where server/game rules permit it.
 
 ### VRChat autonomous avatar play
 - [ ] Run VRChat on Windows while Neko's brain remains on the Pi/server.
@@ -435,9 +435,9 @@ Keep the Raspberry Pi/Docker instance as NekoSuneAI's persistent brain while a W
 
 ### Additional games
 - [ ] Adapter framework for Roblox where automation is permitted by the experience/platform rules.
-- [ ] Adapter framework for supported offline/single-player games such as Fallout-style games.
+- [x] Adapter framework for supported offline/single-player games such as Fallout-style games.
 - [ ] Emulator adapter for user-owned games with generic controller + vision support.
-- [ ] Game-specific adapter packages can be enabled/disabled independently.
+- [x] Game-specific adapter packages can be enabled/disabled independently.
 - [x] Anti-cheat-aware game profiles: disable automated input for multiplayer/competitive games where bots/macros are prohibited.
 - [x] Never attempt to bypass anti-cheat, bot detection or game/platform restrictions.
 

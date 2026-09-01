@@ -13,6 +13,7 @@ def _registry(tmp_path):
         "windows-gaming", {
             "game.status": {"kind": "read"},
             "game.skill": {"kind": "write"},
+            "game.plan": {"kind": "write"},
             "game.input.stop": {"kind": "write"},
         },
     )
@@ -69,3 +70,22 @@ def test_transition_blocks_actions_and_stop_queues_emergency_release(tmp_path):
         driver.act(GameCommand("generic.move"))
     driver.stop()
     assert registry.wait_commands("gaming-pc", wait_seconds=0)[-1]["capability"] == "game.input.stop"
+
+
+def test_realtime_skill_queues_short_plan_when_owner_allows_it(tmp_path):
+    registry, _token = _registry(tmp_path)
+    registry.set_policy("gaming-pc", "game.skill", "allow")
+    registry.set_policy("gaming-pc", "game.plan", "allow")
+    registry.heartbeat("gaming-pc", state={
+        "game_id": "offline-test", "game_running": True, "active_window": "Offline Test",
+        "input_disabled": False, "skills": ["generic.move"],
+        "skill_metadata": {"generic.move": {"realtime": True}},
+        "observation": {"scene_hash": "abcd", "input_safe": True},
+    })
+    driver = WindowsRemoteGameDriver(registry)
+    driver.start(); driver.observe()
+    result = driver.act(GameCommand("generic.move", {"seconds": 5}))
+    assert result["realtime"] is True
+    queued = registry.wait_commands("gaming-pc", wait_seconds=0)[-1]
+    assert queued["capability"] == "game.plan"
+    assert queued["arguments"] == {"name": "generic.move", "seconds": 5.0}

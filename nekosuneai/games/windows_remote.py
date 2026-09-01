@@ -98,12 +98,32 @@ class WindowsRemoteGameDriver:
             "transition": observation.get("transition"),
             "input_safe": bool(observation.get("input_safe", True)),
             "last_command_result": state.get("last_command_result"),
+            "realtime": state.get("realtime"),
+            "skill_learning": state.get("skill_learning"),
         }
         self._last_observation = GameObservation(raw=raw, text="\n".join(parts))
         return self._last_observation
 
     def describe_state(self) -> str:
         return self._last_observation.text
+
+    def mission(self) -> str:
+        try:
+            guide = str((self._node().get("state") or {}).get("game_guide") or "").strip()
+            return "Game package guide:\n" + guide if guide else ""
+        except RuntimeError:
+            return ""
+
+    def verbs_help(self) -> str:
+        try:
+            metadata = dict((self._node().get("state") or {}).get("skill_metadata") or {})
+            lines = [
+                f"{name}: {str((metadata.get(name) or {}).get('description') or '')}"
+                for name in self.available_verbs()
+            ]
+            return "Approved skill meanings:\n" + "\n".join(lines) if lines else ""
+        except RuntimeError:
+            return ""
 
     def available_verbs(self) -> list[str]:
         try:
@@ -123,8 +143,22 @@ class WindowsRemoteGameDriver:
         raw = self._last_observation.raw
         if raw.get("transition") or raw.get("input_safe") is False:
             raise PermissionError("Input is paused during an unsafe or transitional visual state.")
+        node = self._node()
+        metadata = dict(((node.get("state") or {}).get("skill_metadata") or {}).get(command.verb) or {})
+        capability = (
+            "game.plan" if metadata.get("realtime")
+            and "game.plan" in (node.get("capabilities") or {})
+            and self.registry.action_policy(self._node_id, "game.plan") == "allow"
+            else "game.skill"
+        )
+        arguments = {"name": command.verb}
+        if capability == "game.plan":
+            arguments["seconds"] = max(0.25, min(float(command.args.get("seconds", 8.0)), 8.0))
         item = self.registry.enqueue(
-            self._node_id, "game.skill", {"name": command.verb},
+            self._node_id, capability, arguments,
             confirmed=False, requested_by="windows-game-agent",
         )
-        return {"ok": True, "skill": command.verb, "queued": True, "command_id": item["id"]}
+        return {
+            "ok": True, "skill": command.verb, "queued": True,
+            "realtime": capability == "game.plan", "command_id": item["id"],
+        }

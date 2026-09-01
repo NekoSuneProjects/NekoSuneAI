@@ -14,6 +14,8 @@ def test_automation_dashboard_has_node_and_routine_controls():
     assert "set_smart_home_aliases" in html
     assert "Stop all input" in html
     assert "streamAction('brb')" in html
+    assert "setNodePolicy" in html
+    assert "learned skill outcome" in html
     assert "/api/routines/preview" in html
     assert "last_seen_epoch" in html
 

@@ -10,6 +10,7 @@ audio
 data/*.db*
 data/history.jsonl
 data/profile*.json
+data/game-learning
 config/windows-gaming-agent.json
 config/game-profiles/*.local.json
 build
