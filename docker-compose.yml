@@ -26,14 +26,8 @@ services:
       - ./data:/app/data
       - ./audio:/app/audio
       - nekosuneai-models:/app/models
-      # Xbox 360 Kinect exposes several USB interfaces (camera/motor/audio).
-      # Mount the bus and allow USB character devices through the Docker cgroup.
       - /dev/bus/usb:/dev/bus/usb
-      # Read all desktop runtime sessions so startup can locate the real audio
-      # owner automatically instead of assuming /run/user/1000.
       - /run/user:/run/user:ro
-      # BlueZ stays on the host. bluetoothctl inside the container talks to the
-      # host daemon over this D-Bus socket to reconnect already-paired speakers.
       - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
     device_cgroup_rules:
       - 'c 189:* rwm'
@@ -41,12 +35,43 @@ services:
       - /dev/snd:/dev/snd
     environment:
       NEKOSUNEAI_AUTO_AUDIO: ${NEKOSUNEAI_AUTO_AUDIO:-true}
-      # Docker voice installs automatically recover a paired Bluetooth speaker.
-      # BLUETOOTH_SPEAKER_ADDRESS is optional; Alexa/Echo is auto-discovered.
       BLUETOOTH_RECONNECT_ENABLED: ${BLUETOOTH_RECONNECT_ENABLED:-true}
       PIPEWIRE_REMOTE: ${PIPEWIRE_REMOTE:-pipewire-0}
       WEB_DASHBOARD_HOST: 0.0.0.0
       WEB_DASHBOARD_PORT: 8788
+
+      # When a password is configured, the web dashboard uses an HttpOnly
+      # session cookie and no longer requires ?token= in browser URLs.
+      DASHBOARD_ADMIN_USERNAME: ${DASHBOARD_ADMIN_USERNAME:-admin}
+      DASHBOARD_ADMIN_PASSWORD: ${DASHBOARD_ADMIN_PASSWORD:-}
+      DASHBOARD_SESSION_SECRET: ${DASHBOARD_SESSION_SECRET:-}
+      DASHBOARD_SESSION_TTL_SECONDS: ${DASHBOARD_SESSION_TTL_SECONDS:-43200}
+      DASHBOARD_COOKIE_SECURE: ${DASHBOARD_COOKIE_SECURE:-auto}
+
+      # Publish warnings/danger alerts to the local ntfy service. NekoSuneAI is
+      # on host networking, so it reaches ntfy through its published host port.
+      MOBILE_NOTIFY_ENABLED: ${MOBILE_NOTIFY_ENABLED:-true}
+      MOBILE_NOTIFY_URL: http://127.0.0.1:${NTFY_PORT:-2586}
+      MOBILE_NOTIFY_TOPIC: ${MOBILE_NOTIFY_TOPIC:-nekosuneai-alerts}
+      MOBILE_NOTIFY_TOKEN: ${MOBILE_NOTIFY_TOKEN:-}
+      MOBILE_NOTIFY_MIN_LEVEL: ${MOBILE_NOTIFY_MIN_LEVEL:-warning}
+
+  ntfy:
+    image: binwiederhier/ntfy:latest
+    container_name: nekosuneai-ntfy
+    restart: unless-stopped
+    command: serve
+    environment:
+      # Change this to your HTTPS notification domain behind the reverse proxy,
+      # for example https://notify.example.com.
+      NTFY_BASE_URL: ${NTFY_BASE_URL:-http://192.168.1.107:2586}
+      NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
+      NTFY_ATTACHMENT_CACHE_DIR: /var/cache/ntfy/attachments
+    volumes:
+      - ./data/ntfy/cache:/var/cache/ntfy
+      - ./data/ntfy/etc:/etc/ntfy
+    ports:
+      - "${NTFY_PORT:-2586}:80"
 
 volumes:
   nekosuneai-models:
