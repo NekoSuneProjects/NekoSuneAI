@@ -9,6 +9,7 @@
 # ── Virtual environments ─────────────────────────────────────────────────
 .venv/
 .venv-xtts/
+.venv-windows-node/
 venv/
 env/
 node_modules/
