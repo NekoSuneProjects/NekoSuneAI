@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import ipaddress
 import json
 import socket
 import threading
 import tkinter as tk
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from tkinter import messagebox, ttk
 
 import requests
+import urllib3
 
 from nekosuneai.game_skills import GameSkillLibrary
 from nekosuneai.windows_gaming_agent import GameProfile, WindowsGamingAgent
@@ -15,6 +18,8 @@ from nekosuneai.windows_gaming_agent import GameProfile, WindowsGamingAgent
 APP_TITLE = "NekoSuneAI Windows Gaming Node"
 CONFIG_PATH = Path("windows-gaming-agent.json")
 SKILLS_ROOT = Path("game-skills")
+DEFAULT_SERVER_PORT = 8788
+DISCOVERY_PORTS = (8788, 443, 80, 8080, 8000, 5000, 3000)
 
 BG = "#0b0f14"
 PANEL = "#111820"
@@ -27,6 +32,8 @@ ACCENT_HOVER = "#927cff"
 SUCCESS = "#2ed69b"
 DANGER = "#ff5d6c"
 INPUT_BG = "#0f151c"
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def load_config() -> dict:
@@ -55,24 +62,150 @@ def save_config(config: dict) -> None:
     CONFIG_PATH.write_text(json.dumps(config, indent=2), "utf-8")
 
 
+def _local_ipv4_addresses() -> list[str]:
+    addresses: set[str] = set()
+    try:
+        for info in socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET):
+            ip = info[4][0]
+            if not ip.startswith("127.") and not ip.startswith("169.254."):
+                addresses.add(ip)
+    except OSError:
+        pass
+
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        probe.settimeout(0.25)
+        probe.connect(("1.1.1.1", 80))
+        ip = probe.getsockname()[0]
+        probe.close()
+        if not ip.startswith("127.") and not ip.startswith("169.254."):
+            addresses.add(ip)
+    except OSError:
+        pass
+
+    return sorted(addresses)
+
+
+def _tcp_open(host: str, port: int, timeout: float = 0.15) -> bool:
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def _looks_like_nekosuneai(base_url: str) -> bool:
+    base_url = base_url.rstrip("/")
+    try:
+        response = requests.get(
+            base_url + "/api/nodes/register",
+            timeout=0.8,
+            verify=False,
+            allow_redirects=False,
+        )
+        # This endpoint is POST-only in NekoSuneAI, so 400/401/403/405/422
+        # are useful positive signals while 404 means this is probably another app.
+        if response.status_code in {400, 401, 403, 405, 422}:
+            return True
+    except requests.RequestException:
+        pass
+
+    try:
+        response = requests.get(base_url + "/", timeout=0.8, verify=False)
+        text = response.text[:12000].casefold()
+        return response.status_code < 500 and (
+            "nekosuneai" in text
+            or "windows gaming node" in text
+            or "/api/nodes/" in text
+        )
+    except requests.RequestException:
+        return False
+
+
+def _candidate_urls(host: str, port: int) -> tuple[str, ...]:
+    if port == 443:
+        return (f"https://{host}", f"http://{host}:443")
+    if port == 80:
+        return (f"http://{host}", f"https://{host}:80")
+    return (f"http://{host}:{port}", f"https://{host}:{port}")
+
+
+def _probe_host(host: str, ports: tuple[int, ...] = DISCOVERY_PORTS) -> list[str]:
+    found: list[str] = []
+    for port in ports:
+        if not _tcp_open(host, port):
+            continue
+        for url in _candidate_urls(host, port):
+            if _looks_like_nekosuneai(url):
+                found.append(url)
+                break
+    return found
+
+
 def discover_candidates() -> list[str]:
-    candidates: list[str] = []
-    names = ["nekosuneai.local", "nekosunepi.local", "raspberrypi.local"]
+    """Discover the Docker/Pi server by known names and the local IPv4 LAN.
+
+    NekoSuneAI's Docker compose uses host networking and WEB_DASHBOARD_PORT 8788,
+    so discovery must include :8788 rather than probing only ports 80/443.
+    """
+    results: list[str] = []
+    seen: set[str] = set()
+
+    def add(url: str) -> None:
+        clean = url.rstrip("/")
+        if clean not in seen:
+            seen.add(clean)
+            results.append(clean)
+
+    # Fast path: common local names, including the actual dashboard port.
+    names = (
+        "nekosuneai.local",
+        "nekosunepi.local",
+        "raspberrypi.local",
+        "nekosuneai",
+        "nekosunepi",
+        "raspberrypi",
+    )
     for host in names:
         try:
             socket.gethostbyname(host)
         except OSError:
             continue
-        for scheme in ("https", "http"):
-            url = f"{scheme}://{host}"
+        for url in _probe_host(host):
+            add(url)
+
+    # Scan each Windows LAN /24 for the exposed Docker dashboard. This works
+    # even when mDNS/.local names are unavailable on Windows.
+    networks: set[ipaddress.IPv4Network] = set()
+    own_ips = set(_local_ipv4_addresses())
+    for ip in own_ips:
+        try:
+            networks.add(ipaddress.ip_network(f"{ip}/24", strict=False))
+        except ValueError:
+            continue
+
+    hosts: list[str] = []
+    for network in networks:
+        for address in network.hosts():
+            host = str(address)
+            if host not in own_ips:
+                hosts.append(host)
+
+    # Port 8788 first because that is NekoSuneAI's Docker default. Restrict the
+    # broad subnet scan to this port so discovery stays fast and unobtrusive.
+    def scan_default(host: str) -> list[str]:
+        return _probe_host(host, (DEFAULT_SERVER_PORT,))
+
+    with ThreadPoolExecutor(max_workers=64) as pool:
+        futures = {pool.submit(scan_default, host): host for host in hosts}
+        for future in as_completed(futures):
             try:
-                response = requests.get(url, timeout=1.5, verify=False)
-                if response.status_code < 500:
-                    candidates.append(url)
-                    break
-            except requests.RequestException:
+                for url in future.result():
+                    add(url)
+            except Exception:
                 continue
-    return candidates
+
+    return results
 
 
 class App(tk.Tk):
@@ -113,95 +246,31 @@ class App(tk.Tk):
         style.configure("Panel.TFrame", background=PANEL)
         style.configure("Card.TFrame", background=PANEL_2)
         style.configure("Sidebar.TFrame", background="#0d131a")
-
         style.configure("Title.TLabel", background=BG, foreground=TEXT, font=("Segoe UI", 24, "bold"))
         style.configure("Subtitle.TLabel", background=BG, foreground=MUTED, font=("Segoe UI", 10))
         style.configure("Heading.TLabel", background=PANEL_2, foreground=TEXT, font=("Segoe UI", 13, "bold"))
         style.configure("Body.TLabel", background=PANEL_2, foreground=TEXT, font=("Segoe UI", 10))
         style.configure("Muted.TLabel", background=PANEL_2, foreground=MUTED, font=("Segoe UI", 9))
         style.configure("Status.TLabel", background="#0d131a", foreground=MUTED, font=("Segoe UI", 9))
-
-        style.configure(
-            "Modern.TEntry",
-            fieldbackground=INPUT_BG,
-            foreground=TEXT,
-            bordercolor=BORDER,
-            lightcolor=BORDER,
-            darkcolor=BORDER,
-            insertcolor=TEXT,
-            padding=9,
-        )
+        style.configure("Modern.TEntry", fieldbackground=INPUT_BG, foreground=TEXT, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, insertcolor=TEXT, padding=9)
         style.map("Modern.TEntry", bordercolor=[("focus", ACCENT)])
-
-        style.configure(
-            "Modern.TCombobox",
-            fieldbackground=INPUT_BG,
-            background=INPUT_BG,
-            foreground=TEXT,
-            arrowcolor=MUTED,
-            bordercolor=BORDER,
-            lightcolor=BORDER,
-            darkcolor=BORDER,
-            padding=8,
-        )
-        style.map(
-            "Modern.TCombobox",
-            fieldbackground=[("readonly", INPUT_BG)],
-            foreground=[("readonly", TEXT)],
-            bordercolor=[("focus", ACCENT)],
-        )
-
-        style.configure(
-            "Primary.TButton",
-            background=ACCENT,
-            foreground="white",
-            borderwidth=0,
-            focusthickness=0,
-            padding=(16, 10),
-            font=("Segoe UI", 10, "bold"),
-        )
+        style.configure("Modern.TCombobox", fieldbackground=INPUT_BG, background=INPUT_BG, foreground=TEXT, arrowcolor=MUTED, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, padding=8)
+        style.map("Modern.TCombobox", fieldbackground=[("readonly", INPUT_BG)], foreground=[("readonly", TEXT)], bordercolor=[("focus", ACCENT)])
+        style.configure("Primary.TButton", background=ACCENT, foreground="white", borderwidth=0, focusthickness=0, padding=(16, 10), font=("Segoe UI", 10, "bold"))
         style.map("Primary.TButton", background=[("active", ACCENT_HOVER), ("pressed", "#6d50e8")])
-
-        style.configure(
-            "Secondary.TButton",
-            background="#1b2530",
-            foreground=TEXT,
-            bordercolor=BORDER,
-            lightcolor=BORDER,
-            darkcolor=BORDER,
-            padding=(14, 9),
-            font=("Segoe UI", 10),
-        )
+        style.configure("Secondary.TButton", background="#1b2530", foreground=TEXT, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, padding=(14, 9), font=("Segoe UI", 10))
         style.map("Secondary.TButton", background=[("active", "#24313f")])
-
-        style.configure(
-            "Danger.TButton",
-            background="#3a1820",
-            foreground="#ff9aa6",
-            borderwidth=0,
-            padding=(14, 9),
-            font=("Segoe UI", 10, "bold"),
-        )
+        style.configure("Danger.TButton", background="#3a1820", foreground="#ff9aa6", borderwidth=0, padding=(14, 9), font=("Segoe UI", 10, "bold"))
         style.map("Danger.TButton", background=[("active", "#51212b")])
-
-        style.configure(
-            "Modern.TCheckbutton",
-            background=PANEL_2,
-            foreground=TEXT,
-            font=("Segoe UI", 9),
-            indicatorcolor=INPUT_BG,
-            indicatorrelief="flat",
-        )
+        style.configure("Modern.TCheckbutton", background=PANEL_2, foreground=TEXT, font=("Segoe UI", 9), indicatorcolor=INPUT_BG, indicatorrelief="flat")
         style.map("Modern.TCheckbutton", background=[("active", PANEL_2)], indicatorcolor=[("selected", ACCENT)])
 
     def _build(self) -> None:
         root = ttk.Frame(self, style="App.TFrame")
         root.pack(fill="both", expand=True)
-
         sidebar = ttk.Frame(root, style="Sidebar.TFrame", width=230)
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
-
         content = ttk.Frame(root, style="App.TFrame")
         content.pack(side="left", fill="both", expand=True)
 
@@ -211,27 +280,8 @@ class App(tk.Tk):
         tk.Label(brand, text="WINDOWS GAMING NODE", bg="#0d131a", fg=ACCENT, font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(2, 0))
 
         self.nav_buttons: dict[str, tk.Button] = {}
-        for key, label, glyph in (
-            ("setup", "Setup & Pair", "●"),
-            ("gaming", "Gaming Node", "▶"),
-            ("about", "Status", "◆"),
-        ):
-            btn = tk.Button(
-                sidebar,
-                text=f"  {glyph}   {label}",
-                anchor="w",
-                relief="flat",
-                bd=0,
-                bg="#0d131a",
-                fg=MUTED,
-                activebackground="#161f29",
-                activeforeground=TEXT,
-                font=("Segoe UI", 10, "bold"),
-                padx=14,
-                pady=12,
-                cursor="hand2",
-                command=lambda page=key: self._show_page(page),
-            )
+        for key, label, glyph in (("setup", "Setup & Pair", "●"), ("gaming", "Gaming Node", "▶"), ("about", "Status", "◆")):
+            btn = tk.Button(sidebar, text=f"  {glyph}   {label}", anchor="w", relief="flat", bd=0, bg="#0d131a", fg=MUTED, activebackground="#161f29", activeforeground=TEXT, font=("Segoe UI", 10, "bold"), padx=14, pady=12, cursor="hand2", command=lambda page=key: self._show_page(page))
             btn.pack(fill="x", padx=12, pady=3)
             self.nav_buttons[key] = btn
 
@@ -239,28 +289,15 @@ class App(tk.Tk):
         tk.Label(sidebar, text="CONNECTION", bg="#0d131a", fg="#66788a", font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=24)
         self.sidebar_state = tk.Label(sidebar, textvariable=self.connection_var, bg="#0d131a", fg=MUTED, font=("Segoe UI", 9))
         self.sidebar_state.pack(anchor="w", padx=24, pady=(6, 0))
-
-        tk.Label(
-            sidebar,
-            text="Emergency stop\nCtrl + Alt + F12",
-            justify="left",
-            bg="#0d131a",
-            fg="#ff8b97",
-            font=("Segoe UI", 9, "bold"),
-        ).pack(side="bottom", anchor="w", padx=24, pady=24)
+        tk.Label(sidebar, text="Emergency stop\nCtrl + Alt + F12", justify="left", bg="#0d131a", fg="#ff8b97", font=("Segoe UI", 9, "bold")).pack(side="bottom", anchor="w", padx=24, pady=24)
 
         header = ttk.Frame(content, style="App.TFrame")
         header.pack(fill="x", padx=34, pady=(28, 14))
         ttk.Label(header, text="Windows Gaming Node", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(
-            header,
-            text="Connect your gaming PC to NekoSuneAI, discover the server, pair the device and run game profiles.",
-            style="Subtitle.TLabel",
-        ).pack(anchor="w", pady=(5, 0))
+        ttk.Label(header, text="Connect your gaming PC to NekoSuneAI, discover the server, pair the device and run game profiles.", style="Subtitle.TLabel").pack(anchor="w", pady=(5, 0))
 
         self.page_host = ttk.Frame(content, style="App.TFrame")
         self.page_host.pack(fill="both", expand=True, padx=34, pady=(0, 24))
-
         self.pages: dict[str, ttk.Frame] = {}
         self._build_setup_page()
         self._build_gaming_page()
@@ -270,7 +307,6 @@ class App(tk.Tk):
         statusbar.pack(fill="x", side="bottom")
         ttk.Label(statusbar, textvariable=self.status_var, style="Status.TLabel").pack(side="left", padx=18, pady=8)
         ttk.Label(statusbar, text="NekoSuneAI • Windows", style="Status.TLabel").pack(side="right", padx=18, pady=8)
-
         self._show_page("setup")
 
     def _card(self, parent: tk.Widget, title: str, subtitle: str = "") -> ttk.Frame:
@@ -292,14 +328,12 @@ class App(tk.Tk):
     def _build_setup_page(self) -> None:
         page = ttk.Frame(self.page_host, style="App.TFrame")
         self.pages["setup"] = page
-
         server_card = self._card(page, "Server connection", "Find your NekoSuneAI Docker/Pi instance automatically or enter it manually.")
         server_card.columnconfigure(1, weight=1)
         self._field(server_card, "Server URL", self.server_var, 1)
         ttk.Label(server_card, text="Device name", style="Body.TLabel").grid(row=2, column=0, sticky="w", padx=(22, 18), pady=9)
         ttk.Entry(server_card, textvariable=self.name_var, style="Modern.TEntry").grid(row=2, column=1, sticky="ew", padx=(0, 22), pady=9)
         self._field(server_card, "Node ID", self.node_var, 3)
-
         controls = ttk.Frame(server_card, style="Card.TFrame")
         controls.grid(row=4, column=0, columnspan=2, sticky="ew", padx=22, pady=(8, 20))
         ttk.Checkbutton(controls, text="Verify HTTPS certificate", variable=self.verify_tls_var, style="Modern.TCheckbutton").pack(side="left")
@@ -310,7 +344,6 @@ class App(tk.Tk):
         pair_card.columnconfigure(1, weight=1)
         self._field(pair_card, "Pairing ID", self.pairing_id_var, 1)
         self._field(pair_card, "Pairing code", self.pairing_code_var, 2, secret=True)
-
         pair_actions = ttk.Frame(pair_card, style="Card.TFrame")
         pair_actions.grid(row=3, column=0, columnspan=2, sticky="ew", padx=22, pady=(10, 20))
         ttk.Label(pair_actions, textvariable=self.connection_var, style="Muted.TLabel").pack(side="left")
@@ -319,23 +352,19 @@ class App(tk.Tk):
     def _build_gaming_page(self) -> None:
         page = ttk.Frame(self.page_host, style="App.TFrame")
         self.pages["gaming"] = page
-
         profile_card = self._card(page, "Game & Remote Play", "Choose a reviewed game profile, Xbox Remote Play or PlayStation Remote Play.")
         profile_card.columnconfigure(1, weight=1)
         ttk.Label(profile_card, text="Profile", style="Body.TLabel").grid(row=1, column=0, sticky="w", padx=(22, 18), pady=10)
         self.game_combo = ttk.Combobox(profile_card, textvariable=self.game_var, state="readonly", style="Modern.TCombobox")
         self.game_combo.grid(row=1, column=1, sticky="ew", padx=(0, 22), pady=10)
-
         actions = ttk.Frame(profile_card, style="Card.TFrame")
         actions.grid(row=2, column=0, columnspan=2, sticky="ew", padx=22, pady=(10, 20))
         ttk.Button(actions, text="Refresh profiles", command=self._load_games, style="Secondary.TButton").pack(side="left")
         ttk.Button(actions, text="Stop node", command=self.stop_node, style="Danger.TButton").pack(side="right")
         ttk.Button(actions, text="Start node", command=self.start_node, style="Primary.TButton").pack(side="right", padx=(0, 10))
-
         live_card = self._card(page, "Live status", "The local node stays connected to the Pi/Docker brain and only executes approved game capabilities.")
         live_inner = ttk.Frame(live_card, style="Card.TFrame")
         live_inner.pack(fill="x", padx=22, pady=(0, 20))
-
         self.live_dot = tk.Canvas(live_inner, width=12, height=12, bg=PANEL_2, highlightthickness=0)
         self.live_dot.pack(side="left", padx=(0, 10))
         self.live_dot.create_oval(2, 2, 10, 10, fill="#657280", outline="")
@@ -344,30 +373,16 @@ class App(tk.Tk):
     def _build_status_page(self) -> None:
         page = ttk.Frame(self.page_host, style="App.TFrame")
         self.pages["about"] = page
-
         card = self._card(page, "Node overview", "Local configuration and safety status.")
         body = ttk.Frame(card, style="Card.TFrame")
         body.pack(fill="x", padx=22, pady=(0, 20))
-
-        rows = (
-            ("Device", self.name_var),
-            ("Node ID", self.node_var),
-            ("Server", self.server_var),
-            ("Connection", self.connection_var),
-            ("Selected profile", self.game_var),
-        )
-        for label, var in rows:
+        for label, var in (("Device", self.name_var), ("Node ID", self.node_var), ("Server", self.server_var), ("Connection", self.connection_var), ("Selected profile", self.game_var)):
             line = ttk.Frame(body, style="Card.TFrame")
             line.pack(fill="x", pady=7)
             ttk.Label(line, text=label, style="Muted.TLabel", width=18).pack(side="left")
             ttk.Label(line, textvariable=var, style="Body.TLabel").pack(side="left")
-
         safety = self._card(page, "Safety", "Input remains bounded to approved profiles and the selected foreground game window.")
-        ttk.Label(
-            safety,
-            text="Ctrl + Alt + F12 immediately releases active input and disables AI game control.",
-            style="Body.TLabel",
-        ).pack(anchor="w", padx=22, pady=(0, 20))
+        ttk.Label(safety, text="Ctrl + Alt + F12 immediately releases active input and disables AI game control.", style="Body.TLabel").pack(anchor="w", padx=22, pady=(0, 20))
 
     def _show_page(self, name: str) -> None:
         for page in self.pages.values():
@@ -394,12 +409,7 @@ class App(tk.Tk):
 
     def current_config(self) -> dict:
         cfg = dict(self.config_data)
-        cfg.update({
-            "server_url": self.server_var.get().strip(),
-            "verify_tls": self.verify_tls_var.get(),
-            "node_id": self.node_var.get().strip() or socket.gethostname(),
-            "name": self.name_var.get().strip() or "Windows Gaming Node",
-        })
+        cfg.update({"server_url": self.server_var.get().strip(), "verify_tls": self.verify_tls_var.get(), "node_id": self.node_var.get().strip() or socket.gethostname(), "name": self.name_var.get().strip() or "Windows Gaming Node"})
         return cfg
 
     def save(self) -> None:
@@ -412,7 +422,7 @@ class App(tk.Tk):
         self.status_var.set("Settings saved")
 
     def discover(self) -> None:
-        self.status_var.set("Discovering NekoSuneAI on your LAN…")
+        self.status_var.set(f"Scanning LAN for NekoSuneAI Docker on port {DEFAULT_SERVER_PORT}…")
 
         def worker() -> None:
             found = discover_candidates()
@@ -424,8 +434,9 @@ class App(tk.Tk):
         if found:
             self.server_var.set(found[0])
             self.status_var.set(f"Found NekoSuneAI at {found[0]}")
-        else:
-            self.status_var.set("No automatic match found — enter the Docker/Pi URL manually")
+            return
+        local = ", ".join(_local_ipv4_addresses()) or "unknown"
+        self.status_var.set(f"No NekoSuneAI server found on port {DEFAULT_SERVER_PORT} • Windows IP: {local}")
 
     def _profile(self) -> GameProfile:
         game = self.game_var.get().strip()
@@ -442,7 +453,6 @@ class App(tk.Tk):
         if not pairing_id or not pairing_code:
             messagebox.showerror(APP_TITLE, "Enter the pairing ID and pairing code shown by NekoSuneAI.")
             return
-
         self.status_var.set("Pairing Windows Gaming Node…")
 
         def worker() -> None:
@@ -480,7 +490,6 @@ class App(tk.Tk):
         except Exception as exc:
             messagebox.showerror(APP_TITLE, f"Cannot start node:\n{exc}")
             return
-
         self.status_var.set(f"Running • {self.game_var.get()}")
         self.live_dot.delete("all")
         self.live_dot.create_oval(2, 2, 10, 10, fill=SUCCESS, outline="")
