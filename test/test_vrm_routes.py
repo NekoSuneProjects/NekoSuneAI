@@ -23,3 +23,5 @@ def test_vrm_viewer_adaptively_fills_dashboard_stage():
     assert "Box3().setFromObject" in text
     assert "camera.lookAt" in text
     assert "Math.max(1.05,distance)" in text
+    assert "verticalOffset=h*.07" in text
+    assert "center.y+verticalOffset" in text
