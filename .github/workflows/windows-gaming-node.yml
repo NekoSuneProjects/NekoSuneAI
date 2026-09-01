@@ -1,0 +1,110 @@
+name: Windows Gaming Node
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - build/windows-gaming-node-release
+
+permissions:
+  contents: write
+
+concurrency:
+  group: windows-gaming-node-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build Windows Gaming Node
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-windows-agent.txt
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-windows-agent.txt
+          python -m pip install "pyinstaller>=6.10,<7"
+
+      - name: Build standalone EXE
+        shell: pwsh
+        run: |
+          pyinstaller `
+            --noconfirm `
+            --clean `
+            --onefile `
+            --name NekoSuneAI-Windows-Gaming-Node `
+            --icon data/logo.ico `
+            --collect-all vgamepad `
+            --collect-all obsws_python `
+            --hidden-import PIL `
+            --hidden-import PIL.Image `
+            --hidden-import pytesseract `
+            tools/windows_gaming_node_entry.py
+
+      - name: Smoke test executable
+        shell: pwsh
+        run: |
+          .\dist\NekoSuneAI-Windows-Gaming-Node.exe --help
+
+      - name: Package Gaming Node and console Remote Play profiles
+        shell: pwsh
+        run: |
+          $version = (Get-Content VERSION -Raw).Trim()
+          $root = "release/NekoSuneAI-Windows-Gaming-Node-$version"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+          Copy-Item dist/NekoSuneAI-Windows-Gaming-Node.exe $root/
+          Copy-Item config/windows-gaming-agent.example.json "$root/windows-gaming-agent.example.json"
+          Copy-Item docs/GAME_SKILLS_AND_REMOTE_PLAY.md "$root/GAME_SKILLS_AND_REMOTE_PLAY.md"
+          Copy-Item game-skills "$root/game-skills" -Recurse
+
+          @'
+          NekoSuneAI Windows Gaming Node
+
+          1. Copy windows-gaming-agent.example.json to windows-gaming-agent.json and configure your Docker/Pi NekoSuneAI server URL.
+          2. Pair the node from the NekoSuneAI dashboard.
+          3. Run a reviewed game profile with --game <id>.
+
+          Examples:
+            NekoSuneAI-Windows-Gaming-Node.exe --config windows-gaming-agent.json --skills-root game-skills --game minecraft
+            NekoSuneAI-Windows-Gaming-Node.exe --config windows-gaming-agent.json --skills-root game-skills --game xbox-remote-play
+            NekoSuneAI-Windows-Gaming-Node.exe --config windows-gaming-agent.json --skills-root game-skills --game playstation-remote-play
+
+          Xbox/PlayStation Remote Play requires the official Windows Remote Play client already installed and signed in. Virtual controller support uses ViGEm/vgamepad where compatible. The package does not bypass console authentication or pairing.
+          '@ | Set-Content "$root/README-WINDOWS-GAMING-NODE.txt"
+
+          Compress-Archive -Path "$root/*" -DestinationPath "release/NekoSuneAI-Windows-Gaming-Node-$version-build-${{ github.run_number }}.zip" -Force
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+        id: package
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NekoSuneAI-Windows-Gaming-Node-${{ steps.package.outputs.version }}
+          path: release/*.zip
+          if-no-files-found: error
+
+      - name: Publish GitHub prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-gaming-node-v${{ steps.package.outputs.version }}-build-${{ github.run_number }}
+          name: Windows Gaming Node v${{ steps.package.outputs.version }} (Build ${{ github.run_number }})
+          prerelease: true
+          generate_release_notes: false
+          body: |
+            Windows Gaming Node build for NekoSuneAI.
+
+            Includes the standalone Windows Gaming Node executable plus bundled reviewed game-skill profiles, including Xbox Remote Play and PlayStation Remote Play templates.
+
+            Console Remote Play uses the official Windows Xbox/PlayStation client and does not bypass Microsoft/Sony authentication or console pairing.
+          files: release/*.zip
