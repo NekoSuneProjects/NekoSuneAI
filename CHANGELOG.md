@@ -1,5 +1,44 @@
 # Changelog
 
+## Roadmap foundation batch
+
+- Add independently selectable data-only game skill packages for Minecraft,
+  Terraria, Cyberpunk 2077, No Man's Sky, Skyrim and more.
+- Add bounded keyboard/mouse/virtual-controller input, short real-time Windows
+  intents and aggregate per-skill reliability learning.
+- Add fail-closed Xbox and PlayStation Remote Play templates without console
+  modification, credential handling or unsupported wake/launch claims.
+- Add authenticated, one-use pairing for generic peripheral nodes with strict
+  capability manifests, read/write classification and per-capability policy.
+- Add persistent node heartbeat, battery, latency, online state, command queues,
+  revocation and a local audit trail.
+- Add persistent manual/event/sensor routines with deterministic conditions,
+  ordered actions, previews, large-action confirmation, conflict detection,
+  execution explanations and safe undo where a prior state is supplied.
+- Add an authenticated Nodes & Routines dashboard and HTTP API documentation.
+- Expand the same dashboard with Home Assistant and generic MQTT discovery,
+  state, room/alias management and allowlisted on/off controls.
+- Add room-aware natural device commands, low-battery forecasting, estimated
+  energy costs and cooldown-protected unusual power-use warnings.
+- Feed discovered MQTT state changes into sensor-triggered local routines and
+  reconnect/resubscribe to known topics after broker interruptions.
+- Add idempotent timezone-aware daily/weekday and sunrise/sunset routine
+  scheduling, with local coordinate configuration and dashboard trigger fields.
+- Turn MQTT motion/presence/occupancy sensors into room transition events,
+  occupancy questions, presence routines and one-shot location reminders.
+- Add constrained natural-language smart-home routine creation and finite
+  multi-day alarms such as `for the next three days, wake me at 8`.
+- Add deduplicated local smoke, CO, gas, leak and security sensor broadcasts,
+  with clear transitions and a bounded credential-redacting incident timeline.
+- Add offline-capable house status summaries, authenticated home-timeline
+  queries and opt-in source-attributed RSS/Atom briefings with uncertainty.
+- Add a paired Windows Gaming Node with approved-window capture/OCR, compact
+  observations, local allowlisted skills, anti-cheat profiles and emergency
+  input release on timeout, disconnect, dashboard request or Ctrl+Alt+F12.
+- Add confirmation-gated OBS WebSocket supervision, stream preflight/status,
+  TLS Twitch IRC, bounded chat prioritisation and strict public/private prompt
+  separation so viewers cannot control the PC, game or stream.
+
 ## 1.2.1 wake-word image fix
 
 - Preload the official `hey_jarvis` model in Docker images and automatically

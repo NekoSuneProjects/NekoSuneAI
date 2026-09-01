@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "game_id": "subnautica",
+  "display_name": "Subnautica",
+  "profile": {"platform": "windows", "executable_names": ["Subnautica.exe"], "window_title_pattern": "Subnautica", "multiplayer_policy": "single_player", "automation_permitted": true, "allow_vision": true, "allow_input": false, "allow_keyboard": true, "allow_mouse": true, "allow_controller": false, "allow_obs": true, "allow_twitch": true, "capture_fps": 2.0, "capture_width": 960, "realtime_enabled": true},
+  "skills": {
+    "subnautica.swim_forward": {"description": "Swim/walk forward.", "realtime": true, "steps": [{"key": "w", "seconds": 0.25}]},
+    "subnautica.look_left": {"description": "Turn left.", "realtime": true, "steps": [{"mouse_move": {"x": -45, "y": 0}, "seconds": 0.02}]},
+    "subnautica.look_right": {"description": "Turn right.", "realtime": true, "steps": [{"mouse_move": {"x": 45, "y": 0}, "seconds": 0.02}]},
+    "subnautica.ascend": {"description": "Ascend/jump briefly.", "realtime": true, "steps": [{"key": "space", "seconds": 0.2}]},
+    "subnautica.interact": {"description": "Use highlighted target.", "realtime": false, "steps": [{"mouse_button": "left", "seconds": 0.08}]},
+    "subnautica.inventory": {"description": "Open inventory.", "realtime": false, "steps": [{"key": "tab", "seconds": 0.08}]},
+    "subnautica.pause": {"description": "Open pause menu.", "realtime": false, "steps": [{"key": "escape", "seconds": 0.08}]}
+  }
+}

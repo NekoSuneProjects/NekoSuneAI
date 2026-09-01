@@ -352,14 +352,15 @@ tailwind.config = {
       <div id="page-game" class="page flex-col h-full overflow-y-auto p-6 gap-5">
         <div class="vr-banner">
           <span class="text-xl">&#129405;</span>
-          <span class="vr-title">Game Agent &middot; VRChat</span>
+          <span class="vr-title">Game Agent</span>
         </div>
         <div class="card p-5">
           <div class="flex items-center justify-between mb-3">
-            <div class="text-[13px] font-bold">Game Agent (VRChat)</div>
+            <div class="text-[13px] font-bold">Autonomous Game Agent</div>
             <span id="game-badge" class="text-[11px] font-semibold text-nova-muted">Stopped</span>
           </div>
-          <div class="text-[12px] text-nova-muted mb-3">NekoSuneAI plays autonomously over VRChat's official OSC and narrates its thoughts in chat (and on voice). Enable OSC in VRChat's Action Menu — see .env for setup.</div>
+          <div class="text-[12px] text-nova-muted mb-3">Choose VRChat OSC or a paired Windows Gaming Node. Windows automation can execute only locally approved named skills and requires an explicit game.skill allow policy.</div>
+          <label class="flex flex-col gap-1 text-[11px] text-nova-muted mb-3 max-w-sm"><span>Driver</span><select id="game-driver-select" onchange="selectGameDriver(this.value)"><option value="vrchat">VRChat (OSC)</option><option value="windows">Paired Windows game</option></select></label>
           <div id="game-settings" class="grid grid-cols-2 gap-x-3 gap-y-2 mb-3"></div>
           <div class="flex gap-2 mb-3">
             <button onclick="doSaveGameSettings()" class="btn-secondary px-4 py-2 rounded-lg text-[12px] font-semibold">Save Settings</button>
@@ -1041,7 +1042,12 @@ async function doSing() {
 // ── Game (VRChat) ────────────────────────────────────────────────────────
 
 let _gameSchema = null;
-const GAME_DRIVER = 'vrchat';
+let GAME_DRIVER = 'vrchat';
+
+function selectGameDriver(value) {
+  GAME_DRIVER = value === 'windows' ? 'windows' : 'vrchat';
+  renderGameSettings();
+}
 
 function renderGameSettings() {
   const wrap = $('game-settings');
@@ -1092,6 +1098,8 @@ async function loadGame() {
   try {
     const s = await api().get_game_status();
     try { const gs = await api().get_game_settings(); _gameSchema = gs.drivers; } catch(e) { console.error(e); }
+    if (s.running && (s.driver === 'windows' || s.driver === 'vrchat')) GAME_DRIVER = s.driver;
+    if ($('game-driver-select')) $('game-driver-select').value = GAME_DRIVER;
     renderGameSettings();
     const badge = $('game-badge');
     badge.textContent = s.running ? 'Running' : 'Stopped';

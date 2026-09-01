@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "game_id": "xbox-remote-play",
+  "display_name": "Xbox Remote Play session",
+  "profile": {"platform": "xbox_remote_play", "input_backend": "xbox360", "executable_names": ["XboxPcApp.exe"], "window_title_pattern": "Xbox", "multiplayer_policy": "prohibited", "automation_permitted": false, "allow_vision": true, "allow_input": false, "allow_keyboard": false, "allow_mouse": false, "allow_controller": false, "allow_obs": true, "allow_twitch": true, "capture_fps": 2.0, "capture_width": 960, "realtime_enabled": true},
+  "skills": {
+    "console.move_forward": {"description": "Move the left stick forward.", "realtime": true, "steps": [{"axis": "left_y", "value": 0.7, "seconds": 0.2}]},
+    "console.move_back": {"description": "Move the left stick back.", "realtime": true, "steps": [{"axis": "left_y", "value": -0.7, "seconds": 0.2}]},
+    "console.turn_left": {"description": "Move the right stick left.", "realtime": true, "steps": [{"axis": "right_x", "value": -0.55, "seconds": 0.15}]},
+    "console.turn_right": {"description": "Move the right stick right.", "realtime": true, "steps": [{"axis": "right_x", "value": 0.55, "seconds": 0.15}]},
+    "console.confirm": {"description": "Press A/confirm.", "realtime": false, "steps": [{"button": "a", "seconds": 0.08}]},
+    "console.cancel": {"description": "Press B/cancel.", "realtime": false, "steps": [{"button": "b", "seconds": 0.08}]},
+    "console.action_x": {"description": "Press X.", "realtime": false, "steps": [{"button": "x", "seconds": 0.08}]},
+    "console.action_y": {"description": "Press Y.", "realtime": false, "steps": [{"button": "y", "seconds": 0.08}]},
+    "console.pause": {"description": "Press menu/start.", "realtime": false, "steps": [{"button": "start", "seconds": 0.08}]}
+  }
+}

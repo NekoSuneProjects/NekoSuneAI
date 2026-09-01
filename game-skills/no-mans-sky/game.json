@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "game_id": "no-mans-sky",
+  "display_name": "No Man's Sky",
+  "profile": {"platform": "windows", "executable_names": ["NMS.exe"], "window_title_pattern": "No Man.?s Sky", "multiplayer_policy": "permitted_multiplayer", "automation_permitted": false, "allow_vision": true, "allow_input": false, "allow_keyboard": true, "allow_mouse": true, "allow_controller": false, "allow_obs": true, "allow_twitch": true, "capture_fps": 2.0, "capture_width": 960, "realtime_enabled": true},
+  "skills": {
+    "nms.walk_forward": {"description": "Walk forward.", "realtime": true, "steps": [{"key": "w", "seconds": 0.25}]},
+    "nms.look_left": {"description": "Turn camera left.", "realtime": true, "steps": [{"mouse_move": {"x": -45, "y": 0}, "seconds": 0.02}]},
+    "nms.look_right": {"description": "Turn camera right.", "realtime": true, "steps": [{"mouse_move": {"x": 45, "y": 0}, "seconds": 0.02}]},
+    "nms.jetpack": {"description": "Use jetpack briefly.", "realtime": true, "steps": [{"key": "space", "seconds": 0.2}]},
+    "nms.interact": {"description": "Interact with target.", "realtime": false, "steps": [{"key": "e", "seconds": 0.4}]},
+    "nms.scan": {"description": "Trigger scan.", "realtime": false, "steps": [{"key": "c", "seconds": 0.08}]},
+    "nms.inventory": {"description": "Open inventory.", "realtime": false, "steps": [{"key": "tab", "seconds": 0.08}]},
+    "nms.mine": {"description": "Use mining beam briefly.", "realtime": true, "steps": [{"mouse_button": "left", "seconds": 0.3}]},
+    "nms.pause": {"description": "Open pause/options.", "realtime": false, "steps": [{"key": "escape", "seconds": 0.08}]}
+  }
+}

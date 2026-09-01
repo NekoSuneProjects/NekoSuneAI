@@ -578,6 +578,30 @@ OLLAMA_NUM_PREDICT=1200
 
 See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) and `.env.example` for the complete configuration surface.
 
+Peripheral nodes and local routines use capability-scoped commands rather than
+arbitrary remote execution. See
+[`docs/PERIPHERAL_NODES_AND_ROUTINES.md`](docs/PERIPHERAL_NODES_AND_ROUTINES.md)
+for pairing, permissions, heartbeat, routine and API examples. The Studio's
+**Nodes & Routines** button opens the authenticated visual manager.
+
+Home Assistant and generic MQTT devices also appear in that manager with
+rooms, aliases, battery and energy telemetry. See
+[`docs/SMART_HOME_MQTT.md`](docs/SMART_HOME_MQTT.md) for local discovery and
+command examples. Local presence sensors can drive room-aware routines and
+one-shot reminders; routine triggers also support daily/weekday schedules and
+locally calculated sunrise/sunset times.
+
+Local smoke/CO/leak/security sensor transitions, retained home-event queries,
+house status summaries and opt-in source-attributed RSS briefings are documented
+in [`docs/SAFETY_AND_BRIEFINGS.md`](docs/SAFETY_AND_BRIEFINGS.md).
+
+The paired Windows Gaming Agent provides selected-window vision, bounded local
+game skills, OBS WebSocket supervision and isolated/rate-limited Twitch chat.
+See [`docs/WINDOWS_GAMING_AND_TWITCH.md`](docs/WINDOWS_GAMING_AND_TWITCH.md).
+Versioned skill packages, real-time local intents, reliability learning and
+Xbox/PlayStation Remote Play templates are documented in
+[`docs/GAME_SKILLS_AND_REMOTE_PLAY.md`](docs/GAME_SKILLS_AND_REMOTE_PLAY.md).
+
 ---
 
 ## 📁 Project Layout
@@ -601,6 +625,8 @@ NekoSuneAI/
 ├── docs/
 │   ├── ANDROID_COMPANION.md
 │   ├── ANDROID_MOBILE.md
+│   ├── PERIPHERAL_NODES_AND_ROUTINES.md
+│   ├── SMART_HOME_MQTT.md
 │   ├── PI_MUSIC_AND_SCHEDULES.md
 │   └── VOICE_TONE_HOOK.md
 └── nekosuneai/
@@ -618,6 +644,9 @@ NekoSuneAI/
     ├── mobile_notify.py             # ntfy-compatible alerts
     ├── youtube_music.py
     ├── reminders.py
+    ├── routines.py                    # local routines, conflicts and undo
+    ├── peripheral_nodes.py            # authenticated capability protocol
+    ├── smart_home.py                   # HA/MQTT discovery, aliases and telemetry
     ├── scheduled_windows.py
     ├── avatar_motion.py
     ├── vision.py

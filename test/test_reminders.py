@@ -18,6 +18,15 @@ class ReminderParsingTests(unittest.TestCase):
         self.assertEqual(item.repeat_pattern,"weekdays")
         self.assertEqual(parse_reminder_request("snooze work alarm for 10 minutes",ZoneInfo("Europe/London"))[0],"snooze")
 
+    def test_temporary_alarm_and_location_reminder_parsing(self):
+        action,item=parse_reminder_request("for the next three days, wake me at 8",ZoneInfo("Europe/London"))
+        self.assertEqual(action,"create")
+        self.assertEqual(item.repeat_pattern,"daily")
+        self.assertGreater(item.repeat_until_epoch,item.due_epoch)
+        action,item=parse_reminder_request("remind me about washing when I next go downstairs",ZoneInfo("Europe/London"))
+        self.assertEqual(action,"create")
+        self.assertEqual(item.trigger_room,"downstairs")
+
 
 class ReminderManagerTests(unittest.TestCase):
     def setUp(self):
@@ -69,6 +78,23 @@ class ReminderManagerTests(unittest.TestCase):
         self.assertIn("Dismissed work alarm",self.manager.handle("dismiss work alarm"))
         self.assertFalse(self.rows[0].active)
         self.assertEqual(self.rows[0].repeat_pattern,"")
+
+    def test_temporary_alarm_stops_after_final_day(self):
+        self.manager.handle("for the next 2 days, wake me at 8")
+        first=self.rows[0].due_epoch
+        self.assertEqual(self.manager._fire_due_once(first+1),1)
+        second=self.rows[0].due_epoch
+        self.assertTrue(self.rows[0].active)
+        self.assertEqual(self.manager._fire_due_once(second+1),1)
+        self.assertFalse(self.rows[0].active)
+
+    def test_location_reminder_fires_once_on_matching_occupancy(self):
+        reply=self.manager.handle("remind me about washing when I next go downstairs")
+        self.assertIn("when you next enter downstairs",reply)
+        self.assertEqual(self.manager.handle_event("presence.changed",{"presence":{"room":"upstairs","occupied":True}}),0)
+        self.assertEqual(self.manager.handle_event("presence.changed",{"presence":{"room":"downstairs","occupied":True}}),1)
+        self.assertEqual(self.notifications,[("Reminder: washing","warning")])
+        self.assertEqual(self.manager.handle_event("presence.changed",{"presence":{"room":"downstairs","occupied":True}}),0)
 
 
 if __name__ == "__main__":
