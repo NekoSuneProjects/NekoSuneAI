@@ -1,0 +1,9 @@
+# Minimal dependencies for the standalone Windows Gaming Node build only.
+# Keep Docker/Pi/Android dependencies out of this build so GitHub Actions stays fast.
+requests>=2.32,<3
+Pillow>=10,<12
+psutil>=6,<8
+obsws-python>=1.7,<2
+pytesseract>=0.3.13,<1
+vgamepad>=0.1.0,<1
+pyinstaller>=6.10,<7
