@@ -3,6 +3,7 @@ import http.server
 from nekosuneai.avatar_http_patch import install_avatar_http_patch
 from nekosuneai.scam_call_patch import install_scam_call_patch
 from nekosuneai.call_sync_patch import install_call_sync_patch
+from nekosuneai.ntfy_android_patch import install_ntfy_android_patch
 from nekosuneai.dashboard_auth_patch import install_dashboard_auth_patch
 from nekosuneai.mcp_oauth_recovery import install_mcp_oauth_recovery
 from nekosuneai.settings_dashboard_patch import install_settings_dashboard_patch
@@ -24,12 +25,13 @@ from nekosuneai.vosk_model_auto_patch import install_vosk_model_auto_patch
 install_vosk_model_auto_patch()
 
 # HTTP route wrappers must be installed before webserver.py is imported by the
-# dashboard patches below. Avatar wraps first, scam routes next, then the caller
-# sync wrapper takes ownership of Android caller-ID. Dashboard session auth is
-# installed last so it becomes the final server wrapper used by serve().
+# dashboard patches below. Avatar wraps first, scam routes next, then caller ID
+# and the paired-device ntfy config route. Dashboard session auth is installed
+# last so it becomes the final server wrapper used by serve().
 install_avatar_http_patch()
 install_scam_call_patch()
 install_call_sync_patch()
+install_ntfy_android_patch()
 install_dashboard_auth_patch()
 
 # Some earlier route patches import webserver while installing. Keep its local
