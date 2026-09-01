@@ -17,11 +17,13 @@ import kotlin.concurrent.thread
 class CompanionService : Service() {
     private val running = AtomicBoolean(false)
     private lateinit var api: ApiClient
+    private lateinit var ntfy: NtfySubscriber
     private val prefs by lazy { getSharedPreferences("neko", MODE_PRIVATE) }
 
     override fun onCreate() {
         super.onCreate()
         api = ApiClient(this)
+        ntfy = NtfySubscriber(this)
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "NekoSuneAI Companion", NotificationManager.IMPORTANCE_LOW))
         refreshNotification()
@@ -50,6 +52,7 @@ class CompanionService : Service() {
             }
         }
         if (running.compareAndSet(false, true)) {
+            ntfy.start()
             thread(name = "NekoCompanion", isDaemon = true) { loop() }
         }
         return START_STICKY
@@ -77,7 +80,7 @@ class CompanionService : Service() {
         startForeground(NOTIFICATION_ID, NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("NekoSuneAI connected")
-            .setContentText(if (enabled) "Background wake ON · say “$phrase”" else "Low-power phone link active · background wake OFF")
+            .setContentText(if (enabled) "Background wake ON · say “$phrase” · ntfy alerts active when configured" else "Low-power phone link active · ntfy alerts active when configured")
             .setContentIntent(open)
             .setOngoing(true)
             .addAction(0, if (enabled) "Turn off wake" else "Enable Hey Jarvis", toggle)
@@ -120,6 +123,7 @@ class CompanionService : Service() {
 
     override fun onDestroy() {
         running.set(false)
+        if (::ntfy.isInitialized) ntfy.stop()
         super.onDestroy()
     }
 
