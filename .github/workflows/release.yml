@@ -44,6 +44,8 @@ jobs:
             --load \
             --tag nekosuneai-smoke:amd64 \
             --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
+            --cache-from type=gha,scope=nekosuneai-smoke-amd64 \
+            --cache-to type=gha,mode=max,scope=nekosuneai-smoke-amd64 \
             .
 
           test "$(docker image inspect nekosuneai-smoke:amd64 --format '{{.Architecture}}')" = "amd64"
@@ -72,6 +74,8 @@ jobs:
             --load \
             --tag nekosuneai-smoke:arm64 \
             --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
+            --cache-from type=gha,scope=nekosuneai-smoke-arm64 \
+            --cache-to type=gha,mode=max,scope=nekosuneai-smoke-arm64 \
             .
 
           test "$(docker image inspect nekosuneai-smoke:arm64 --format '{{.Architecture}}')" = "arm64"
@@ -118,9 +122,6 @@ jobs:
           git push --force origin "refs/tags/$release_tag"
           echo "Moved $release_tag to tested commit $GITHUB_SHA"
 
-      # A tag push made with GITHUB_TOKEN does not automatically trigger a
-      # second workflow. Use the GitHub API directly via github-script so the
-      # self-hosted runner does not need the `gh` CLI installed.
       - name: Start version Docker publish
         uses: actions/github-script@v7
         env:
@@ -182,8 +183,11 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: APP_VERSION=${{ steps.version.outputs.version }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha,scope=nekosuneai-smoke-amd64
+            type=gha,scope=nekosuneai-smoke-arm64
+            type=gha,scope=nekosuneai-publish
+          cache-to: type=gha,mode=max,scope=nekosuneai-publish
           provenance: true
           sbom: true
 
