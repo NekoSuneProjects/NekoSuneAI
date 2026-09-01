@@ -8,6 +8,7 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.provider.Settings
+import android.text.format.DateFormat
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
@@ -16,10 +17,12 @@ import android.widget.ScrollView
 import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import java.util.Date
 
 class ScamCallSettingsActivity : AppCompatActivity() {
     private val prefs by lazy { getSharedPreferences("neko", MODE_PRIVATE) }
     private lateinit var status: TextView
+    private lateinit var syncStatus: TextView
     private lateinit var autoSms: CheckBox
     private lateinit var template: EditText
 
@@ -52,10 +55,17 @@ class ScamCallSettingsActivity : AppCompatActivity() {
 
         root.addView(TextView(this).apply { text = "CALL PROTECTION"; textSize = 10f; letterSpacing = .13f; typeface = Typeface.DEFAULT_BOLD; setTextColor(violet) })
         root.addView(TextView(this).apply { text = "Scam caller checker"; textSize = 24f; typeface = Typeface.DEFAULT_BOLD; setTextColor(textColor); setPadding(0, dp(4), 0, dp(4)) })
-        root.addView(TextView(this).apply { text = "Incoming numbers are checked by your paired Docker NekoSuneAI against public web reputation results. Android provides the number through its protected caller ID and spam role, so NekoSuneAI does not request your contacts or full call history. Only flagged calls are stored in the Docker dashboard."; textSize = 13f; setTextColor(muted) })
+        root.addView(TextView(this).apply { text = "Incoming numbers are queued reliably to your paired Docker NekoSuneAI for caller-ID and public reputation checks. Android provides the number through its protected caller ID and spam role, so NekoSuneAI does not request your contacts or full call history."; textSize = 13f; setTextColor(muted) })
 
         status = TextView(this).apply { setPadding(dp(12), dp(10), dp(12), dp(10)); setTextColor(cyan); background = rounded(Color.parseColor("#17213A"), Color.parseColor("#345D77"), 12) }
         root.addView(status, params(14))
+
+        syncStatus = TextView(this).apply {
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            setTextColor(muted)
+            background = rounded(Color.parseColor("#0D0F24"), Color.parseColor("#343961"), 12)
+        }
+        root.addView(syncStatus, params(8))
 
         val enable = Button(this).apply {
             text = "Enable incoming-call screening"
@@ -80,7 +90,7 @@ class ScamCallSettingsActivity : AppCompatActivity() {
         root.addView(autoSms, params(14))
 
         root.addView(TextView(this).apply {
-            text = "Auto reply is optional and OFF by default. Your mobile carrier may charge for SMS. Some Android installs may restrict SMS permission; call checking still works without it."
+            text = "Auto reply is optional and OFF by default. Your mobile carrier may charge for SMS. Call checking still works without SMS permission."
             textSize = 11f
             setTextColor(muted)
         }, params(4))
@@ -113,7 +123,7 @@ class ScamCallSettingsActivity : AppCompatActivity() {
         }, params(8))
 
         root.addView(TextView(this).apply {
-            text = "NekoSuneAI does not automatically block calls. Reputation results are community/public-web signals, not proof of fraud. The Docker export is intended as a reviewable blocklist for you or a friend."
+            text = "After an incoming call, the delivery box above shows whether Android queued/sent the number to Docker. Docker's Caller ID page shows every delivered check: important, unknown, or scam."
             textSize = 11f
             setTextColor(muted)
         }, params(14))
@@ -121,6 +131,11 @@ class ScamCallSettingsActivity : AppCompatActivity() {
         setContentView(scroll)
         refreshStatus()
         if (intent.getBooleanExtra("enable_now", false)) requestScreeningRole()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::status.isInitialized) refreshStatus()
     }
 
     private fun requestScreeningRole() {
@@ -151,6 +166,20 @@ class ScamCallSettingsActivity : AppCompatActivity() {
             "● Incoming-call screening ON${if (autoSms.isChecked && sms) " · auto reply ON" else ""}"
         } else {
             "● Incoming-call screening OFF — tap Enable"
+        }
+        refreshSyncStatus()
+    }
+
+    private fun refreshSyncStatus() {
+        if (!::syncStatus.isInitialized) return
+        val number = prefs.getString("call_last_sync_number", "").orEmpty()
+        val state = prefs.getString("call_last_sync_status", "").orEmpty()
+        val at = prefs.getLong("call_last_sync_at", 0L)
+        syncStatus.text = if (number.isBlank() || state.isBlank()) {
+            "Docker delivery: no incoming call has been queued yet."
+        } else {
+            val whenText = if (at > 0) DateFormat.format("dd MMM HH:mm:ss", Date(at)).toString() else ""
+            "Docker delivery: $state\n$number${if (whenText.isNotBlank()) " · $whenText" else ""}"
         }
     }
 
