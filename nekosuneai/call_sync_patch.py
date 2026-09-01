@@ -218,8 +218,12 @@ def install_call_sync_patch() -> None:
     from . import webserver
     original_decorate = webserver._decorate_dashboard
     if not getattr(original_decorate, "_neko_call_sync", False):
-        def decorate(html_text: str) -> str:
+        def decorate(html_text):
             rendered = original_decorate(html_text)
+            if isinstance(rendered, (bytes, bytearray)):
+                marker = b"</body>"
+                ui = CALL_SYNC_UI.encode("utf-8")
+                return rendered.replace(marker, ui + marker) if marker in rendered else rendered + ui
             marker = "</body>"
             return rendered.replace(marker, CALL_SYNC_UI + marker) if marker in rendered else rendered + CALL_SYNC_UI
         decorate._neko_call_sync = True
