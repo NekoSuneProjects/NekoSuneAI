@@ -26,6 +26,8 @@ class Reminder:
     paused_remaining_seconds: float = 0.0
     repeat_pattern: str = ""
     last_fired_epoch: float = 0.0
+    repeat_until_epoch: float = 0.0
+    trigger_room: str = ""
 
 def _load() -> list[Reminder]:
     try:
@@ -44,10 +46,13 @@ def _parse_due(text: str, tz: ZoneInfo) -> tuple[float, str] | None:
     lower=text.lower().strip(); now=datetime.now(tz)
     dur=_parse_duration(lower)
     if dur: return now.timestamp()+dur[0],dur[1]
-    tm=re.search(r"\b(?:at|for)?\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b",lower)
+    tm=re.search(r"\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\b",lower)
     if tm:
-        hour=int(tm.group(1))%12
-        if tm.group(3)=='pm': hour+=12
+        raw_hour=int(tm.group(1)); marker=tm.group(3)
+        if marker and not 1 <= raw_hour <= 12:return None
+        hour=raw_hour%12 if marker else raw_hour
+        if marker=='pm': hour+=12
+        if hour>23:return None
         minute=int(tm.group(2) or 0); due=now.replace(hour=hour,minute=minute,second=0,microsecond=0)
         if 'tomorrow' in lower: due+=timedelta(days=1)
         elif due<=now: due+=timedelta(days=1)
@@ -58,6 +63,12 @@ def _repeat_pattern(lower: str) -> str:
     if re.search(r"\bevery\s+(?:weekdays?|working day)\b",lower):return 'weekdays'
     if re.search(r"\bevery\s+day\b|\bdaily\b",lower):return 'daily'
     return ''
+
+def _temporary_days(lower: str) -> int:
+    words={'one':1,'two':2,'three':3,'four':4,'five':5,'six':6,'seven':7,'eight':8,'nine':9,'ten':10}
+    match=re.search(r"\bfor (?:the )?next\s+(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+days?\b",lower)
+    if not match:return 0
+    return max(1,min(365,words.get(match.group(1),int(match.group(1)) if match.group(1).isdigit() else 0)))
 
 def parse_reminder_request(text: str, tz: ZoneInfo) -> tuple[str, object] | None:
     lower=text.lower().strip()
@@ -78,6 +89,12 @@ def parse_reminder_request(text: str, tz: ZoneInfo) -> tuple[str, object] | None
     if m:
         action={'cancel':'remove','delete':'remove','remove':'remove','pause':'pause','resume':'resume','continue':'resume'}[m.group(1)]
         return action, {'kind':None,'selector':m.group(2)}
+
+    conditional=re.match(r"^.*?remind me (?:to|about) (.+?) when i next (?:go (?:to )?|enter |arrive (?:in|at) )(.+?)[.!]?$",text,re.I)
+    if conditional:
+        message=conditional.group(1).strip(' ,.-')
+        room=re.sub(r"^(?:the|my)\s+",'',conditional.group(2).strip(' ,.-'),flags=re.I)
+        return 'create',Reminder(uuid.uuid4().hex[:8],message,0.0,time.time(),kind='reminder',trigger_room=room)
 
     kind='reminder'
     if 'timer' in lower: kind='timer'
@@ -102,7 +119,13 @@ def parse_reminder_request(text: str, tz: ZoneInfo) -> tuple[str, object] | None
         message=re.sub(r"\b(?:today|tomorrow)\b",'',message,flags=re.I).strip(' ,.-')
         message=re.sub(r"^to\s+",'',message,flags=re.I).strip() or 'your reminder'
     repeat=_repeat_pattern(lower) if kind in {'alarm','reminder'} else ''
-    return 'create',Reminder(uuid.uuid4().hex[:8],message,due,time.time(),0,True,kind,0.0,repeat)
+    temporary_days=_temporary_days(lower) if kind in {'alarm','reminder'} else 0
+    if temporary_days:
+        repeat='daily'
+    repeat_until=0.0
+    if temporary_days:
+        repeat_until=(datetime.fromtimestamp(due,tz)+timedelta(days=temporary_days-1,minutes=1)).timestamp()
+    return 'create',Reminder(uuid.uuid4().hex[:8],message,due,time.time(),0,True,kind,0.0,repeat,0.0,repeat_until)
 
 class ReminderManager:
     def __init__(self, notify: Callable[[str,str],None], timezone: str='Europe/London') -> None:
@@ -147,16 +170,19 @@ class ReminderManager:
                     reply=f'Dismissed {self._label(target)}.'
                 _save(rows);return reply
             if action=='list':
-                active=sorted((x for x in rows if x.active),key=lambda x:x.due_epoch)
+                active=sorted((x for x in rows if x.active),key=lambda x:x.due_epoch or float('inf'))
                 paused=sorted((x for x in rows if x.paused_remaining_seconds>0),key=lambda x:x.created_epoch)
                 if not active and not paused:return "You don't have any active reminders, timers, or alarms."
-                lines=[f"- {x.id}: {x.kind}, {x.message}, {datetime.fromtimestamp(x.due_epoch,self.tz).strftime('%A %H:%M')}{' ('+x.repeat_pattern+')' if x.repeat_pattern else ''}" for x in active[:20]]
+                lines=[f"- {x.id}: {x.kind}, {x.message}, {('when entering '+x.trigger_room) if x.trigger_room else datetime.fromtimestamp(x.due_epoch,self.tz).strftime('%A %H:%M')}{' ('+x.repeat_pattern+')' if x.repeat_pattern else ''}" for x in active[:20]]
                 lines.extend(f"- {x.id}: {x.kind}, {x.message}, paused" for x in paused[:max(0,20-len(lines))])
                 return 'Active reminders, timers and alarms:\n'+'\n'.join(lines)
             item=value; assert isinstance(item,Reminder); rows.append(item); _save(rows)
+            if item.trigger_room:return f"Okay. I'll remind you about {item.message} when you next enter {item.trigger_room}."
             shown=datetime.fromtimestamp(item.due_epoch,self.tz).strftime('%A at %I:%M %p').replace(' 0',' ')
             if item.kind=='timer': return f"Timer set for {shown}."
-            if item.kind=='alarm': return f"Alarm set for {shown}{' and repeating '+item.repeat_pattern if item.repeat_pattern else ''}."
+            if item.kind=='alarm':
+                temporary=' for a limited number of days' if item.repeat_until_epoch else ''
+                return f"Alarm set for {shown}{' and repeating '+item.repeat_pattern if item.repeat_pattern else ''}{temporary}."
             return f"Okay. I'll remind you to {item.message} on {shown}."
 
     @staticmethod
@@ -216,12 +242,29 @@ class ReminderManager:
         with self._lock:
             rows=_load()
             for item in rows:
-                if item.active and item.due_epoch<=current:
+                if item.active and not item.trigger_room and item.due_epoch<=current:
                     item.last_fired_epoch=current;fired.append(item)
-                    if item.repeat_pattern:item.due_epoch=self._next_repeat_due(item,current)
+                    if item.repeat_pattern:
+                        next_due=self._next_repeat_due(item,current)
+                        if item.repeat_until_epoch and next_due>item.repeat_until_epoch:item.active=False
+                        else:item.due_epoch=next_due
                     else:item.active=False
             if fired:_save(rows)
         for item in fired:
             prefix='Alarm' if item.kind=='alarm' else 'Timer' if item.kind=='timer' else 'Reminder'
             self.notify(f'{prefix}: {item.message}','warning')
+        return len(fired)
+
+    def handle_event(self,event:str,context:dict|None=None)->int:
+        if event!='presence.changed':return 0
+        presence=(context or {}).get('presence') if isinstance((context or {}).get('presence'),dict) else {}
+        if not presence.get('occupied'):return 0
+        room=str(presence.get('room','')).strip().casefold();fired=[]
+        with self._lock:
+            rows=_load()
+            for item in rows:
+                if item.active and item.trigger_room and item.trigger_room.casefold()==room:
+                    item.active=False;item.last_fired_epoch=time.time();fired.append(item)
+            if fired:_save(rows)
+        for item in fired:self.notify(f'Reminder: {item.message}','warning')
         return len(fired)

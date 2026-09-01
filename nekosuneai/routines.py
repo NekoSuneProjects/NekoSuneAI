@@ -2,16 +2,20 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 import threading
 import time
 import uuid
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
+from zoneinfo import ZoneInfo
 
 
 ActionExecutor = Callable[[dict[str, Any]], dict[str, Any] | None]
+NaturalActionResolver = Callable[[str, str, Any, str | None], dict[str, Any]]
 
 
 class RoutineManager:
@@ -28,11 +32,21 @@ class RoutineManager:
         executor: ActionExecutor,
         storage_path: str | Path | None = None,
         policy_resolver: Callable[[dict[str, Any]], str] | None = None,
+        natural_action_resolver: NaturalActionResolver | None = None,
+        timezone: str | None = None,
+        latitude: float | None = None,
+        longitude: float | None = None,
     ) -> None:
         self.executor = executor
         self.policy_resolver = policy_resolver
+        self.natural_action_resolver = natural_action_resolver
+        self.timezone = ZoneInfo(timezone or os.getenv("ROUTINES_TIMEZONE", "Europe/London"))
+        self.latitude = float(latitude if latitude is not None else os.getenv("HOME_LATITUDE", "51.5074"))
+        self.longitude = float(longitude if longitude is not None else os.getenv("HOME_LONGITUDE", "-0.1278"))
         self.storage_path = Path(storage_path or os.getenv("ROUTINES_FILE", "data/routines.json"))
         self._lock = threading.RLock()
+        self._stop = threading.Event()
+        self._thread: threading.Thread | None = None
         self._routines: dict[str, dict[str, Any]] = {}
         self._history: list[dict[str, Any]] = []
         self._load()
@@ -72,15 +86,27 @@ class RoutineManager:
         if len(actions) > 50:
             raise ValueError("a routine may contain at most 50 actions")
         for trigger in triggers:
-            if str(trigger.get("type", "")) not in {"manual", "event", "sensor"}:
-                raise ValueError("trigger type must be manual, event, or sensor")
+            trigger_type = str(trigger.get("type", ""))
+            if trigger_type not in {"manual", "event", "sensor", "schedule", "sunrise", "sunset", "presence"}:
+                raise ValueError("unsupported trigger type")
+            if trigger_type == "schedule" and not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", str(trigger.get("time", ""))):
+                raise ValueError("schedule time must be HH:MM")
+            if trigger_type in {"sunrise", "sunset"}:
+                offset = int(trigger.get("offset_minutes", 0) or 0)
+                if abs(offset) > 1440:
+                    raise ValueError("sunrise/sunset offset must be within 24 hours")
+            if trigger_type == "presence" and not str(trigger.get("room", "")).strip():
+                raise ValueError("presence trigger room is required")
         for condition in conditions:
             if str(condition.get("operator", "eq")) not in {"eq", "ne", "gt", "gte", "lt", "lte", "in"}:
                 raise ValueError("unsupported condition operator")
             if not str(condition.get("path", "")).strip():
                 raise ValueError("condition path is required")
         for action in actions:
-            if not str(action.get("node_id", "")).strip() or not str(action.get("capability", "")).strip():
+            smart_home = action.get("kind") == "smart_home"
+            if smart_home and (not str(action.get("device_id", "")).strip() or not str(action.get("action", "")).strip()):
+                raise ValueError("each smart-home action needs device_id and action")
+            if not smart_home and (not str(action.get("node_id", "")).strip() or not str(action.get("capability", "")).strip()):
                 raise ValueError("each action needs node_id and capability")
         now = time.time()
         expires = float(payload.get("expires_epoch") or 0)
@@ -94,7 +120,102 @@ class RoutineManager:
             "expires_epoch": expires if expires > now else 0.0,
             "created_epoch": float(payload.get("created_epoch") or now),
             "updated_epoch": now,
+            "last_trigger_slots": dict(payload.get("last_trigger_slots") or {}),
         }
+
+    def start(self) -> None:
+        if self._thread and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(target=self._loop, daemon=True, name="assistant-routines")
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=2)
+
+    def _loop(self) -> None:
+        while not self._stop.wait(20):
+            try:
+                self.run_due_once()
+            except Exception:
+                # A malformed persisted entry or transient device failure must
+                # not permanently stop future schedule polling.
+                continue
+
+    @staticmethod
+    def _day_allowed(trigger: dict[str, Any], current: datetime) -> bool:
+        days = trigger.get("days") or []
+        if not days:
+            return True
+        wanted = {str(day).strip().lower()[:3] for day in days}
+        return current.strftime("%a").lower()[:3] in wanted
+
+    def _solar_datetime(self, day: date, event: str) -> datetime | None:
+        """Return local sunrise/sunset using NOAA's compact solar calculation."""
+        zenith = 90.833
+        n = day.timetuple().tm_yday
+        lng_hour = self.longitude / 15.0
+        approximate = n + (((6 if event == "sunrise" else 18) - lng_hour) / 24.0)
+        mean_anomaly = (0.9856 * approximate) - 3.289
+        longitude = mean_anomaly + 1.916 * math.sin(math.radians(mean_anomaly))
+        longitude += 0.020 * math.sin(math.radians(2 * mean_anomaly)) + 282.634
+        longitude %= 360
+        right_ascension = math.degrees(math.atan(0.91764 * math.tan(math.radians(longitude)))) % 360
+        right_ascension += (math.floor(longitude / 90) * 90) - (math.floor(right_ascension / 90) * 90)
+        right_ascension /= 15
+        sin_dec = 0.39782 * math.sin(math.radians(longitude))
+        cos_dec = math.cos(math.asin(sin_dec))
+        denominator = cos_dec * math.cos(math.radians(self.latitude))
+        if denominator == 0:
+            return None
+        cos_hour = (math.cos(math.radians(zenith)) - sin_dec * math.sin(math.radians(self.latitude))) / denominator
+        if cos_hour < -1 or cos_hour > 1:
+            return None
+        hour = 360 - math.degrees(math.acos(cos_hour)) if event == "sunrise" else math.degrees(math.acos(cos_hour))
+        hour /= 15
+        local_mean = hour + right_ascension - (0.06571 * approximate) - 6.622
+        utc_hours = (local_mean - lng_hour) % 24
+        midnight_utc = datetime(day.year, day.month, day.day, tzinfo=ZoneInfo("UTC"))
+        return (midnight_utc + timedelta(hours=utc_hours)).astimezone(self.timezone)
+
+    def run_due_once(self, now: float | datetime | None = None) -> list[dict[str, Any]]:
+        current = now if isinstance(now, datetime) else datetime.fromtimestamp(time.time() if now is None else now, self.timezone)
+        if current.tzinfo is None:
+            current = current.replace(tzinfo=self.timezone)
+        else:
+            current = current.astimezone(self.timezone)
+        due: list[tuple[str, str, dict[str, Any]]] = []
+        with self._lock:
+            for routine in self.list():
+                if not routine.get("enabled", True):
+                    continue
+                for index, trigger in enumerate(routine.get("triggers", [])):
+                    trigger_type = str(trigger.get("type", ""))
+                    if trigger_type not in {"schedule", "sunrise", "sunset"} or not self._day_allowed(trigger, current):
+                        continue
+                    if trigger_type == "schedule":
+                        target = current.replace(
+                            hour=int(str(trigger["time"]).split(":")[0]),
+                            minute=int(str(trigger["time"]).split(":")[1]), second=0, microsecond=0,
+                        )
+                    else:
+                        solar = self._solar_datetime(current.date(), trigger_type)
+                        if solar is None:
+                            continue
+                        target = solar + timedelta(minutes=int(trigger.get("offset_minutes", 0) or 0))
+                    # The polling window tolerates delayed wake-up without replaying old days.
+                    if not (target <= current < target + timedelta(minutes=2)):
+                        continue
+                    slot = f"{current.date().isoformat()}:{index}:{target.strftime('%H:%M')}"
+                    if routine.get("last_trigger_slots", {}).get(str(index)) == slot:
+                        continue
+                    due.append((routine["id"], slot, {"schedule": {"type": trigger_type, "target": target.isoformat()}}))
+                    self._routines[routine["id"]].setdefault("last_trigger_slots", {})[str(index)] = slot
+            if due:
+                self._save()
+        return [self.run(routine_id, context, reason=f"schedule:{slot}") for routine_id, slot, context in due]
 
     def create(self, payload: dict[str, Any]) -> dict[str, Any]:
         routine = self._validate(payload)
@@ -204,8 +325,13 @@ class RoutineManager:
                         policy = "deny"
                     policies.append(policy)
                     if policy == "deny":
+                        target = (
+                            f"{action.get('device_id')}.{action.get('action')}"
+                            if action.get("kind") == "smart_home"
+                            else f"{action.get('node_id')}.{action.get('capability')}"
+                        )
                         blockers.append(
-                            f"{action.get('node_id')}.{action.get('capability')} is unavailable or denied"
+                            f"{target} is unavailable or denied"
                         )
             requires_confirmation = (
                 len(actions) >= 5
@@ -280,13 +406,21 @@ class RoutineManager:
 
     def handle_event(self, event: str, context: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         matches: list[str] = []
+        event_context = dict(context or {})
         with self._lock:
             for routine in self.list():
                 for trigger in routine.get("triggers", []):
                     if trigger.get("type") in {"event", "sensor"} and str(trigger.get("event", "")) == str(event):
                         matches.append(routine["id"])
                         break
-        return [self.run(routine_id, context, reason=f"event:{event}") for routine_id in matches]
+                    if trigger.get("type") == "presence" and str(event) == "presence.changed":
+                        presence = event_context.get("presence") if isinstance(event_context.get("presence"), dict) else {}
+                        room_matches = str(presence.get("room", "")).casefold() == str(trigger.get("room", "")).casefold()
+                        occupied_matches = bool(presence.get("occupied")) == bool(trigger.get("occupied", True))
+                        if room_matches and occupied_matches:
+                            matches.append(routine["id"])
+                            break
+        return [self.run(routine_id, event_context, reason=f"event:{event}") for routine_id in matches]
 
     def conflicts(self) -> list[dict[str, Any]]:
         """Find enabled routines that react to the same event and target the same capability."""
@@ -294,10 +428,10 @@ class RoutineManager:
         conflicts: list[dict[str, Any]] = []
         for index, left in enumerate(routines):
             left_events = {str(t.get("event")) for t in left.get("triggers", []) if t.get("event")}
-            left_targets = {(a.get("node_id"), a.get("capability")) for a in left.get("actions", [])}
+            left_targets = {self._action_target(a) for a in left.get("actions", [])}
             for right in routines[index + 1:]:
                 shared_events = left_events & {str(t.get("event")) for t in right.get("triggers", []) if t.get("event")}
-                shared_targets = left_targets & {(a.get("node_id"), a.get("capability")) for a in right.get("actions", [])}
+                shared_targets = left_targets & {self._action_target(a) for a in right.get("actions", [])}
                 if shared_events and shared_targets:
                     conflicts.append({
                         "routines": [left["id"], right["id"]],
@@ -305,6 +439,12 @@ class RoutineManager:
                         "targets": sorted([list(x) for x in shared_targets]),
                     })
         return conflicts
+
+    @staticmethod
+    def _action_target(action: dict[str, Any]) -> tuple[Any, Any]:
+        if action.get("kind") == "smart_home":
+            return action.get("device_id"), action.get("action")
+        return action.get("node_id"), action.get("capability")
 
     def explain(self, selector: str) -> dict[str, Any]:
         with self._lock:
@@ -332,6 +472,16 @@ class RoutineManager:
 
     def handle(self, text: str) -> str | None:
         lower = text.strip().lower()
+        if re.match(r"^(?:neko[, ]+)?(?:create|make|add) (?:a )?routine\b", lower):
+            routine = self.create_from_text(text)
+            trigger = routine["triggers"][0]
+            if trigger["type"] == "schedule":
+                timing = f"{'on selected days' if trigger.get('days') else 'daily'} at {trigger['time']}"
+            elif trigger["type"] in {"sunrise", "sunset"}:
+                timing = trigger["type"]
+            else:
+                timing = f"when {trigger['room']} becomes {'occupied' if trigger.get('occupied', True) else 'vacant'}"
+            return f"Created {routine['name']}: {timing}, with {len(routine['actions'])} action(s)."
         match = re.match(r"^(?:neko[, ]+)?(?:(confirm)\s+)?(?:run|start|activate) (?:the )?(.+?)(?: routine| scene)?$", lower)
         if match:
             result = self.run(match.group(2), confirmed=bool(match.group(1)))
@@ -351,3 +501,64 @@ class RoutineManager:
             self.undo_last()
             return "Undid the previous routine using its recorded prior state."
         return None
+
+    def create_from_text(self, text: str) -> dict[str, Any]:
+        """Create one safe smart-home routine from a constrained natural phrase."""
+        if self.natural_action_resolver is None:
+            raise ValueError("natural-language routine actions are not configured")
+        cleaned = " ".join(text.strip().split())
+        match = re.match(
+            r"^(?:neko[, ]+)?(?:create|make|add) (?:a )?routine(?: (?:called|named) (?P<name>.+?))?(?:\s*(?::|that|to)\s*)?(?P<rule>(?:every day|every weekday|at |when ).+)$",
+            cleaned,
+            re.I,
+        )
+        if not match:
+            raise ValueError(
+                "describe a routine like: create a routine called porch lights: at sunset turn on the porch light"
+            )
+        rule = match.group("rule").strip()
+        trigger: dict[str, Any]
+        remainder: str
+        scheduled = re.match(r"^(every day|every weekday) at (\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s+(.+)$", rule, re.I)
+        solar = re.match(r"^at (sunrise|sunset)(?:\s+([+-]?\d+)\s+minutes?)?\s+(.+)$", rule, re.I)
+        presence = re.match(
+            r"^when (?:the )?(.+?) (?:is|becomes|gets) (occupied|empty|vacant|unoccupied)\s*,?\s*(.+)$",
+            rule,
+            re.I,
+        )
+        if scheduled:
+            hour, minute = int(scheduled.group(2)), int(scheduled.group(3) or 0)
+            marker = (scheduled.group(4) or "").lower()
+            if marker:
+                if not 1 <= hour <= 12:
+                    raise ValueError("scheduled hour must be 1-12 when using AM/PM")
+                hour = hour % 12 + (12 if marker == "pm" else 0)
+            if hour > 23 or minute > 59:
+                raise ValueError("scheduled time is invalid")
+            trigger = {"type": "schedule", "time": f"{hour:02d}:{minute:02d}"}
+            if "weekday" in scheduled.group(1).lower():
+                trigger["days"] = ["mon", "tue", "wed", "thu", "fri"]
+            remainder = scheduled.group(5)
+        elif solar:
+            trigger = {"type": solar.group(1).lower(), "offset_minutes": int(solar.group(2) or 0)}
+            remainder = solar.group(3)
+        elif presence:
+            occupied = presence.group(2).lower() == "occupied"
+            trigger = {"type": "presence", "room": presence.group(1).strip(), "occupied": occupied}
+            remainder = presence.group(3)
+        else:
+            raise ValueError("supported triggers are daily/weekday times, sunrise/sunset, or room occupancy")
+        action_match = re.match(r"^(?:then )?(?:turn|switch)\s+(on|off)\s+(?:the )?(.+)$", remainder, re.I)
+        if not action_match:
+            action_match = re.match(r"^(?:then )?(?:turn|switch)\s+(?:the )?(.+?)\s+(on|off)$", remainder, re.I)
+            if not action_match:
+                raise ValueError("the routine action must say turn on/off followed by a discovered device")
+            description, action = action_match.group(1), action_match.group(2).lower()
+        else:
+            action, description = action_match.group(1).lower(), action_match.group(2)
+        room = str(trigger.get("room") or "").strip() or None
+        resolved = self.natural_action_resolver(description.strip(), action, None, room)
+        name = (match.group("name") or "").strip(" :-")
+        if not name:
+            name = f"{trigger['type'].replace('_', ' ').title()} {action} {description}"[:100]
+        return self.create({"name": name, "triggers": [trigger], "actions": [resolved]})

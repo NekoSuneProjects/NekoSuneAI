@@ -141,6 +141,7 @@ class SmartHomeManager:
                 "id": device_id,
                 "name": name,
                 "component": component,
+                "device_class": str(config.get("device_class") or config.get("dev_cla") or old.get("device_class") or "").lower(),
                 "room": room or str(old.get("room") or ""),
                 "aliases": sorted({str(x).strip().lower() for x in [*old.get("aliases", []), *aliases] if str(x).strip()}),
                 "command_topic": command_topic,
@@ -182,6 +183,7 @@ class SmartHomeManager:
         except ValueError:
             decoded = raw
         changed: list[dict[str, Any]] = []
+        presence_changes: list[dict[str, Any]] = []
         with self._lock:
             for device_id in self._topic_index.get(topic, set()):
                 device = self._devices[device_id]
@@ -195,6 +197,25 @@ class SmartHomeManager:
                     else:
                         state["value"] = decoded
                     self._record_telemetry(device, current)
+                    room = str(device.get("room") or "").strip()
+                    room_was_occupied = any(
+                        bool(row.get("occupied")) for row in self._devices.values()
+                        if row is not device and str(row.get("room") or "").strip().casefold() == room.casefold()
+                    ) or bool(device.get("occupied"))
+                    occupied = self._presence_value(device)
+                    if occupied is not None:
+                        device["occupied"] = occupied
+                        room_is_occupied = any(
+                            bool(row.get("occupied")) for row in self._devices.values()
+                            if str(row.get("room") or "").strip().casefold() == room.casefold()
+                        )
+                        if room and room_was_occupied != room_is_occupied:
+                            presence_changes.append({
+                                "room": room,
+                                "occupied": room_is_occupied,
+                                "device_id": device_id,
+                                "device_name": str(device.get("name") or device_id),
+                            })
                 changed.append(self.public(device))
             if changed:
                 self._save()
@@ -207,7 +228,47 @@ class SmartHomeManager:
                 self.event_callback("smart_home.state", {"device": device})
             except Exception:
                 pass
+        for presence in presence_changes:
+            context = {"presence": presence}
+            try:
+                self.event_callback("presence.changed", context)
+                state = "occupied" if presence["occupied"] else "vacant"
+                self.event_callback(f"presence.{_slug(presence['room'])}.{state}", context)
+            except Exception:
+                pass
         return changed
+
+    @staticmethod
+    def _presence_value(device: dict[str, Any]) -> bool | None:
+        if str(device.get("component")) != "binary_sensor":
+            return None
+        device_class = str(device.get("device_class") or "").lower()
+        name = str(device.get("name") or "").lower()
+        if device_class not in {"occupancy", "presence", "motion"} and not any(
+            word in name for word in ("occupancy", "presence", "motion")
+        ):
+            return None
+        state = dict(device.get("state") or {})
+        raw = state.get("occupancy", state.get("presence", state.get("motion", state.get("value"))))
+        if isinstance(raw, bool):
+            return raw
+        normalized = str(raw).strip().lower()
+        if normalized in {"on", "true", "1", "yes", "occupied", "present", "detected"}:
+            return True
+        if normalized in {"off", "false", "0", "no", "clear", "vacant", "unoccupied", "not_home"}:
+            return False
+        return None
+
+    def occupancy(self, room: str | None = None) -> dict[str, Any]:
+        wanted = " ".join(str(room or "").lower().split())
+        with self._lock:
+            sensors = [
+                self.public(device) for device in self._devices.values()
+                if device.get("occupied") is not None
+                and (not wanted or " ".join(str(device.get("room") or "").lower().split()) == wanted)
+            ]
+        occupied = any(bool(sensor.get("occupied")) for sensor in sensors)
+        return {"room": room or "all rooms", "occupied": occupied, "known": bool(sensors), "sensors": sensors}
 
     @staticmethod
     def _number(state: dict[str, Any], *keys: str) -> float | None:
@@ -340,6 +401,17 @@ class SmartHomeManager:
 
     def handle(self, text: str, room: str | None = None) -> str | None:
         cleaned = " ".join(text.strip().lower().split())
+        occupancy_match = re.match(r"^(?:is|are) (?:anyone|someone|the room) (?:in|at|home in) (?:the )?(.+?)[?]?$", cleaned)
+        if cleaned in {"is anyone home", "is someone home", "is the house occupied"}:
+            summary = self.occupancy()
+        elif occupancy_match:
+            summary = self.occupancy(occupancy_match.group(1))
+        else:
+            summary = None
+        if summary is not None:
+            if not summary["known"]:
+                return f"I don't have a reporting presence sensor for {summary['room']}."
+            return f"{summary['room'].title()} is {'occupied' if summary['occupied'] else 'vacant'} according to local presence sensors."
         state_match = re.match(r"^(?:what(?:'s| is)|show|check) (?:the )?(.+?) (?:status|state|battery|power|energy)[?]?$", cleaned)
         if state_match:
             device = self.resolve(state_match.group(1), room)

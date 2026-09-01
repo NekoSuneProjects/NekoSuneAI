@@ -33,6 +33,7 @@ components are `light`, `switch`, `fan`, `cover`, `lock`, `climate`, `sensor`
 and `binary_sensor`. It reads the common full and abbreviated fields including:
 
 - `unique_id`, `name`, `device`, `room`/`area`, and `~`
+- `device_class` / `dev_cla` for local motion, presence and occupancy sensors
 - `state_topic` / `stat_t`
 - `command_topic` / `cmd_t`
 - `availability_topic` / `avty_t`
@@ -87,6 +88,8 @@ turn my lamp on
 set main light brightness to 20
 what is desk plug energy?
 what is controller battery?
+is anyone in the hallway?
+is anyone home?
 ```
 
 Generic names such as `the light` are resolved inside `NEKOSUNEAI_ROOM`.
@@ -116,3 +119,17 @@ smart_home.state
 The routine condition context contains `device` and, for the device-specific
 event, `smart_home.DEVICE_ID`. This allows sensor-driven routines while keeping
 the routine action permission checks from the peripheral-node layer.
+
+Binary sensors with a `motion`, `presence`, or `occupancy` device class also
+maintain a per-room occupied/vacant summary and emit transition-only events:
+
+```text
+presence.changed
+presence.ROOM.occupied
+presence.ROOM.vacant
+```
+
+The generic event includes `presence.room`, `presence.occupied`, and the local
+sensor ID. Presence-triggered routines and one-shot reminders consume this
+event. For example, `remind me about washing when I next go downstairs` stays
+local, fires on the next matching occupied transition, and then deactivates.

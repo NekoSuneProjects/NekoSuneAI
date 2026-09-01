@@ -39,11 +39,11 @@ Prefer local/offline control where practical and make cloud/account integrations
 - [x] Named routines/scenes such as good morning, good night and movie mode.
 - [x] Routine builder dashboard: trigger + conditions + ordered actions.
 - [x] Sensor-triggered routines.
-- [ ] Sunrise/sunset routines.
-- [ ] Presence/occupancy awareness.
-- [ ] Natural-language routine creation — describe a routine instead of programming every field.
-- [ ] Temporary routines — `for the next three days, wake me at 8`.
-- [ ] Conditional/location reminders — `remind me about washing when I next go downstairs`.
+- [x] Sunrise/sunset routines.
+- [x] Presence/occupancy awareness.
+- [x] Natural-language routine creation — describe a routine instead of programming every field.
+- [x] Temporary routines — `for the next three days, wake me at 8`.
+- [x] Conditional/location reminders — `remind me about washing when I next go downstairs`.
 - [ ] Teach-by-demonstration — record a safe sequence of actions such as a streaming setup and save it as an editable routine.
 - [x] Automation conflict detection when two routines fight over the same device.
 - [x] Explain automations — answer `why did the hallway light turn on?` with the triggering rule/sensor.

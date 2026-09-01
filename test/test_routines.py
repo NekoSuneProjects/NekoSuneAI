@@ -1,4 +1,6 @@
 import time
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 
@@ -110,3 +112,59 @@ def test_policy_resolver_blocks_denied_and_requires_confirmation(tmp_path):
     preview = manager.preview("Door")
     assert preview["would_run"] is False
     assert "denied" in preview["blockers"][0]
+
+
+def test_scheduled_routine_runs_once_per_slot(tmp_path):
+    calls = []
+    manager = RoutineManager(lambda action: calls.append(action) or {"ok": True}, tmp_path / "routines.json")
+    manager.create({
+        "name": "Weekday lights",
+        "triggers": [{"type": "schedule", "time": "08:15", "days": ["mon"]}],
+        "actions": [{"node_id": "bedroom", "capability": "light.on"}],
+    })
+    now = datetime(2026, 8, 31, 8, 15, 30, tzinfo=ZoneInfo("Europe/London"))
+    assert manager.run_due_once(now)[0]["status"] == "completed"
+    assert manager.run_due_once(now) == []
+    assert len(calls) == 1
+    assert RoutineManager(lambda action: {"ok": True}, manager.storage_path).list()[0]["last_trigger_slots"]
+
+
+def test_sunrise_offset_and_presence_trigger(tmp_path, monkeypatch):
+    manager = RoutineManager(lambda action: {"ok": True}, tmp_path / "routines.json")
+    manager.create({
+        "name": "Dawn",
+        "triggers": [{"type": "sunrise", "offset_minutes": 15}],
+        "actions": [{"node_id": "bedroom", "capability": "blind.open"}],
+    })
+    monkeypatch.setattr(
+        manager, "_solar_datetime",
+        lambda day, event: datetime(day.year, day.month, day.day, 6, 0, tzinfo=manager.timezone),
+    )
+    assert len(manager.run_due_once(datetime(2026, 9, 1, 6, 15, 10, tzinfo=manager.timezone))) == 1
+
+    manager.create({
+        "name": "Hall light",
+        "triggers": [{"type": "presence", "room": "hallway", "occupied": True}],
+        "actions": [{"node_id": "hall", "capability": "light.on"}],
+    })
+    assert manager.handle_event("presence.changed", {"presence": {"room": "kitchen", "occupied": True}}) == []
+    assert manager.handle_event("presence.changed", {"presence": {"room": "hallway", "occupied": True}})[0]["status"] == "completed"
+
+
+def test_natural_language_routine_creation_resolves_discovered_device(tmp_path):
+    resolved = []
+
+    def resolver(description, action, value, room):
+        resolved.append((description, action, value, room))
+        return {"kind": "smart_home", "device_id": "porch-light", "action": action}
+
+    manager = RoutineManager(
+        lambda action: {"ok": True}, tmp_path / "routines.json", natural_action_resolver=resolver,
+    )
+    reply = manager.handle("create a routine called porch lights: at sunset turn on the porch light")
+    assert reply == "Created porch lights: sunset, with 1 action(s)."
+    assert resolved == [("porch light", "on", None, None)]
+    assert manager.list()[0]["actions"][0]["device_id"] == "porch-light"
+
+    manager.handle("create a routine called hallway welcome: when the hallway is occupied, turn on the light")
+    assert resolved[-1] == ("light", "on", None, "hallway")

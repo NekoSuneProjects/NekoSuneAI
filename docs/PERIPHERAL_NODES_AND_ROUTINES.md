@@ -85,10 +85,11 @@ The dashboard can inspect `GET /api/nodes`, inspect the local audit trail at
 
 ## Routines
 
-Routines contain one or more manual/event/sensor triggers, deterministic
-conditions and ordered node-capability actions. They are stored locally in
-`data/routines.json`. Set `ROUTINES_FILE` or `PERIPHERAL_NODES_FILE` only when
-you need different persistent paths.
+Routines contain one or more manual, event, sensor, daily/weekday schedule,
+sunrise/sunset, or room-presence triggers, deterministic conditions and
+ordered capability actions. They are stored locally in `data/routines.json`.
+Set `ROUTINES_FILE` or `PERIPHERAL_NODES_FILE` only when you need different
+persistent paths.
 
 Create a routine with the authenticated API:
 
@@ -141,3 +142,23 @@ device action. Add `expires_epoch` for a temporary routine.
 
 Spoken/text commands currently include `run movie mode`,
 `why did movie mode run?`, and `undo the last routine`.
+
+The scheduler uses `ROUTINES_TIMEZONE`; sunrise and sunset use the local-only
+`HOME_LATITUDE` and `HOME_LONGITUDE` values. A schedule trigger looks like
+`{"type":"schedule","time":"08:00","days":["mon","tue","wed"]}`. Solar
+triggers use `{"type":"sunset","offset_minutes":-15}`. The scheduler records
+each fired slot before execution so restarts and overlapping polls cannot run
+the same slot twice.
+
+Natural routine creation resolves the requested action against an already
+discovered smart-home device. Supported examples include:
+
+```text
+create a routine called porch lights: at sunset turn on the porch light
+create a routine called hallway welcome: when the hallway is occupied, turn on the light
+create a routine called morning lights: every weekday at 7:30 AM turn on the bedroom light
+```
+
+This constrained parser never creates arbitrary commands or MQTT topics. The
+routine stores the resolved device ID and goes through the same policy and
+confirmation path as dashboard-created actions.

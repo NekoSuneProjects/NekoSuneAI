@@ -9,6 +9,7 @@ import secrets
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
+from zoneinfo import ZoneInfo
 
 from .android_devices import AndroidDeviceHub
 from .avatar_motion import drive_tts_avatar
@@ -163,6 +164,15 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     peripheral_nodes = PeripheralNodeRegistry()
 
     def execute_routine_action(action: dict) -> dict:
+        if action.get("kind") == "smart_home":
+            integration = getattr(api, "home_assistant", None)
+            if integration is None:
+                raise RuntimeError("smart-home integration is not running")
+            message = integration.command_device(
+                str(action.get("device_id", "")), str(action.get("action", "")),
+                action.get("value"), bool(action.get("confirmed", False)),
+            )
+            return {"message": message}
         item = peripheral_nodes.enqueue(
             str(action.get("node_id", "")),
             str(action.get("capability", "")),
@@ -176,11 +186,25 @@ def serve(host: str, port: int, token: str | None = None) -> None:
             result["undo"] = undo
         return result
 
+    def resolve_natural_action(description: str, action: str, value, room: str | None) -> dict:
+        integration = getattr(api, "home_assistant", None)
+        if integration is None:
+            raise ValueError("smart-home discovery is not running")
+        device = integration.devices.resolve(description, room or getattr(api, "current_room", None))
+        return {
+            "kind": "smart_home", "device_id": device["id"], "device_name": device.get("name"),
+            "action": action, "value": value,
+        }
+
+    def routine_policy(action: dict) -> str:
+        if action.get("kind") == "smart_home":
+            return "confirm" if str(action.get("action")) in {"unlock", "open", "disarm"} else "allow"
+        return peripheral_nodes.action_policy(str(action.get("node_id", "")), str(action.get("capability", "")))
+
     routines = RoutineManager(
         execute_routine_action,
-        policy_resolver=lambda action: peripheral_nodes.action_policy(
-            str(action.get("node_id", "")), str(action.get("capability", ""))
-        ),
+        policy_resolver=routine_policy,
+        natural_action_resolver=resolve_natural_action,
     )
     advertiser = MdnsAdvertiser(port)
     windowed_monitor: WindowedMonitorManager | None = None
@@ -223,18 +247,24 @@ def serve(host: str, port: int, token: str | None = None) -> None:
         nonlocal windowed_monitor, reminders, lists, notify_gate
         result = original_initialize(*args, **kwargs)
         tz = getattr(api.config, "timezone", None) or "Europe/London"
+        routines.timezone = ZoneInfo(tz)
         if windowed_monitor is None:
             windowed_monitor = WindowedMonitorManager(api.config, api._monitor_notification)
             windowed_monitor.start()
         if reminders is None:
             reminders = ReminderManager(api._monitor_notification, tz)
             reminders.start()
+        routines.start()
         if lists is None:
             lists = ListManager(tz)
         if notify_gate is None:
             notify_gate = NotificationGate(tz)
         if getattr(api, "home_assistant", None) is not None:
-            api.home_assistant.devices.event_callback = lambda event, context: routines.handle_event(event, context)
+            def smart_home_event(event: str, context: dict) -> None:
+                routines.handle_event(event, context)
+                if reminders is not None:
+                    reminders.handle_event(event, context)
+            api.home_assistant.devices.event_callback = smart_home_event
         return result
 
     api.initialize = initialize_with_services  # type: ignore[method-assign]
@@ -762,5 +792,6 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     try:
         server.serve_forever()
     finally:
+        routines.stop()
         advertiser.stop()
         server.server_close()

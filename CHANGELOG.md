@@ -16,6 +16,12 @@
   energy costs and cooldown-protected unusual power-use warnings.
 - Feed discovered MQTT state changes into sensor-triggered local routines and
   reconnect/resubscribe to known topics after broker interruptions.
+- Add idempotent timezone-aware daily/weekday and sunrise/sunset routine
+  scheduling, with local coordinate configuration and dashboard trigger fields.
+- Turn MQTT motion/presence/occupancy sensors into room transition events,
+  occupancy questions, presence routines and one-shot location reminders.
+- Add constrained natural-language smart-home routine creation and finite
+  multi-day alarms such as `for the next three days, wake me at 8`.
 
 ## 1.2.1 wake-word image fix
 

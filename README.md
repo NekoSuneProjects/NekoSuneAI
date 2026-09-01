@@ -587,7 +587,9 @@ for pairing, permissions, heartbeat, routine and API examples. The Studio's
 Home Assistant and generic MQTT devices also appear in that manager with
 rooms, aliases, battery and energy telemetry. See
 [`docs/SMART_HOME_MQTT.md`](docs/SMART_HOME_MQTT.md) for local discovery and
-command examples.
+command examples. Local presence sensors can drive room-aware routines and
+one-shot reminders; routine triggers also support daily/weekday schedules and
+locally calculated sunrise/sunset times.
 
 ---
 

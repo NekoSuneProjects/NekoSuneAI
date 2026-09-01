@@ -155,3 +155,49 @@ def test_empty_discovery_payload_removes_device(tmp_path):
     assert len(manager.list_devices()) == 1
     manager.ingest("homeassistant/light/house/kitchen_ceiling/config", "")
     assert manager.list_devices() == []
+
+
+def test_presence_sensor_emits_transitions_and_answers_occupancy(tmp_path):
+    events = []
+    manager = SmartHomeManager(
+        lambda *_args: None,
+        storage_path=tmp_path / "devices.json",
+        event_callback=lambda name, context: events.append((name, context)),
+    )
+    manager.discover(
+        "homeassistant/binary_sensor/house/hall_motion/config",
+        json.dumps({
+            "unique_id": "hall_motion", "name": "Hall Motion", "room": "hallway",
+            "device_class": "motion", "state_topic": "house/hall/motion",
+        }),
+    )
+    manager.ingest("house/hall/motion", "OFF", now=1000)
+    assert manager.handle("is anyone in the hallway?") == "Hallway is vacant according to local presence sensors."
+    manager.ingest("house/hall/motion", "ON", now=1001)
+    assert manager.occupancy("hallway")["occupied"] is True
+    assert [name for name, _ in events][-2:] == ["presence.changed", "presence.hallway.occupied"]
+    manager.ingest("house/hall/motion", "OFF", now=1002)
+    assert [name for name, _ in events][-2:] == ["presence.changed", "presence.hallway.vacant"]
+
+
+def test_room_stays_occupied_until_all_presence_sensors_clear(tmp_path):
+    events = []
+    manager = SmartHomeManager(
+        lambda *_args: None, storage_path=tmp_path / "devices.json",
+        event_callback=lambda name, context: events.append(name),
+    )
+    for sensor in ("motion_a", "motion_b"):
+        manager.discover(
+            f"homeassistant/binary_sensor/house/{sensor}/config",
+            json.dumps({
+                "unique_id": sensor, "name": sensor, "room": "lounge",
+                "device_class": "motion", "state_topic": f"house/{sensor}/state",
+            }),
+        )
+    manager.ingest("house/motion_a/state", "ON", now=1000)
+    manager.ingest("house/motion_b/state", "ON", now=1001)
+    manager.ingest("house/motion_a/state", "OFF", now=1002)
+    assert events.count("presence.lounge.occupied") == 1
+    assert "presence.lounge.vacant" not in events
+    manager.ingest("house/motion_b/state", "OFF", now=1003)
+    assert events.count("presence.lounge.vacant") == 1
