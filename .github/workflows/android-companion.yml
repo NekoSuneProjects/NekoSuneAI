@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: android-apk-${{ github.ref }}
@@ -36,8 +36,25 @@ jobs:
           free -h || true
           echo "cgroup memory.max: $(cat /sys/fs/cgroup/memory.max 2>/dev/null || echo unknown)"
           echo "cgroup memory.current: $(cat /sys/fs/cgroup/memory.current 2>/dev/null || echo unknown)"
+      - name: Read Android version
+        id: android_version
+        shell: bash
+        run: |
+          VERSION_NAME=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts | head -n1)
+          VERSION_CODE=$(sed -n 's/.*versionCode = \([0-9]*\).*/\1/p' android/app/build.gradle.kts | head -n1)
+          test -n "$VERSION_NAME"
+          test -n "$VERSION_CODE"
+          echo "version_name=$VERSION_NAME" >> "$GITHUB_OUTPUT"
+          echo "version_code=$VERSION_CODE" >> "$GITHUB_OUTPUT"
+          echo "release_tag=android-v${VERSION_NAME}-build-${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
       - name: Build Android debug APK
         run: gradle -p android --no-daemon --max-workers=1 assembleDebug --stacktrace
+      - name: Prepare versioned APK
+        shell: bash
+        run: |
+          mkdir -p release-apk
+          cp android/app/build/outputs/apk/debug/app-debug.apk \
+            "release-apk/NekoSuneAI-Android-${{ steps.android_version.outputs.version_name }}-build-${{ github.run_number }}.apk"
       - name: Runner memory after build
         if: always()
         run: |
@@ -48,6 +65,25 @@ jobs:
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: NekoSuneAI-Android-debug
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: NekoSuneAI-Android-${{ steps.android_version.outputs.version_name }}-build-${{ github.run_number }}
+          path: release-apk/*.apk
           if-no-files-found: error
+      - name: Publish APK to GitHub Releases
+        uses: ncipollo/release-action@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          tag: ${{ steps.android_version.outputs.release_tag }}
+          name: NekoSuneAI Android ${{ steps.android_version.outputs.version_name }} (Build ${{ github.run_number }})
+          commit: ${{ github.sha }}
+          artifacts: release-apk/*.apk
+          artifactErrorsFailBuild: true
+          generateReleaseNotes: true
+          body: |
+            Android companion APK built from `build/android-apk`.
+
+            - App version: `${{ steps.android_version.outputs.version_name }}`
+            - Version code: `${{ steps.android_version.outputs.version_code }}`
+            - Workflow build: `${{ github.run_number }}`
+            - Commit: `${{ github.sha }}`
+
+            Download the `.apk` file below directly from this release.
