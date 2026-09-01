@@ -1,5 +1,6 @@
 from nekosuneai.avatar_http_patch import install_avatar_http_patch
 from nekosuneai.scam_call_patch import install_scam_call_patch
+from nekosuneai.call_sync_patch import install_call_sync_patch
 from nekosuneai.mcp_oauth_recovery import install_mcp_oauth_recovery
 from nekosuneai.settings_dashboard_patch import install_settings_dashboard_patch
 from nekosuneai.settings_backend_patch import install_settings_backend_patch
@@ -20,9 +21,12 @@ from nekosuneai.vosk_model_auto_patch import install_vosk_model_auto_patch
 install_vosk_model_auto_patch()
 
 # HTTP route wrappers must be installed before webserver.py is imported by the
-# dashboard patches below. Avatar wraps first, then scam-call routes wrap it.
+# dashboard patches below. Avatar wraps first, scam routes next, then the caller
+# sync wrapper takes ownership of the Android caller-ID endpoint and logs every
+# delivered call (important, unknown, or scam) for visibility/debugging.
 install_avatar_http_patch()
 install_scam_call_patch()
+install_call_sync_patch()
 install_mcp_oauth_recovery()
 install_settings_dashboard_patch()
 install_settings_backend_patch()
