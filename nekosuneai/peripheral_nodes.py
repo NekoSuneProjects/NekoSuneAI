@@ -21,6 +21,7 @@ from typing import Any
 _CAPABILITY_RE = re.compile(r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$")
 _VALID_KINDS = {"read", "write"}
 _VALID_POLICIES = {"allow", "confirm", "deny"}
+_APPROVED_DEVICE_PAIRING_ID = "approved-device"
 
 
 class PeripheralNodeRegistry:
@@ -59,7 +60,6 @@ class PeripheralNodeRegistry:
             policy = str(settings.get("policy", default_policy)).strip().lower()
             if policy not in _VALID_POLICIES:
                 raise ValueError(f"invalid capability policy for {capability}")
-            # A node cannot silently make a state-changing capability less safe.
             if kind == "write" and policy == "allow":
                 policy = "confirm"
             result[capability] = {"kind": kind, "policy": policy}
@@ -130,18 +130,34 @@ class PeripheralNodeRegistry:
         if not node_id or not re.fullmatch(r"[A-Za-z0-9._:-]+", node_id):
             raise ValueError("node_id must contain only letters, numbers, dot, colon, underscore or hyphen")
         manifest = self._normalise_manifest(capabilities)
+
+        approved_device = str(pairing_id).strip() == _APPROVED_DEVICE_PAIRING_ID
+        approved_device_token = str(pairing_code).strip()
+        pairing: dict[str, Any] | None = None
+        if approved_device:
+            # Reuse the same owner-approved request flow as the Android app.
+            # DevicePairingManager persists approved token hashes, so a fresh
+            # manager safely validates the one-time token returned by
+            # /api/pairing/status after the owner presses Approve.
+            from .device_pairing import DevicePairingManager
+
+            if not DevicePairingManager().authorize_device_token(approved_device_token):
+                raise PermissionError("device pairing approval is invalid or expired")
+        else:
+            with self._lock:
+                self._cleanup_pairings()
+                pairing = self._pairings.get(str(pairing_id))
+                if not pairing or not secrets.compare_digest(
+                    str(pairing.get("code_sha256", "")), self._hash(str(pairing_code).strip().upper())
+                ):
+                    raise PermissionError("invalid or expired pairing code")
+
         with self._changed:
-            self._cleanup_pairings()
-            pairing = self._pairings.get(str(pairing_id))
-            if not pairing or not secrets.compare_digest(
-                str(pairing.get("code_sha256", "")), self._hash(str(pairing_code).strip().upper())
-            ):
-                raise PermissionError("invalid or expired pairing code")
             token = secrets.token_urlsafe(42)
             now = time.time()
             self._nodes[node_id] = {
                 "node_id": node_id,
-                "name": str(name).strip()[:80] or str(pairing.get("name") or "Peripheral node"),
+                "name": str(name).strip()[:80] or str((pairing or {}).get("name") or "Peripheral node"),
                 "node_type": str(node_type).strip().lower()[:40] or "generic",
                 "token_sha256": self._hash(token),
                 "capabilities": manifest,
@@ -154,8 +170,14 @@ class PeripheralNodeRegistry:
                 "commands": [],
                 "next_command_id": 1,
             }
-            self._pairings.pop(str(pairing_id), None)
-            self._log("registered", node_id, node_type=self._nodes[node_id]["node_type"])
+            if not approved_device:
+                self._pairings.pop(str(pairing_id), None)
+            self._log(
+                "registered",
+                node_id,
+                node_type=self._nodes[node_id]["node_type"],
+                pairing_mode="device-approval" if approved_device else "node-code",
+            )
             self._save()
             self._changed.notify_all()
             return {"node": self._public(self._nodes[node_id]), "device_token": token}
