@@ -26,6 +26,12 @@
   with clear transitions and a bounded credential-redacting incident timeline.
 - Add offline-capable house status summaries, authenticated home-timeline
   queries and opt-in source-attributed RSS/Atom briefings with uncertainty.
+- Add a paired Windows Gaming Node with approved-window capture/OCR, compact
+  observations, local allowlisted skills, anti-cheat profiles and emergency
+  input release on timeout, disconnect, dashboard request or Ctrl+Alt+F12.
+- Add confirmation-gated OBS WebSocket supervision, stream preflight/status,
+  TLS Twitch IRC, bounded chat prioritisation and strict public/private prompt
+  separation so viewers cannot control the PC, game or stream.
 
 ## 1.2.1 wake-word image fix
 

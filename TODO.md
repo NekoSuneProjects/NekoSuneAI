@@ -371,46 +371,46 @@ Build one gaming-control layer so Neko can understand consoles, PCs, TVs and str
 Keep the Raspberry Pi/Docker instance as NekoSuneAI's persistent brain while a Windows Gaming Agent on the gaming PC handles heavy vision, game execution, real-time input, OBS and Twitch. Games must run on Windows rather than being streamed/executed inside the Pi container.
 
 ### Windows Gaming Agent
-- [ ] Build a dedicated Windows NekoSuneAI Desktop/Game Agent that securely pairs with the Pi/server.
+- [x] Build a dedicated Windows NekoSuneAI Desktop/Game Agent that securely pairs with the Pi/server.
 - [ ] Encrypted authenticated WebSocket/node transport between NekoSuneAI and the Windows gaming PC.
-- [ ] Windows agent heartbeat showing online/offline state, latency, GPU/CPU load and active game.
+- [x] Windows agent heartbeat showing online/offline state, latency, GPU/CPU load and active game.
 - [ ] Start with Windows automatically as an optional service/tray application.
-- [ ] Restrict Neko to configured game/application windows rather than unrestricted desktop control by default.
+- [x] Restrict Neko to configured game/application windows rather than unrestricted desktop control by default.
 - [ ] Per-game permissions for vision, keyboard, mouse, controller, audio, mods/APIs and streaming.
-- [ ] Emergency local hotkey/button to immediately disable all AI game input.
-- [ ] Remote supervision from the Neko dashboard/Android app with pause/take-over/stop controls.
-- [ ] Add `Windows Gaming Node` / `Game Vision Node` to Neko Peripheral Nodes.
+- [x] Emergency local hotkey/button to immediately disable all AI game input.
+- [x] Remote supervision from the Neko dashboard/Android app with pause/take-over/stop controls.
+- [x] Add `Windows Gaming Node` / `Game Vision Node` to Neko Peripheral Nodes.
 
 ### Game capture & vision
 - [ ] Low-latency Windows game-window capture using supported desktop/game capture APIs.
-- [ ] Capture only the selected game/window/monitor instead of uploading the entire desktop when possible.
-- [ ] Adjustable capture FPS/resolution so visual analysis does not overload the PC or network.
+- [x] Capture only the selected game/window/monitor instead of uploading the entire desktop when possible.
+- [x] Adjustable capture FPS/resolution so visual analysis does not overload the PC or network.
 - [ ] Fast local vision preprocessing/object detection on the Windows GPU where available.
-- [ ] Send compact observations/state to the Pi instead of sending every raw frame.
-- [ ] On-demand high-detail screenshots when Neko needs to inspect UI/text/scenes more closely.
-- [ ] OCR for menus, HUD text, subtitles, inventory, coordinates and game messages where useful.
-- [ ] Scene-change/death/menu/loading detection to avoid pointless actions during transitions.
-- [ ] Maintain a short-lived visual working memory of recent frames/events for game reasoning.
+- [x] Send compact observations/state to the Pi instead of sending every raw frame.
+- [x] On-demand high-detail screenshots when Neko needs to inspect UI/text/scenes more closely.
+- [x] OCR for menus, HUD text, subtitles, inventory, coordinates and game messages where useful.
+- [x] Scene-change/death/menu/loading detection to avoid pointless actions during transitions.
+- [x] Maintain a short-lived visual working memory of recent frames/events for game reasoning.
 
 ### Input & real-time control
 - [ ] Keyboard/mouse control through an explicit allowlisted input layer.
 - [ ] Virtual game-controller support for games that work better with controller input.
-- [ ] High-level action API instead of requiring the LLM to generate individual keypresses every frame.
+- [x] High-level action API instead of requiring the LLM to generate individual keypresses every frame.
 - [ ] Local fast-control loops on Windows for movement, steering, aiming/camera turning and obstacle avoidance while the Pi gives higher-level goals.
-- [ ] Configurable action timeouts so a stuck action automatically releases held keys/buttons.
-- [ ] Automatic release of all virtual inputs when the connection to Neko is lost.
+- [x] Configurable action timeouts so a stuck action automatically releases held keys/buttons.
+- [x] Automatic release of all virtual inputs when the connection to Neko is lost.
 - [ ] Manual user input can optionally override/pause Neko immediately.
 - [ ] Record action/result telemetry so Neko can learn which game skills are reliable.
 
 ### Game adapters & skills
-- [ ] Generic vision-only game adapter for offline/single-player games without APIs/mods.
-- [ ] Structured game-state adapter interface for games/mods/plugins that can safely expose better telemetry than vision alone.
+- [x] Generic vision-only game adapter for offline/single-player games without APIs/mods.
+- [x] Structured game-state adapter interface for games/mods/plugins that can safely expose better telemetry than vision alone.
 - [ ] Hybrid mode combining game API/mod telemetry + screenshots + controlled input.
-- [ ] Named reusable game skills instead of relearning controls every session.
-- [ ] Skill examples: `generic.move`, `generic.look`, `generic.interact`, `generic.open_menu`, `generic.pause`.
-- [ ] Per-game keybind/control profile discovered/configured before autonomous play.
-- [ ] Game objective/goal system: long-term goal on the Pi, short-term actions executed locally on Windows.
-- [ ] Skill failure reporting with reason such as blocked path, UI changed, target lost or unsupported action.
+- [x] Named reusable game skills instead of relearning controls every session.
+- [x] Skill examples: `generic.move`, `generic.look`, `generic.interact`, `generic.open_menu`, `generic.pause`.
+- [x] Per-game keybind/control profile discovered/configured before autonomous play.
+- [x] Game objective/goal system: long-term goal on the Pi, short-term actions executed locally on Windows.
+- [x] Skill failure reporting with reason such as blocked path, UI changed, target lost or unsupported action.
 - [ ] Safe game-specific memory for maps, controls, known locations, recurring objectives and user-approved strategies.
 
 ### Minecraft autonomous play
@@ -438,14 +438,14 @@ Keep the Raspberry Pi/Docker instance as NekoSuneAI's persistent brain while a W
 - [ ] Adapter framework for supported offline/single-player games such as Fallout-style games.
 - [ ] Emulator adapter for user-owned games with generic controller + vision support.
 - [ ] Game-specific adapter packages can be enabled/disabled independently.
-- [ ] Anti-cheat-aware game profiles: disable automated input for multiplayer/competitive games where bots/macros are prohibited.
-- [ ] Never attempt to bypass anti-cheat, bot detection or game/platform restrictions.
+- [x] Anti-cheat-aware game profiles: disable automated input for multiplayer/competitive games where bots/macros are prohibited.
+- [x] Never attempt to bypass anti-cheat, bot detection or game/platform restrictions.
 
 ### OBS / stream control
-- [ ] OBS WebSocket integration from the Windows node.
-- [ ] Start/stop stream only with configured permission/confirmation policy.
-- [ ] Start/stop recording and replay-buffer controls.
-- [ ] Scene switching for gameplay, chatting, BRB, technical-problem and ending scenes.
+- [x] OBS WebSocket integration from the Windows node.
+- [x] Start/stop stream only with configured permission/confirmation policy.
+- [x] Start/stop recording and replay-buffer controls.
+- [x] Scene switching for gameplay, chatting, BRB, technical-problem and ending scenes.
 - [ ] Monitor stream state, bitrate, dropped frames, encoder load and game-capture availability.
 - [ ] Detect broken/missing game capture and optionally switch to BRB while attempting a safe recovery.
 - [ ] Monitor configured audio meters so Neko can warn if game/TTS/microphone audio disappears or clips.
@@ -455,39 +455,39 @@ Keep the Raspberry Pi/Docker instance as NekoSuneAI's persistent brain while a W
 - [ ] Stream-session timeline with game changes, scene switches, technical issues and notable moments.
 
 ### Twitch chat & autonomous VTuber behaviour
-- [ ] Twitch chat connection integrated into the same Neko conversation/personality system.
-- [ ] Read incoming chat without speaking every message aloud.
-- [ ] Chat prioritisation so questions/mentions/important messages can be answered without constantly interrupting gameplay.
+- [x] Twitch chat connection integrated into the same Neko conversation/personality system.
+- [x] Read incoming chat without speaking every message aloud.
+- [x] Chat prioritisation so questions/mentions/important messages can be answered without constantly interrupting gameplay.
 - [ ] Spam/repetition/raid/message-flood handling and configurable cooldowns.
 - [ ] Twitch moderation integration using user-defined rules and permissions.
 - [ ] Respond in Twitch chat and optionally speak selected replies through TTS.
 - [ ] Recognise follows/subscriptions/raids/channel-point events where Twitch APIs expose them.
 - [ ] Trigger avatar expressions/animations, sounds or overlays for configured stream events.
 - [ ] Maintain stream-specific conversational context while preserving the normal Neko personality.
-- [ ] Separate private owner instructions from public Twitch-chat instructions so viewers cannot control the PC/Neko without permission.
-- [ ] Viewer interaction commands are allowlisted and rate-limited.
+- [x] Separate private owner instructions from public Twitch-chat instructions so viewers cannot control the PC/Neko without permission.
+- [x] Viewer interaction commands are allowlisted and rate-limited.
 
 ### Autonomous stream sessions
 - [ ] High-level command such as `Neko, stream Minecraft` can prepare an autonomous stream session.
 - [ ] Pre-stream checklist: Windows node online, game installed, OBS available, capture source healthy, audio healthy and Twitch connection ready.
 - [ ] Launch the configured game and wait until it is actually ready before beginning autonomous play.
-- [ ] Optional confirmation immediately before going live.
+- [x] Optional confirmation immediately before going live.
 - [ ] Neko can play, talk to Twitch chat and react to stream events while the user supervises remotely.
 - [ ] Scheduled/owner-triggered breaks with BRB scene and safe game pause where supported.
 - [ ] Recover from game crash by stopping input, switching to BRB and notifying the owner before attempting configured recovery.
 - [ ] End-stream routine: stop game actions, say goodbye, switch ending scene, stop stream, save session summary and optionally close approved apps.
 - [ ] Android/dashboard view showing current game, objective, stream state, viewers/chat activity, errors and Neko's current action.
-- [ ] One-tap owner `take over`, `pause Neko`, `stop stream`, and `stop all input` controls.
+- [x] One-tap owner `take over`, `pause Neko`, `stop stream`, and `stop all input` controls.
 
 ### Architecture / performance
-- [ ] Pi/server performs personality, conversation, long-term memory, planning and high-level game goals.
+- [x] Pi/server performs personality, conversation, long-term memory, planning and high-level game goals.
 - [ ] Windows PC performs game rendering, screen capture, fast vision preprocessing, input loops, OBS and audio routing.
-- [ ] Do not send every video frame or keypress through the Pi; use local Windows control loops and compact observations.
+- [x] Do not send every video frame or keypress through the Pi; use local Windows control loops and compact observations.
 - [ ] Adaptive vision rate: reduce analysis while loading/idle and increase it temporarily when precise visual understanding is needed.
 - [ ] Hardware acceleration on Windows where supported without making a dedicated GPU mandatory for basic operation.
-- [ ] Backpressure/queue limits so Twitch chat or vision frames cannot overwhelm Neko's reasoning pipeline.
+- [x] Backpressure/queue limits so Twitch chat or vision frames cannot overwhelm Neko's reasoning pipeline.
 - [ ] Session logs that record goals, observations, skills/actions and results for debugging without retaining raw video unless explicitly enabled.
-- [ ] Capability examples: `game.status`, `game.capture`, `game.skill`, `game.input.stop`, `obs.scene`, `obs.stream.status`, `twitch.chat.read`, and `twitch.chat.send`.
+- [x] Capability examples: `game.status`, `game.capture`, `game.skill`, `game.input.stop`, `obs.scene`, `obs.stream.status`, `twitch.chat.read`, and `twitch.chat.send`.
 
 ## 🔥 Hardware safety & hazard detection
 

@@ -1,0 +1,13 @@
+{
+  "server_url": "https://your-nekosuneai-host.example",
+  "verify_tls": true,
+  "node_id": "windows-gaming-pc",
+  "name": "Windows Gaming Node",
+  "device_token": "",
+  "obs_host": "127.0.0.1",
+  "obs_port": 4455,
+  "obs_password": "replace-with-obs-websocket-password",
+  "twitch_login": "your_bot_account",
+  "twitch_oauth_token": "oauth:replace-me",
+  "twitch_channel": "your_channel"
+}

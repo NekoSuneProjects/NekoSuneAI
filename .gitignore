@@ -46,6 +46,8 @@ data/peripheral_nodes.json
 data/routines.json
 data/smart_home_devices.json
 data/home_timeline.json
+config/windows-gaming-agent.json
+config/game-profiles/*.local.json
 data/music/
 audio/
 

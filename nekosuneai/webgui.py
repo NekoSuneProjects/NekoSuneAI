@@ -110,6 +110,11 @@ def _pulse_audio_status() -> dict[str, Any]:
 # Per-driver game settings shown in the Game panel (instead of editing .env).
 # Each field maps to a Config attribute; values are persisted to app_state.
 GAME_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
+    "windows": {
+        "label": "Paired Windows game (vision + named skills)",
+        "preview": False,
+        "fields": [],
+    },
     "vrchat": {
         "label": "VRChat (OSC)",
         "preview": False,

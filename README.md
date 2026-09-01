@@ -595,6 +595,10 @@ Local smoke/CO/leak/security sensor transitions, retained home-event queries,
 house status summaries and opt-in source-attributed RSS briefings are documented
 in [`docs/SAFETY_AND_BRIEFINGS.md`](docs/SAFETY_AND_BRIEFINGS.md).
 
+The paired Windows Gaming Agent provides selected-window vision, bounded local
+game skills, OBS WebSocket supervision and isolated/rate-limited Twitch chat.
+See [`docs/WINDOWS_GAMING_AND_TWITCH.md`](docs/WINDOWS_GAMING_AND_TWITCH.md).
+
 ---
 
 ## 📁 Project Layout
