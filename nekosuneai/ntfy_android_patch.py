@@ -22,9 +22,15 @@ def _json(handler, code: int, payload: object) -> None:
 
 
 def _public_ntfy_url(handler) -> str:
-    configured = os.getenv("NTFY_BASE_URL", "").strip().rstrip("/")
+    # ntfy's own NTFY_BASE_URL cannot contain /ntfy. Keep the external
+    # NekoSuneAI proxy URL separate so Android can still use one HTTPS domain.
+    configured = os.getenv("NTFY_PUBLIC_URL", "").strip().rstrip("/")
     if configured.startswith("https://"):
         return configured
+
+    public_origin = os.getenv("NEKOSUNEAI_PUBLIC_URL", "").strip().rstrip("/")
+    if public_origin.startswith("https://"):
+        return public_origin + _NTFY_PREFIX
 
     forwarded_proto = handler.headers.get("X-Forwarded-Proto", "").split(",", 1)[0].strip().lower()
     forwarded_host = handler.headers.get("X-Forwarded-Host", "").split(",", 1)[0].strip()
