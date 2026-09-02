@@ -50,13 +50,15 @@ services:
       DASHBOARD_COOKIE_SECURE: ${DASHBOARD_COOKIE_SECURE:-auto}
 
       # NekoSuneAI publishes to ntfy over localhost. External clients use the
-      # same NekoSuneAI HTTPS domain through /ntfy on port 8788.
+      # same NekoSuneAI HTTPS domain through /ntfy on port 8788. ntfy itself
+      # cannot use a sub-path in base-url, so only the NekoSuneAI proxy knows
+      # about /ntfy.
       MOBILE_NOTIFY_ENABLED: ${MOBILE_NOTIFY_ENABLED:-true}
       MOBILE_NOTIFY_URL: http://127.0.0.1:${NTFY_PORT:-2586}
       MOBILE_NOTIFY_TOPIC: ${MOBILE_NOTIFY_TOPIC:-nekosuneai-alerts}
       MOBILE_NOTIFY_TOKEN: ${MOBILE_NOTIFY_TOKEN:-}
       MOBILE_NOTIFY_MIN_LEVEL: ${MOBILE_NOTIFY_MIN_LEVEL:-warning}
-      NTFY_BASE_URL: ${NTFY_BASE_URL:-https://nekosuneai.nekosunevr.co.uk/ntfy}
+      NTFY_PUBLIC_URL: ${NTFY_PUBLIC_URL:-https://nekosuneai.nekosunevr.co.uk/ntfy}
       NTFY_PORT: ${NTFY_PORT:-2586}
 
   ntfy:
@@ -65,8 +67,10 @@ services:
     restart: unless-stopped
     command: serve
     environment:
-      # ntfy knows its public path is under the single NekoSuneAI domain.
-      NTFY_BASE_URL: ${NTFY_BASE_URL:-https://nekosuneai.nekosunevr.co.uk/ntfy}
+      # ntfy does not support being configured with a path in base-url.
+      # Keep its own base URL path-free; NekoSuneAI exposes it externally at
+      # /ntfy through port 8788.
+      NTFY_BASE_URL: ${NTFY_INTERNAL_BASE_URL:-http://127.0.0.1:${NTFY_PORT:-2586}}
       NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
       NTFY_ATTACHMENT_CACHE_DIR: /var/cache/ntfy/attachments
     volumes:
