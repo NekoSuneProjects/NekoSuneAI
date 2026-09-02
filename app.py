@@ -5,6 +5,7 @@ from nekosuneai.scam_call_patch import install_scam_call_patch
 from nekosuneai.call_sync_patch import install_call_sync_patch
 from nekosuneai.ntfy_android_patch import install_ntfy_android_patch
 from nekosuneai.dashboard_auth_patch import install_dashboard_auth_patch
+from nekosuneai.dashboard_session_bridge_patch import install_dashboard_session_bridge_patch
 from nekosuneai.mcp_oauth_recovery import install_mcp_oauth_recovery
 from nekosuneai.settings_dashboard_patch import install_settings_dashboard_patch
 from nekosuneai.settings_backend_patch import install_settings_backend_patch
@@ -52,6 +53,10 @@ install_bridge_edge_voice_patch()
 install_kinect_vision_patch()
 install_dashboard_tts_config_patch()
 install_media_youtube_provider_patch()
+# Apply this last so any dashboard decorators installed above are preserved,
+# while the browser API/pairing bridge is converted from ?token= to the
+# authenticated same-origin admin session used by the HTTPS domain.
+install_dashboard_session_bridge_patch()
 
 from nekosuneai.launcher import main
 
