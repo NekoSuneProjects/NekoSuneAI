@@ -5,6 +5,7 @@ from nekosuneai.scam_call_patch import install_scam_call_patch
 from nekosuneai.call_sync_patch import install_call_sync_patch
 from nekosuneai.ntfy_android_patch import install_ntfy_android_patch
 from nekosuneai.dashboard_auth_patch import install_dashboard_auth_patch
+from nekosuneai.dashboard_domain_freshness_patch import install_dashboard_domain_freshness_patch
 from nekosuneai.dashboard_session_bridge_patch import install_dashboard_session_bridge_patch
 from nekosuneai.web_event_sync_patch import install_web_event_sync_patch
 from nekosuneai.mcp_oauth_recovery import install_mcp_oauth_recovery
@@ -35,6 +36,10 @@ install_scam_call_patch()
 install_call_sync_patch()
 install_ntfy_android_patch()
 install_dashboard_auth_patch()
+# Disable stale browser/proxy copies of the dashboard, expose a tiny build-id
+# endpoint for automatic reloads, and stop printing legacy ?token= URLs now
+# that the HTTPS dashboard uses the administrator login/session cookie.
+install_dashboard_domain_freshness_patch()
 
 # Some earlier route patches import webserver while installing. Keep its local
 # server class bound to the final wrapper after all HTTP patches are installed.
