@@ -7,6 +7,7 @@ import threading
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from .config import Config
@@ -48,6 +49,19 @@ class MediaPlayer:
                 "-autoexit",
                 "-loglevel",
                 "error",
+            ]
+            # Remote audio endpoints (SoundCloud/proxies/CDNs) can briefly drop
+            # their HTTP socket during an otherwise valid song. Tell FFmpeg to
+            # reconnect instead of treating that transient disconnect as EOF.
+            if urlparse(url).scheme.lower() in {"http", "https"}:
+                command += [
+                    "-reconnect", "1",
+                    "-reconnect_streamed", "1",
+                    "-reconnect_on_network_error", "1",
+                    "-reconnect_on_http_error", "4xx,5xx",
+                    "-reconnect_delay_max", "8",
+                ]
+            command += [
                 "-volume",
                 str(self._volume),
                 url,
