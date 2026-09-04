@@ -3,19 +3,40 @@ from __future__ import annotations
 import os
 import subprocess
 import threading
+import time
 from typing import Any
 
 _INSTALLED = False
 _YTDLP_GATE = threading.Semaphore(max(1, int(os.getenv("YOUTUBE_MUSIC_MAX_YTDLP", "1"))))
 
 
-def install_music_resource_guard_patch() -> None:
-    """Keep Docker/Raspberry Pi music playback from spawning overlapping workers.
+def _duration_seconds(value: str) -> float | None:
+    """Best-effort parser for yt-search/yt-dlp duration strings such as 3:42."""
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parts = [float(part) for part in text.split(":")]
+    except ValueError:
+        return None
+    if len(parts) == 1:
+        return parts[0]
+    if len(parts) == 2:
+        return parts[0] * 60 + parts[1]
+    if len(parts) == 3:
+        return parts[0] * 3600 + parts[1] * 60 + parts[2]
+    return None
 
-    The original player reused one shared stop event. Starting a new song called
-    stop(), then immediately cleared that same event for the new worker. An older
-    worker could therefore wake back up and continue resolving/playing, leaving
-    multiple yt-dlp/ffplay processes alive after a few song changes.
+
+def install_music_resource_guard_patch() -> None:
+    """Keep Docker/Raspberry Pi music playback reliable and bounded.
+
+    Besides preventing overlapping yt-dlp/ffplay workers, this wrapper now keeps
+    a song alive across transient YouTube/CDN disconnects. ffplay is started with
+    HTTP reconnect support; if it still exits well before the advertised track
+    duration, NekoSuneAI resolves a fresh signed stream URL and resumes near the
+    point where playback stopped instead of silently treating a half-played song
+    as complete.
     """
     global _INSTALLED
     if _INSTALLED:
@@ -106,15 +127,30 @@ def install_music_resource_guard_patch() -> None:
 
             proc: subprocess.Popen[bytes] | None = None
             try:
-                stream = self.resolve_stream(track.webpage_url)
-                if generation != getattr(self, "_music_generation", -1) or self._stop.is_set():
-                    break
+                expected_duration = _duration_seconds(getattr(track, "duration", ""))
+                resume_at = 0.0
+                attempts = 0
+                max_retries = max(0, min(5, int(os.getenv("YOUTUBE_MUSIC_STREAM_RETRIES", "2"))))
+                announced = False
 
-                self.announce(f"Now playing {track.title}.")
-                self._skip.clear()
-                self._paused = False
-                proc = subprocess.Popen(
-                    [
+                while (
+                    generation == getattr(self, "_music_generation", -1)
+                    and not self._stop.is_set()
+                    and not self._skip.is_set()
+                ):
+                    stream = self.resolve_stream(track.webpage_url)
+                    if generation != getattr(self, "_music_generation", -1) or self._stop.is_set():
+                        break
+
+                    if not announced:
+                        self.announce(f"Now playing {track.title}.")
+                        announced = True
+                    elif attempts:
+                        self.announce(f"Resuming {track.title} after the stream disconnected.")
+
+                    self._skip.clear()
+                    self._paused = False
+                    command = [
                         self._ffplay(),
                         "-nodisp",
                         "-autoexit",
@@ -122,27 +158,79 @@ def install_music_resource_guard_patch() -> None:
                         "error",
                         "-threads",
                         "1",
+                        # HTTP/CDN streams occasionally close a socket before the
+                        # track ends. Let FFmpeg reconnect before giving up.
+                        "-reconnect",
+                        "1",
+                        "-reconnect_streamed",
+                        "1",
+                        "-reconnect_on_network_error",
+                        "1",
+                        "-reconnect_on_http_error",
+                        "4xx,5xx",
+                        "-reconnect_delay_max",
+                        "8",
+                    ]
+                    if resume_at > 1.0:
+                        command += ["-ss", f"{resume_at:.3f}"]
+                    command += [
                         "-volume",
                         str(self._volume),
                         stream["url"],
-                    ],
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-                if generation == getattr(self, "_music_generation", -1):
-                    self._process = proc
+                    ]
 
-                while (
-                    proc.poll() is None
-                    and generation == getattr(self, "_music_generation", -1)
-                    and not self._stop.wait(0.35)
-                    and not self._skip.is_set()
-                ):
-                    pass
+                    started = time.monotonic()
+                    proc = subprocess.Popen(
+                        command,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                    )
+                    if generation == getattr(self, "_music_generation", -1):
+                        self._process = proc
 
-                if proc.poll() is None:
+                    while (
+                        proc.poll() is None
+                        and generation == getattr(self, "_music_generation", -1)
+                        and not self._stop.wait(0.35)
+                        and not self._skip.is_set()
+                    ):
+                        pass
+
+                    elapsed = max(0.0, time.monotonic() - started)
+                    if proc.poll() is None:
+                        _terminate_process(proc)
+
+                    if (
+                        generation != getattr(self, "_music_generation", -1)
+                        or self._stop.is_set()
+                        or self._skip.is_set()
+                    ):
+                        break
+
+                    # Natural completion: either the expected duration was
+                    # reached, or we do not know the duration and ffplay exited
+                    # successfully. Do not loop/restart a song that actually ended.
+                    exit_code = proc.poll()
+                    played_until = resume_at + elapsed
+                    if expected_duration is not None and played_until >= max(0.0, expected_duration - 8.0):
+                        break
+                    if expected_duration is None and exit_code == 0:
+                        break
+
+                    if attempts >= max_retries:
+                        self.announce(f"Playback ended early for {track.title} after {attempts + 1} stream attempt(s).")
+                        break
+
+                    # A fresh yt-dlp resolution gives us a new signed CDN URL.
+                    # Resume a little before the disconnect so short buffering
+                    # gaps do not skip lyrics/music content.
+                    resume_at = max(0.0, played_until - 2.0)
+                    attempts += 1
                     _terminate_process(proc)
+                    proc = None
+                    if generation == getattr(self, "_music_generation", -1):
+                        self._process = None
 
                 if (
                     generation == getattr(self, "_music_generation", -1)
