@@ -6,6 +6,7 @@ from nekosuneai.call_sync_patch import install_call_sync_patch
 from nekosuneai.ntfy_android_patch import install_ntfy_android_patch
 from nekosuneai.dashboard_auth_patch import install_dashboard_auth_patch
 from nekosuneai.dashboard_session_bridge_patch import install_dashboard_session_bridge_patch
+from nekosuneai.web_event_sync_patch import install_web_event_sync_patch
 from nekosuneai.mcp_oauth_recovery import install_mcp_oauth_recovery
 from nekosuneai.settings_dashboard_patch import install_settings_dashboard_patch
 from nekosuneai.settings_backend_patch import install_settings_backend_patch
@@ -39,6 +40,10 @@ install_dashboard_auth_patch()
 # server class bound to the final wrapper after all HTTP patches are installed.
 from nekosuneai import webserver as _webserver
 _webserver.ThreadingHTTPServer = http.server.ThreadingHTTPServer
+
+# Make browser event delivery non-destructive before the web server/API instance
+# is created so every domain tab/device receives the same chat/state events.
+install_web_event_sync_patch()
 
 install_mcp_oauth_recovery()
 install_settings_dashboard_patch()
