@@ -20,9 +20,16 @@ DASHBOARD_RUNTIME_UI = r'''
 </style>
 <script id="neko-runtime-fix-js">
 (function(){
-  const token=()=>new URLSearchParams(location.search).get('token')||'';
+  const legacyToken=()=>new URLSearchParams(location.search).get('token')||'';
   const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-  async function api(url,options={}){return fetch(url,{...options,headers:{...(options.headers||{}),'X-Neko-Token':token(),...(options.body instanceof Blob?{}:{'Content-Type':'application/json'})}})}
+  async function api(url,options={}){
+    const token=legacyToken();
+    const headers={...(options.headers||{}),...(options.body instanceof Blob?{}:{'Content-Type':'application/json'})};
+    if(token)headers['X-Neko-Token']=token;
+    const response=await fetch(url,{...options,credentials:'same-origin',headers});
+    if(response.status===401&&!token){location.replace('/login?next='+encodeURIComponent(location.pathname||'/'))}
+    return response;
+  }
 
   function mountPairing(){
     if(document.getElementById('neko-pairing-modal'))return;
@@ -36,7 +43,7 @@ DASHBOARD_RUNTIME_UI = r'''
   window.openPairing=async manual=>{document.getElementById('neko-pairing-modal')?.classList.add('open');await refreshPairingModal(manual)};
   window.pairingAction=async function(action,id,deviceId=''){try{const payload=action==='revoke'?{device_id:deviceId}:{request_id:id};const r=await api('/api/pairing/'+action,{method:'POST',body:JSON.stringify(payload)});const j=await r.json();if(!r.ok)throw new Error(j.error||'Pairing action failed');showNotification?.(action==='approve'?'Phone paired successfully.':action==='reject'?'Pairing request declined.':'Device removed.','success');await refreshPairingModal(true)}catch(e){showNotification?.(e.message,'error')}};
   window.refreshPairingModal=async function(manual=false){
-    const pendingWrap=document.getElementById('neko-pairing-pending'),pairedWrap=document.getElementById('neko-pairing-paired'),nav=document.getElementById('neko-device-pairing-nav');if(!pendingWrap||!pairedWrap||!token())return;
+    const pendingWrap=document.getElementById('neko-pairing-pending'),pairedWrap=document.getElementById('neko-pairing-paired'),nav=document.getElementById('neko-device-pairing-nav');if(!pendingWrap||!pairedWrap)return;
     try{
       const [pr,dr]=await Promise.all([api('/api/pairing/pending'),api('/api/pairing/paired')]);const pj=await pr.json(),dj=await dr.json();if(!pr.ok)throw new Error(pj.error||'Unable to read pairing requests');
       const pending=pj.pending||[],paired=dj.paired||[];
@@ -50,11 +57,11 @@ DASHBOARD_RUNTIME_UI = r'''
   function mountVrmTools(){
     const frame=document.getElementById('vrm-avatar-frame');if(!frame||document.getElementById('neko-vrm-stage-tools'))return;const stage=frame.closest('.avatar-stage');if(!stage)return;
     frame.classList.remove('h-[220px]');frame.classList.add('h-[300px]');
-    const tools=document.createElement('div');tools.id='neko-vrm-stage-tools';tools.innerHTML='<input id="neko-vrm-file" type="file" accept=".vrm,model/gltf-binary" hidden><button class="btn-secondary px-3 py-2 rounded-lg text-[10px]" onclick="document.getElementById(\'neko-vrm-file\').click()">Upload VRM</button><button class="btn-secondary px-3 py-2 rounded-lg text-[10px]" onclick="reloadVrmStage()">Reload</button>';stage.appendChild(tools);
+    const tools=document.createElement('div');tools.id='neko-vrm-stage-tools';tools.innerHTML=`<input id="neko-vrm-file" type="file" accept=".vrm,model/gltf-binary" hidden><button class="btn-secondary px-3 py-2 rounded-lg text-[10px]" onclick="document.getElementById('neko-vrm-file').click()">Upload VRM</button><button class="btn-secondary px-3 py-2 rounded-lg text-[10px]" onclick="reloadVrmStage()">Reload</button>`;stage.appendChild(tools);
     const status=document.createElement('div');status.id='neko-vrm-upload-status';stage.appendChild(status);
-    document.getElementById('neko-vrm-file').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;status.style.display='block';status.textContent='Uploading '+file.name+'…';try{const r=await fetch('/api/avatar/upload?token='+encodeURIComponent(token()),{method:'POST',headers:{'X-Neko-Token':token(),'X-Neko-Filename':file.name,'Content-Type':'model/gltf-binary'},body:file});const j=await r.json();if(!r.ok)throw new Error(j.error||'VRM upload failed');status.textContent='VRM saved — loading transparent avatar…';reloadVrmStage();setTimeout(()=>status.style.display='none',2800)}catch(err){status.textContent=err.message;status.style.color='#fca5a5'}});
+    document.getElementById('neko-vrm-file').addEventListener('change',async e=>{const file=e.target.files?.[0];if(!file)return;status.style.display='block';status.style.color='';status.textContent='Uploading '+file.name+'…';try{const r=await api('/api/avatar/upload',{method:'POST',headers:{'X-Neko-Filename':file.name,'Content-Type':'model/gltf-binary'},body:file});const j=await r.json();if(!r.ok)throw new Error(j.error||'VRM upload failed');status.textContent='VRM saved — loading transparent avatar…';reloadVrmStage();setTimeout(()=>status.style.display='none',2800)}catch(err){status.textContent=err.message;status.style.color='#fca5a5'}});
   }
-  window.reloadVrmStage=function(){const frame=document.getElementById('vrm-avatar-frame');if(frame)frame.src='/avatar'+location.search+'&v='+Date.now()};
+  window.reloadVrmStage=function(){const frame=document.getElementById('vrm-avatar-frame');if(frame)frame.src='/avatar?v='+Date.now()};
 
   addEventListener('DOMContentLoaded',()=>{mountPairing();mountVrmTools();refreshPairingModal(false);setInterval(()=>refreshPairingModal(false),2500)});setTimeout(()=>{mountPairing();mountVrmTools()},80);
 })();
