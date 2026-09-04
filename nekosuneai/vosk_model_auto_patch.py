@@ -50,9 +50,6 @@ def _normalize_profile(value: str) -> str:
 
 
 def _auto_profile() -> str:
-    # A Pi 5 8 GB has enough RAM for the much better 0.22-lgraph model while
-    # still leaving room for the dashboard, TTS, music and Docker overhead.
-    # Keep the 1.8 GB full model opt-in because it can pressure a 6 GB container.
     total = _total_ram_bytes()
     return "balanced" if total >= 6 * 1024**3 else "small"
 
@@ -89,6 +86,23 @@ def _download_model(url: str, target: Path) -> None:
         raise RuntimeError(f"Downloaded Vosk model is invalid: {target}")
 
 
+def _set_model(profile: str, target: Path, url: str) -> None:
+    os.environ["VOSK_MODEL_PATH"] = str(target)
+    os.environ["VOSK_MODEL_URL"] = str(url)
+    os.environ["VOSK_MODEL_PROFILE_ACTIVE"] = profile
+
+
+def _models_dir_writable(models_dir: Path) -> bool:
+    try:
+        models_dir.mkdir(parents=True, exist_ok=True)
+        probe = models_dir / ".nekosuneai-write-test"
+        probe.write_text("ok", encoding="utf-8")
+        probe.unlink(missing_ok=True)
+        return True
+    except OSError:
+        return False
+
+
 def install_vosk_model_auto_patch() -> None:
     global _INSTALLED
     if _INSTALLED:
@@ -106,19 +120,33 @@ def install_vosk_model_auto_patch() -> None:
 
     profile = _auto_profile() if requested == "auto" else requested
     model = VOSK_MODELS[profile]
-    target = Path("/app/models") / str(model["name"])
+    models_dir = Path("/app/models")
+    target = models_dir / str(model["name"])
+    small = VOSK_MODELS["small"]
+    small_target = models_dir / str(small["name"])
 
-    # Profile selection owns these values. This intentionally upgrades old Pi
-    # .env files that still point at vosk-model-small-en-us-0.15 when profile is
-    # auto/balanced. Set VOSK_MODEL_PROFILE=custom to keep an arbitrary path.
-    os.environ["VOSK_MODEL_PATH"] = str(target)
-    os.environ["VOSK_MODEL_URL"] = str(model["url"])
-    os.environ["VOSK_MODEL_PROFILE_ACTIVE"] = profile
+    _set_model(profile, target, str(model["url"]))
 
     if _valid_model(target):
         print(f"[startup] Vosk {profile} model ready: {target}")
         _INSTALLED = True
         return
+
+    # The Docker container normally runs as the host audio user. If /app/models
+    # is image-owned/read-only for that UID, do not download and unzip a larger
+    # model only to fail at the final move. Prefer the already-installed small
+    # model immediately, reducing startup I/O and memory pressure on Raspberry Pi.
+    if not _models_dir_writable(models_dir):
+        if _valid_model(small_target):
+            _set_model("small", small_target, str(small["url"]))
+            print(
+                f"[startup] Vosk model directory is not writable; using existing small model: {small_target}"
+            )
+            _INSTALLED = True
+            return
+        raise PermissionError(
+            f"Vosk model directory is not writable and no fallback model exists: {models_dir}"
+        )
 
     print(
         f"[startup] Installing Vosk {profile} speech model for this system "
@@ -128,14 +156,10 @@ def install_vosk_model_auto_patch() -> None:
         _download_model(str(model["url"]), target)
     except Exception as exc:
         if profile != "small":
-            fallback = VOSK_MODELS["small"]
-            fallback_target = Path("/app/models") / str(fallback["name"])
             print(f"[startup] Better Vosk model failed ({exc}); falling back to small model.")
-            os.environ["VOSK_MODEL_PATH"] = str(fallback_target)
-            os.environ["VOSK_MODEL_URL"] = str(fallback["url"])
-            os.environ["VOSK_MODEL_PROFILE_ACTIVE"] = "small"
-            if not _valid_model(fallback_target):
-                _download_model(str(fallback["url"]), fallback_target)
+            _set_model("small", small_target, str(small["url"]))
+            if not _valid_model(small_target):
+                _download_model(str(small["url"]), small_target)
         else:
             raise
 
