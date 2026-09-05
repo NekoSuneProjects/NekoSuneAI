@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NekoSuneAI Consoles</title>
+<style>
+:root{color-scheme:dark;font-family:Inter,Segoe UI,system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;background:#080b10;color:#eef3f8}.wrap{max-width:1100px;margin:auto;padding:28px}.top{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px}.muted{color:#8fa0b2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:16px}.card{background:#111821;border:1px solid #263243;border-radius:18px;padding:18px;box-shadow:0 18px 50px rgba(0,0,0,.22)}.row{display:flex;justify-content:space-between;gap:12px;align-items:center}.state{font-weight:800;text-transform:uppercase;font-size:12px;border-radius:999px;padding:7px 10px;background:#1c2734}.title{font-size:20px;font-weight:800}.active{font-size:16px;font-weight:700;margin:15px 0 4px}.buttons{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.btn{border:1px solid #344457;background:#182230;color:#f6f8fb;border-radius:10px;padding:9px 12px;font-weight:700;cursor:pointer}.btn:hover{background:#223044}.danger{border-color:#673846;background:#321b22}.field{width:100%;background:#0c1118;border:1px solid #2c3949;color:#fff;border-radius:10px;padding:10px;margin-top:12px}.caps{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}.cap{font-size:11px;padding:5px 8px;border-radius:999px;background:#17202b;color:#9fb0c2}.yes{color:#bff7cd}.no{opacity:.5}.msg{margin-top:18px;border-radius:12px;padding:12px;background:#101720;border:1px solid #253244;min-height:46px}.back{color:#c9bcff;text-decoration:none;font-weight:700}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top"><div><div class="title">Console health & sessions</div><div class="muted">PlayStation and Xbox capability-aware controls</div></div><a class="back" href="/">Back to dashboard</a></div>
+  <div id="grid" class="grid"></div>
+  <div id="msg" class="msg muted">Loading console state…</div>
+</div>
+<script>
+const $=id=>document.getElementById(id);
+async function rpc(method,args=[]){
+  const r=await fetch('/api/rpc',{method:'POST',credentials:'same-origin',headers:{'Content-Type':'application/json'},body:JSON.stringify({method,args})});
+  if(r.status===401){location.href='/login?next=/consoles.html';throw new Error('Sign-in required')}
+  const j=await r.json();if(!r.ok||j.error)throw new Error(j.error||('HTTP '+r.status));return j.result;
+}
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function age(epoch){if(!epoch)return 'never';const s=Math.max(0,Math.round(Date.now()/1000-Number(epoch)));if(s<60)return s+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';return Math.floor(s/3600)+'h ago'}
+function button(platform,action,label,danger=false){return `<button class="btn ${danger?'danger':''}" onclick="send('${platform}','${action}',${danger?'true':'false'})">${label}</button>`}
+function card(platform,item){
+ const caps=item.capabilities||{};const title=item.active_title||'No active title reported';const controller=item.controller||{};
+ const buttons=[caps.wake&&button(platform,'wake','Wake'),caps.sleep&&button(platform,'sleep','Sleep / Rest'),caps.remote_play&&button(platform,'remote_play','Remote Play'),caps.media_remote&&button(platform,'home','Home'),caps.media_remote&&button(platform,'play_pause','Play / Pause'),caps.shutdown&&button(platform,'shutdown','Shutdown',true),caps.restart&&button(platform,'restart','Restart',true)].filter(Boolean).join('');
+ const capsHtml=Object.entries(caps).map(([k,v])=>`<span class="cap ${v?'yes':'no'}">${esc(k)}: ${v?'yes':'no'}</span>`).join('');
+ return `<section class="card"><div class="row"><div><div class="title">${esc(item.name||platform)}</div><div class="muted">${esc(item.host||'host not configured')}</div></div><div class="state">${esc(item.state||'unknown')}</div></div><div class="active">${esc(title)}</div><div class="muted">Last seen: ${age(item.last_seen)}</div>${controller.battery_percent!=null?`<div class="muted">Controller battery: ${esc(controller.battery_percent)}%</div>`:''}<input id="launch-${platform}" class="field" placeholder="Game/app name for supported launch"><div class="buttons">${buttons}${caps.launch?`<button class="btn" onclick="launchTitle('${platform}')">Launch title</button>`:''}</div><div class="caps">${capsHtml}</div>${item.bridge_error?`<div class="muted" style="margin-top:10px">Bridge: ${esc(item.bridge_error)}</div>`:''}</section>`;
+}
+async function refresh(){try{const data=await rpc('get_console_status',['all']);$('grid').innerHTML=Object.entries(data).map(([p,i])=>card(p,i)).join('');$('msg').textContent='Status refreshed '+new Date().toLocaleTimeString()}catch(e){$('msg').textContent=e.message}}
+async function send(platform,action,confirmed=false){if(confirmed&&!confirm(`Confirm ${action} on ${platform}? This can interrupt an active session.`))return;try{const r=await rpc('send_console_command',[platform,action,'',confirmed]);$('msg').textContent=r.message||'Command sent';await refresh()}catch(e){$('msg').textContent=e.message}}
+async function launchTitle(platform){const value=$('launch-'+platform)?.value?.trim()||'';if(!value){$('msg').textContent='Enter a game/app name first.';return}try{const r=await rpc('send_console_command',[platform,'launch',value,false]);$('msg').textContent=r.message||'Launch command sent';await refresh()}catch(e){$('msg').textContent=e.message}}
+refresh();setInterval(refresh,15000);
+</script>
+</body>
+</html>
