@@ -26,6 +26,9 @@ CONFIG_PATH = BASE_DIR / "windows-gaming-agent.json"
 SKILLS_ROOT = BASE_DIR / "game-skills"
 if not SKILLS_ROOT.is_dir():
     SKILLS_ROOT = Path(getattr(sys, "_MEIPASS", BASE_DIR)) / "game-skills"
+ICON_PATH = BASE_DIR / "data" / "logo.ico"
+if not ICON_PATH.is_file():
+    ICON_PATH = Path(getattr(sys, "_MEIPASS", BASE_DIR)) / "data" / "logo.ico"
 DEFAULT_SERVER_PORT = 8788
 MDNS_SERVICE = "_nekosuneai._tcp.local."
 PAIRING_TIMEOUT_SECONDS = 300
@@ -253,6 +256,11 @@ class App(MediaControls, tk.Tk):
         self.geometry("1080x720")
         self.minsize(920, 620)
         self.configure(bg=BG)
+        if ICON_PATH.is_file():
+            try:
+                self.iconbitmap(default=str(ICON_PATH))
+            except tk.TclError:
+                pass
 
         self.config_data = load_config()
         self.agent_thread: threading.Thread | None = None
@@ -301,6 +309,29 @@ class App(MediaControls, tk.Tk):
         style.configure("Danger.TButton", background="#3a1820", foreground="#ff9aa6", borderwidth=0, padding=(14, 9), font=("Segoe UI", 10, "bold"))
         style.configure("Modern.TCheckbutton", background=PANEL_2, foreground=TEXT, indicatorcolor=INPUT_BG)
         style.map("Modern.TCheckbutton", indicatorcolor=[("selected", ACCENT)])
+        # Base defaults for every one of these widget classes, so any ttk
+        # widget created without an explicit style= (e.g. in node_media_gui.py)
+        # still matches the dark theme instead of falling back to clam's
+        # plain light-gray look.
+        style.configure("TButton", background="#1b2530", foreground=TEXT, bordercolor=BORDER, padding=(14, 9), font=("Segoe UI", 10))
+        style.map("TButton", background=[("active", "#242f3d")])
+        style.configure("TEntry", fieldbackground=INPUT_BG, foreground=TEXT, bordercolor=BORDER, insertcolor=TEXT, padding=9)
+        style.configure("TCombobox", fieldbackground=INPUT_BG, background=INPUT_BG, foreground=TEXT, arrowcolor=MUTED, bordercolor=BORDER, padding=8)
+        style.map("TCombobox", fieldbackground=[("readonly", INPUT_BG)], foreground=[("readonly", TEXT)])
+        style.configure("TSpinbox", fieldbackground=INPUT_BG, foreground=TEXT, arrowcolor=MUTED, bordercolor=BORDER, padding=6)
+        style.configure("TCheckbutton", background=PANEL_2, foreground=TEXT, indicatorcolor=INPUT_BG)
+        style.map("TCheckbutton", indicatorcolor=[("selected", ACCENT)])
+        style.configure("TFrame", background=PANEL_2)
+        style.configure("TLabel", background=PANEL_2, foreground=TEXT, font=("Segoe UI", 10))
+        # A Combobox's drop-down list is a plain Tk Listbox, not a ttk widget,
+        # so it ignores style.configure entirely and otherwise renders with
+        # Tk's default white background/black text. Set it via the option
+        # database instead so every combobox's popup matches the dark theme.
+        self.option_add("*TCombobox*Listbox.background", INPUT_BG)
+        self.option_add("*TCombobox*Listbox.foreground", TEXT)
+        self.option_add("*TCombobox*Listbox.selectBackground", ACCENT)
+        self.option_add("*TCombobox*Listbox.selectForeground", "white")
+        self.option_add("*TCombobox*Listbox.font", ("Segoe UI", 10))
 
     def _build(self) -> None:
         root = ttk.Frame(self, style="App.TFrame")
