@@ -264,6 +264,8 @@ class MediaControls:
             if self.agent.vrchat:
                 osc = self.agent.vrchat.status()
                 self.osc_status_var.set(("Armed" if osc["armed"] else "Disarmed") + (" / receiving OSC" if osc["receiving"] else " / no recent OSC data"))
+                if not osc["armed"] and osc.get("disarm_reason"):
+                    self.osc_status_var.set(self.osc_status_var.get() + " / " + osc["disarm_reason"])
                 self._set_readonly_text(self.osc_parameters, json.dumps(osc, indent=2))
             if self.agent.vrchat_friends is not None:
                 running = self.agent.vrchat_friends.is_running()

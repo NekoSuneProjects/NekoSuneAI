@@ -22,6 +22,9 @@ Do not bulk-complete inherited tasks without checking this branch.
 
 ## P1 - Windows Integration Work
 
+- [x] Keep manual world mapping armed across temporary backend failures; preserve remote-session disconnect stops and expose OSC disarm reasons.
+- [ ] Verify manual mapper reconnect behavior in a live VRChat session with the rebuilt Windows app.
+
 - [x] [CONTEXT-01] Add selected microphone/loopback capture, Pi STT/TTS requests, Windows playback and audio cancellation controls.
 - [x] [STREAM-01] Add opt-in gameplay image analysis through Pi, preview and fresh visual observations.
 - [x] [NODE-01] Add locally armed VRChat OSC input/chatbox/avatar controls and telemetry; advertise new capabilities on heartbeat.

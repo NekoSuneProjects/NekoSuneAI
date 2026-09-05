@@ -36,7 +36,12 @@ configured for a different port. Explicitly Arm OSC before sending controls.
 
 The app supports bounded movement/look/jump actions, chatbox messages, avatar
 parameter writes and local avatar telemetry. Stop/disarm releases input axes
-and buttons; connection loss disarms control. After an emergency input stop,
+and buttons; connection loss disarms remote control. A manually started world
+mapper continues locally across temporary backend timeouts, connection errors,
+HTTP 429 and HTTP 5xx responses. Authentication, TLS and unexpected failures
+still stop it. The mapper event log records connection failures, and the OSC
+page shows why it was disarmed. Remote movement is blocked while mapping.
+After an emergency input stop,
 restart the node before arming again. Remote actions also require server policy.
 
 OSC does not provide an instance player-name roster. Visible nameplates can be
