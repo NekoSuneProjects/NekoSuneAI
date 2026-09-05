@@ -712,8 +712,15 @@ class WindowsGamingAgent:
                 "capabilities": self.capabilities(),
             }, timeout=10, verify=self.verify_tls,
         )
-        response.raise_for_status()
-        self.token = str(response.json()["device_token"])
+        if not response.ok:
+            try:
+                detail = str(response.json().get("error") or response.reason)
+            except (ValueError, AttributeError):
+                detail = str(response.reason)
+            raise RuntimeError(f"Node registration HTTP {response.status_code}: {detail}")
+        self.token = str(response.json().get("device_token") or "")
+        if not self.token:
+            raise RuntimeError("Node registration returned no device token")
         return self.token
 
     def _headers(self) -> dict[str, str]:

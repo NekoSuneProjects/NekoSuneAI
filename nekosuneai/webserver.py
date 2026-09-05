@@ -526,6 +526,7 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                             str(payload.get("device_id", "")),
                             str(payload.get("name", "Android phone")),
                             str(self.client_address[0]),
+                            str(payload.get("device_type", "android")),
                         )
                     except PermissionError as exc:
                         return self._json(403, {"error": str(exc)})

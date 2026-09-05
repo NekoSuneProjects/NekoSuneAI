@@ -26,7 +26,7 @@ DASHBOARD_RUNTIME_UI = r'''
     const token=legacyToken();
     const headers={...(options.headers||{}),...(options.body instanceof Blob?{}:{'Content-Type':'application/json'})};
     if(token)headers['X-Neko-Token']=token;
-    const response=await fetch(url,{...options,credentials:'same-origin',headers});
+    const response=await fetch(url,{...options,credentials:'same-origin',cache:'no-store',headers});
     if(response.status===401&&!token){location.replace('/login?next='+encodeURIComponent(location.pathname||'/'))}
     return response;
   }
@@ -37,21 +37,21 @@ DASHBOARD_RUNTIME_UI = r'''
     if(settings){
       const b=document.createElement('button');b.id='neko-device-pairing-nav';b.className='nav-item w-full text-left px-5 py-2.5 text-[13px] text-nova-muted2 border-l-[3px] border-transparent flex items-center gap-2.5';b.innerHTML='<span class="w-5 text-center opacity-70">⌁</span><span>Devices & Pairing</span><span class="pair-count">0</span>';b.onclick=()=>openPairing(true);settings.parentElement.insertBefore(b,settings);
     }
-    const modal=document.createElement('div');modal.id='neko-pairing-modal';modal.innerHTML=`<div id="neko-pairing-dialog"><div class="p-5 border-b border-nova-border flex items-start gap-3"><div class="flex-1"><div class="section-kicker">Companion devices</div><div class="text-lg font-bold mt-1">Pair a phone</div><div class="text-[11px] text-nova-muted2 mt-1">When your Android app requests pairing, approve or decline it here.</div></div><button class="btn-secondary px-3 py-2 rounded-lg text-[11px]" onclick="closePairing()">Close</button></div><div class="p-5"><div class="flex items-center justify-between mb-3"><div class="text-[12px] font-bold">Pending requests</div><button class="btn-secondary px-3 py-1.5 rounded-lg text-[10px]" onclick="refreshPairingModal()">Refresh</button></div><div id="neko-pairing-pending" class="space-y-2"><div class="text-[11px] text-nova-muted">Waiting for a phone…</div></div><div class="text-[12px] font-bold mt-5 mb-3">Paired devices</div><div id="neko-pairing-paired" class="space-y-2"><div class="text-[11px] text-nova-muted">No paired devices yet.</div></div></div></div>`;document.body.appendChild(modal);modal.addEventListener('click',e=>{if(e.target===modal)closePairing()});
+    const modal=document.createElement('div');modal.id='neko-pairing-modal';modal.innerHTML=`<div id="neko-pairing-dialog"><div class="p-5 border-b border-nova-border flex items-start gap-3"><div class="flex-1"><div class="section-kicker">Companion devices</div><div class="text-lg font-bold mt-1">Pair a device</div><div class="text-[11px] text-nova-muted2 mt-1">Windows and Android device approvals.</div></div><button class="btn-secondary px-3 py-2 rounded-lg text-[11px]" onclick="closePairing()">Close</button></div><div class="p-5"><div class="flex items-center justify-between mb-3"><div class="text-[12px] font-bold">Pending requests</div><button class="btn-secondary px-3 py-1.5 rounded-lg text-[10px]" onclick="refreshPairingModal()">Refresh</button></div><div id="neko-pairing-pending" class="space-y-2"><div class="text-[11px] text-nova-muted">Waiting for a device...</div></div><div class="text-[12px] font-bold mt-5 mb-3">Paired devices</div><div id="neko-pairing-paired" class="space-y-2"><div class="text-[11px] text-nova-muted">No paired devices yet.</div></div></div></div>`;document.body.appendChild(modal);modal.addEventListener('click',e=>{if(e.target===modal)closePairing()});
   }
   window.closePairing=()=>document.getElementById('neko-pairing-modal')?.classList.remove('open');
   window.openPairing=async manual=>{document.getElementById('neko-pairing-modal')?.classList.add('open');await refreshPairingModal(manual)};
-  window.pairingAction=async function(action,id,deviceId=''){try{const payload=action==='revoke'?{device_id:deviceId}:{request_id:id};const r=await api('/api/pairing/'+action,{method:'POST',body:JSON.stringify(payload)});const j=await r.json();if(!r.ok)throw new Error(j.error||'Pairing action failed');showNotification?.(action==='approve'?'Phone paired successfully.':action==='reject'?'Pairing request declined.':'Device removed.','success');await refreshPairingModal(true)}catch(e){showNotification?.(e.message,'error')}};
+  window.pairingAction=async function(action,id,deviceId=''){try{const payload=action==='revoke'?{device_id:deviceId}:{request_id:id};const r=await api('/api/pairing/'+action,{method:'POST',body:JSON.stringify(payload)});const j=await r.json();if(!r.ok)throw new Error(j.error||'Pairing action failed');window.showNotification?.(action==='approve'?'Device approved successfully.':action==='reject'?'Pairing request declined.':'Device removed.','success');await refreshPairingModal(true)}catch(e){window.showNotification?.(e.message,'error')}};
   window.refreshPairingModal=async function(manual=false){
     const pendingWrap=document.getElementById('neko-pairing-pending'),pairedWrap=document.getElementById('neko-pairing-paired'),nav=document.getElementById('neko-device-pairing-nav');if(!pendingWrap||!pairedWrap)return;
     try{
       const [pr,dr]=await Promise.all([api('/api/pairing/pending'),api('/api/pairing/paired')]);const pj=await pr.json(),dj=await dr.json();if(!pr.ok)throw new Error(pj.error||'Unable to read pairing requests');
       const pending=pj.pending||[],paired=dj.paired||[];
       const count=nav?.querySelector('.pair-count');if(count)count.textContent=String(pending.length);nav?.classList.toggle('has-pending',pending.length>0);
-      pendingWrap.innerHTML=pending.length?pending.map(x=>`<div class="neko-pair-row"><div class="flex items-start gap-3"><div class="flex-1 min-w-0"><div class="text-[13px] font-semibold">${esc(x.name||'Android phone')}</div><div class="text-[10px] text-nova-muted mt-1">${esc(x.remote_ip||'LAN')} · ${esc(x.device_id||'')}</div></div><span class="live-pill">REQUEST</span></div><div class="grid grid-cols-2 gap-2 mt-3"><button class="btn-primary rounded-lg py-2 text-[11px]" onclick="pairingAction('approve','${esc(x.request_id)}')">Accept</button><button class="btn-danger rounded-lg py-2 text-[11px]" onclick="pairingAction('reject','${esc(x.request_id)}')">Decline</button></div></div>`).join(''):'<div class="text-[11px] text-nova-muted">No pending pairing requests.</div>';
-      pairedWrap.innerHTML=paired.length?paired.map(x=>`<div class="neko-pair-row flex items-center gap-3"><div class="flex-1 min-w-0"><div class="text-[12px] font-semibold">${esc(x.name||'Android phone')}</div><div class="text-[9px] text-nova-muted truncate">${esc(x.device_id||'')}</div></div><button class="btn-danger px-3 py-1.5 rounded-lg text-[10px]" onclick="pairingAction('revoke','', '${esc(x.device_id||'')}')">Remove</button></div>`).join(''):'<div class="text-[11px] text-nova-muted">No paired devices yet.</div>';
+      pendingWrap.innerHTML=pending.length?pending.map(x=>`<div class="neko-pair-row"><div class="flex items-start gap-3"><div class="flex-1 min-w-0"><div class="text-[13px] font-semibold">${esc(x.name||'Companion device')}</div><div class="text-[10px] text-nova-muted mt-1">${esc(x.remote_ip||'LAN')} · ${esc(x.device_id||'')}</div></div><span class="live-pill">REQUEST</span></div><div class="grid grid-cols-2 gap-2 mt-3"><button class="btn-primary rounded-lg py-2 text-[11px]" onclick="pairingAction('approve','${esc(x.request_id)}')">Accept</button><button class="btn-danger rounded-lg py-2 text-[11px]" onclick="pairingAction('reject','${esc(x.request_id)}')">Decline</button></div></div>`).join(''):'<div class="text-[11px] text-nova-muted">No pending pairing requests.</div>';
+      pairedWrap.innerHTML=paired.length?paired.map(x=>`<div class="neko-pair-row flex items-center gap-3"><div class="flex-1 min-w-0"><div class="text-[12px] font-semibold">${esc(x.name||'Companion device')}</div><div class="text-[9px] text-nova-muted truncate">${esc(x.device_id||'')}</div></div><button class="btn-danger px-3 py-1.5 rounded-lg text-[10px]" onclick="pairingAction('revoke','', '${esc(x.device_id||'')}')">Remove</button></div>`).join(''):'<div class="text-[11px] text-nova-muted">No paired devices yet.</div>';
       if(pending.length&&!manual&&!document.getElementById('neko-pairing-modal')?.classList.contains('open'))openPairing(false);
-    }catch(e){if(manual)showNotification?.(e.message,'error')}
+    }catch(e){pendingWrap.textContent='Unable to load pairing requests: '+e.message;if(manual)window.showNotification?.(e.message,'error')}
   };
 
   function mountVrmTools(){
@@ -63,7 +63,8 @@ DASHBOARD_RUNTIME_UI = r'''
   }
   window.reloadVrmStage=function(){const frame=document.getElementById('vrm-avatar-frame');if(frame)frame.src='/avatar?v='+Date.now()};
 
-  addEventListener('DOMContentLoaded',()=>{mountPairing();mountVrmTools();refreshPairingModal(false);setInterval(()=>refreshPairingModal(false),2500)});setTimeout(()=>{mountPairing();mountVrmTools()},80);
+  function boot(){mountPairing();mountVrmTools();refreshPairingModal(false);setInterval(()=>refreshPairingModal(false),2500)}
+  if(document.readyState==='loading')addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
 </script>
 '''

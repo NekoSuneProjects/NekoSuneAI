@@ -19,6 +19,7 @@ class PendingPairing:
     name: str
     remote_ip: str
     created_epoch: float
+    device_type: str = "android"
     status: str = "pending"
     issued_token: str = ""
 
@@ -65,7 +66,7 @@ class DevicePairingManager:
         except ValueError:
             return False
 
-    def request(self, device_id: str, name: str, remote_ip: str) -> dict:
+    def request(self, device_id: str, name: str, remote_ip: str, device_type: str = "android") -> dict:
         device_id = device_id.strip()[:128]
         if not device_id:
             raise ValueError("device_id is required")
@@ -83,6 +84,7 @@ class DevicePairingManager:
                 name=(name.strip() or "Android phone")[:120],
                 remote_ip=remote_ip[:80],
                 created_epoch=now,
+                device_type=str(device_type).strip().lower()[:40] or "android",
             )
             self._pending[item.request_id] = item
             return self._public_pending(item)
@@ -99,6 +101,7 @@ class DevicePairingManager:
             "request_id": item.request_id,
             "device_id": item.device_id,
             "name": item.name,
+            "device_type": item.device_type,
             "remote_ip": item.remote_ip,
             "created_epoch": item.created_epoch,
             "status": item.status,
@@ -124,6 +127,7 @@ class DevicePairingManager:
             self._paired[item.device_id] = {
                 "device_id": item.device_id,
                 "name": item.name,
+                "device_type": item.device_type,
                 "token_sha256": digest,
                 "approved_epoch": time.time(),
                 "last_ip": item.remote_ip,

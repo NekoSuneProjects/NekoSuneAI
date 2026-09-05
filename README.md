@@ -4,6 +4,10 @@
 
 # NekoSuneAI
 
+Branch ownership: **Docker** on `main`. See the
+[branch map](BRANCH_MAP.md) and this product's [TODO](TODO.md) before making
+changes. Native app branches remain separate from the Docker backend on main.
+
 ### *A local-first AI companion that talks, remembers, learns, watches, listens, plays music, and can follow you onto Android.*
 
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-blue?logo=python&logoColor=white)](https://python.org)
