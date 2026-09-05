@@ -1,10 +1,13 @@
 name: Windows Gaming Node
 
+# Automatic push-triggered builds are disabled: vgamepad's ViGEmBus installer
+# pops an interactive UI prompt during pip install / PyInstaller collection on
+# windows-latest runners, which GitHub Actions cannot answer, so every
+# push-triggered run hangs/fails. Run this manually via workflow_dispatch
+# instead until vgamepad is replaced or its driver install can be made fully
+# silent/skippable in a hosted runner.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - build/windows-gaming-node-release
 
 permissions:
   contents: write
