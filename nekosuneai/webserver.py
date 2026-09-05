@@ -544,6 +544,20 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                     api._push_notification(f"Pairing request from {item.get('name', 'Android phone')} ({item.get('remote_ip', '')}). Approve it on the dashboard.")
                     return self._json(200, {"ok": True, **item})
 
+                if parsed.path == "/api/pairing/code/register":
+                    try:
+                        item = pairing.register_with_code(
+                            str(payload.get("pairing_id", "")),
+                            str(payload.get("pairing_code", "")),
+                            str(payload.get("device_id", "")),
+                            str(payload.get("name", "Android phone")),
+                            str(payload.get("device_type", "android")),
+                        )
+                    except (PermissionError, ValueError) as exc:
+                        return self._json(403, {"error": str(exc)})
+                    api._push_notification(f"Paired {item.get('name', 'Android phone')} with a pairing code.")
+                    return self._json(200, item)
+
                 if parsed.path == "/api/nodes/register":
                     try:
                         result = peripheral_nodes.register(
@@ -620,6 +634,13 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                         return self._json(401, {"error": "unauthorized"})
                     return self._json(200, peripheral_nodes.create_pairing(
                         str(payload.get("name", "New node")), int(payload.get("ttl_seconds", 300))
+                    ))
+
+                if parsed.path == "/api/pairing/code":
+                    if not self._dashboard_authorized():
+                        return self._json(401, {"error": "unauthorized"})
+                    return self._json(200, pairing.create_code(
+                        str(payload.get("name", "New device")), int(payload.get("ttl_seconds", 300))
                     ))
 
                 if parsed.path == "/api/nodes/command":

@@ -43,6 +43,7 @@ class DevicePairingManager:
         self._lock = threading.RLock()
         self._pending: dict[str, PendingPairing] = {}
         self._paired: dict[str, dict] = {}
+        self._codes: dict[str, dict] = {}
         self._load()
 
     def _load(self) -> None:
@@ -160,6 +161,66 @@ class DevicePairingManager:
             elif item.status == "rejected":
                 self._pending.pop(request_id, None)
             return result
+
+    def create_code(self, name: str = "New device", ttl_seconds: int = 300) -> dict:
+        """Dashboard-authenticated: a short-lived, one-use pairing code, for
+        pairing a device (e.g. Android) from outside the local network without
+        relaxing the unauthenticated `request()` flow's LAN-only default.
+        Mirrors peripheral_nodes.create_pairing()'s exact code/ID shape."""
+        with self._lock:
+            now = time.time()
+            self._cleanup_codes(now)
+            code = "-".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZ23456789") for _ in range(8))
+            pairing_id = secrets.token_urlsafe(18)
+            self._codes[pairing_id] = {
+                "code_sha256": hashlib.sha256(code.encode("utf-8")).hexdigest(),
+                "name": str(name).strip()[:80] or "New device",
+                "expires_epoch": now + max(60, min(int(ttl_seconds), 1800)),
+            }
+            return {
+                "pairing_id": pairing_id,
+                "pairing_code": code,
+                "expires_epoch": self._codes[pairing_id]["expires_epoch"],
+            }
+
+    def _cleanup_codes(self, now: float | None = None) -> None:
+        current = time.time() if now is None else now
+        for pairing_id in [
+            key for key, item in self._codes.items() if float(item.get("expires_epoch", 0)) <= current
+        ]:
+            self._codes.pop(pairing_id, None)
+
+    def register_with_code(self, pairing_id: str, pairing_code: str, device_id: str, name: str, device_type: str = "android") -> dict:
+        """Redeem a one-use dashboard-generated code for a device token,
+        immediately -- no LAN check, no separate owner-approval click, since
+        possession of a code the authenticated dashboard just generated is
+        itself the proof of owner intent (same trust model as
+        peripheral_nodes.register()'s pairing-code path)."""
+        device_id = device_id.strip()[:128]
+        if not device_id:
+            raise ValueError("device_id is required")
+        with self._lock:
+            self._cleanup_codes()
+            entry = self._codes.get(str(pairing_id))
+            if not entry or not secrets.compare_digest(
+                str(entry.get("code_sha256", "")),
+                hashlib.sha256(str(pairing_code).strip().upper().encode("utf-8")).hexdigest(),
+            ):
+                raise PermissionError("invalid or expired pairing code")
+            self._codes.pop(str(pairing_id), None)
+            token = secrets.token_urlsafe(36)
+            digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
+            resolved_name = (name.strip() or entry["name"])[:120]
+            self._paired[device_id] = {
+                "device_id": device_id,
+                "name": resolved_name,
+                "device_type": str(device_type).strip().lower()[:40] or "android",
+                "token_sha256": digest,
+                "approved_epoch": time.time(),
+                "last_ip": "",
+            }
+            self._save()
+            return {"ok": True, "device_token": token, "device_id": device_id, "name": resolved_name}
 
     def authorize_device_token(self, token: str) -> bool:
         if not token:
