@@ -18,6 +18,8 @@ duckduckgo-search>=6,<8
 yt-dlp>=2026.7.4,<2027
 # LAN discovery for Android companion pairing. Pure Python and lightweight.
 zeroconf>=0.147,<1
+# Google Cast / Chromecast media control. Uses the same zeroconf stack.
+pychromecast>=14,<15
 # Offline E.164 normalization, country/region and numbering-carrier metadata for
 # the optional Android incoming-call reputation feature. No lookup API key.
 phonenumbers>=9.0,<10
