@@ -11,6 +11,20 @@
     "fallout.jump": {"description": "Jump.", "realtime": false, "steps": [{"key": "space", "seconds": 0.08}]},
     "fallout.attack": {"description": "Attack briefly.", "realtime": true, "steps": [{"mouse_button": "left", "seconds": 0.2}]},
     "fallout.aim": {"description": "Aim briefly.", "realtime": true, "steps": [{"mouse_button": "right", "seconds": 0.25}]},
+    "fallout.sprint": {"description": "Sprint briefly (hold to run while stamina allows).", "realtime": true, "steps": [{"key": "shift", "seconds": 0.3}]},
+    "fallout.sneak": {"description": "Toggle/hold sneak briefly.", "realtime": true, "steps": [{"key": "ctrl", "seconds": 0.3}]},
+    "fallout.reload": {"description": "Reload the equipped weapon.", "realtime": false, "steps": [{"key": "r", "seconds": 0.08}]},
+    "fallout.pipboy": {"description": "Open the Pip-Boy.", "realtime": false, "steps": [{"key": "tab", "seconds": 0.08}]},
+    "fallout.hotbar_1": {"description": "Select favorites slot 1.", "realtime": false, "steps": [{"key": "1", "seconds": 0.05}]},
+    "fallout.hotbar_2": {"description": "Select favorites slot 2.", "realtime": false, "steps": [{"key": "2", "seconds": 0.05}]},
+    "fallout.hotbar_3": {"description": "Select favorites slot 3.", "realtime": false, "steps": [{"key": "3", "seconds": 0.05}]},
+    "fallout.hotbar_4": {"description": "Select favorites slot 4.", "realtime": false, "steps": [{"key": "4", "seconds": 0.05}]},
+    "fallout.hotbar_5": {"description": "Select favorites slot 5.", "realtime": false, "steps": [{"key": "5", "seconds": 0.05}]},
+    "fallout.hotbar_6": {"description": "Select favorites slot 6.", "realtime": false, "steps": [{"key": "6", "seconds": 0.05}]},
+    "fallout.hotbar_7": {"description": "Select favorites slot 7.", "realtime": false, "steps": [{"key": "7", "seconds": 0.05}]},
+    "fallout.hotbar_8": {"description": "Select favorites slot 8.", "realtime": false, "steps": [{"key": "8", "seconds": 0.05}]},
+    "fallout.quicksave": {"description": "Quicksave.", "realtime": false, "steps": [{"key": "f5", "seconds": 0.05}]},
+    "fallout.quickload": {"description": "Quickload.", "realtime": false, "steps": [{"key": "f9", "seconds": 0.05}]},
     "fallout.pause": {"description": "Open pause menu.", "realtime": false, "steps": [{"key": "escape", "seconds": 0.08}]}
   }
 }

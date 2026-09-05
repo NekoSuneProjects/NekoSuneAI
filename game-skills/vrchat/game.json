@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "game_id": "vrchat",
+  "display_name": "VRChat (OSC)",
+  "profile": {
+    "executable_names": [
+      "VRChat.exe"
+    ],
+    "window_title_pattern": "^VRChat(?:\\s|$)",
+    "platform": "vrchat",
+    "allow_vision": true,
+    "allow_input": true,
+    "allow_keyboard": false,
+    "allow_mouse": false,
+    "allow_controller": false,
+    "allow_obs": true,
+    "allow_twitch": false,
+    "competitive_or_anticheat": false,
+    "multiplayer_policy": "permitted_multiplayer",
+    "automation_permitted": true,
+    "realtime_enabled": false,
+    "capture_fps": 1,
+    "capture_width": 1280
+  },
+  "skills": {
+    "vrchat.forward": {
+      "description": "Move forward briefly",
+      "realtime": false,
+      "steps": [
+        {
+          "wait": true,
+          "seconds": 0.25
+        }
+      ]
+    },
+    "vrchat.back": {
+      "description": "Move backwards briefly",
+      "realtime": false,
+      "steps": [
+        {
+          "wait": true,
+          "seconds": 0.25
+        }
+      ]
+    },
+    "vrchat.left": {
+      "description": "Strafe left briefly",
+      "realtime": false,
+      "steps": [
+        {
+          "wait": true,
+          "seconds": 0.25
+        }
+      ]
+    },
+    "vrchat.right": {
+      "description": "Strafe right briefly",
+      "realtime": false,
+      "steps": [
+        {
+          "wait": true,
+          "seconds": 0.25
+        }
+      ]
+    },
+    "vrchat.look_left": {
+      "description": "Turn left briefly",
+      "realtime": false,
+      "steps": [
+        {
+          "wait": true,
+          "seconds": 0.25
+        }
+      ]
+    },
+    "vrchat.look_right": {
+      "description": "Turn right briefly",
+      "realtime": false,
+      "steps": [
+        {
+          "wait": true,
+          "seconds": 0.25
+        }
+      ]
+    },
+    "vrchat.jump": {
+      "description": "Jump once",
+      "realtime": false,
+      "steps": [
+        {
+          "wait": true,
+          "seconds": 0.25
+        }
+      ]
+    }
+  }
+}

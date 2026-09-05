@@ -10,6 +10,16 @@
     "stardew.move_right": {"description": "Walk right.", "realtime": true, "steps": [{"key": "d", "seconds": 0.2}]},
     "stardew.use_tool": {"description": "Use selected tool.", "realtime": false, "steps": [{"key": "c", "seconds": 0.08}]},
     "stardew.action": {"description": "Interact/check/use.", "realtime": false, "steps": [{"key": "x", "seconds": 0.08}]},
-    "stardew.inventory": {"description": "Open inventory/menu.", "realtime": false, "steps": [{"key": "e", "seconds": 0.08}]}
+    "stardew.inventory": {"description": "Open inventory/menu.", "realtime": false, "steps": [{"key": "e", "seconds": 0.08}]},
+    "stardew.hotbar_1": {"description": "Select toolbar slot 1.", "realtime": false, "steps": [{"key": "1", "seconds": 0.05}]},
+    "stardew.hotbar_2": {"description": "Select toolbar slot 2.", "realtime": false, "steps": [{"key": "2", "seconds": 0.05}]},
+    "stardew.hotbar_3": {"description": "Select toolbar slot 3.", "realtime": false, "steps": [{"key": "3", "seconds": 0.05}]},
+    "stardew.hotbar_4": {"description": "Select toolbar slot 4.", "realtime": false, "steps": [{"key": "4", "seconds": 0.05}]},
+    "stardew.hotbar_5": {"description": "Select toolbar slot 5.", "realtime": false, "steps": [{"key": "5", "seconds": 0.05}]},
+    "stardew.hotbar_6": {"description": "Select toolbar slot 6.", "realtime": false, "steps": [{"key": "6", "seconds": 0.05}]},
+    "stardew.hotbar_7": {"description": "Select toolbar slot 7.", "realtime": false, "steps": [{"key": "7", "seconds": 0.05}]},
+    "stardew.hotbar_8": {"description": "Select toolbar slot 8.", "realtime": false, "steps": [{"key": "8", "seconds": 0.05}]},
+    "stardew.hotbar_9": {"description": "Select toolbar slot 9.", "realtime": false, "steps": [{"key": "9", "seconds": 0.05}]},
+    "stardew.journal": {"description": "Open the quest journal.", "realtime": false, "steps": [{"key": "f1", "seconds": 0.05}]}
   }
 }

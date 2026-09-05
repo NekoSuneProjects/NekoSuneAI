@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "game_id": "raft",
+  "display_name": "Raft",
+  "profile": {"platform": "windows", "executable_names": ["Raft.exe"], "window_title_pattern": "Raft", "multiplayer_policy": "private_server", "automation_permitted": true, "competitive_or_anticheat": false, "allow_vision": true, "allow_input": false, "allow_keyboard": true, "allow_mouse": true, "allow_controller": false, "allow_obs": true, "allow_twitch": true, "capture_fps": 2.0, "capture_width": 960, "realtime_enabled": true},
+  "skills": {
+    "raft.walk_forward": {"description": "Walk forward.", "realtime": true, "steps": [{"key": "w", "seconds": 0.25}]},
+    "raft.walk_back": {"description": "Walk backward.", "realtime": true, "steps": [{"key": "s", "seconds": 0.2}]},
+    "raft.strafe_left": {"description": "Strafe left.", "realtime": true, "steps": [{"key": "a", "seconds": 0.2}]},
+    "raft.strafe_right": {"description": "Strafe right.", "realtime": true, "steps": [{"key": "d", "seconds": 0.2}]},
+    "raft.turn_left": {"description": "Turn camera left.", "realtime": true, "steps": [{"mouse_move": {"x": -45, "y": 0}, "seconds": 0.02}]},
+    "raft.turn_right": {"description": "Turn camera right.", "realtime": true, "steps": [{"mouse_move": {"x": 45, "y": 0}, "seconds": 0.02}]},
+    "raft.jump": {"description": "Jump.", "realtime": false, "steps": [{"key": "space", "seconds": 0.08}]},
+    "raft.sprint": {"description": "Sprint briefly.", "realtime": true, "steps": [{"key": "shift", "seconds": 0.3}]},
+    "raft.crouch": {"description": "Crouch briefly.", "realtime": true, "steps": [{"key": "ctrl", "seconds": 0.3}]},
+    "raft.use_item": {"description": "Use/attack with the equipped item.", "realtime": true, "steps": [{"mouse_button": "left", "seconds": 0.2}]},
+    "raft.aim": {"description": "Aim with the equipped item.", "realtime": true, "steps": [{"mouse_button": "right", "seconds": 0.2}]},
+    "raft.interact": {"description": "Pick up/interact with the highlighted object.", "realtime": false, "steps": [{"key": "e", "seconds": 0.08}]},
+    "raft.inventory": {"description": "Open inventory.", "realtime": false, "steps": [{"key": "tab", "seconds": 0.08}]},
+    "raft.hotbar_1": {"description": "Select hotbar slot 1.", "realtime": false, "steps": [{"key": "1", "seconds": 0.05}]},
+    "raft.hotbar_2": {"description": "Select hotbar slot 2.", "realtime": false, "steps": [{"key": "2", "seconds": 0.05}]},
+    "raft.hotbar_3": {"description": "Select hotbar slot 3.", "realtime": false, "steps": [{"key": "3", "seconds": 0.05}]},
+    "raft.hotbar_4": {"description": "Select hotbar slot 4.", "realtime": false, "steps": [{"key": "4", "seconds": 0.05}]},
+    "raft.hotbar_5": {"description": "Select hotbar slot 5.", "realtime": false, "steps": [{"key": "5", "seconds": 0.05}]},
+    "raft.hotbar_6": {"description": "Select hotbar slot 6.", "realtime": false, "steps": [{"key": "6", "seconds": 0.05}]},
+    "raft.hotbar_7": {"description": "Select hotbar slot 7.", "realtime": false, "steps": [{"key": "7", "seconds": 0.05}]},
+    "raft.hotbar_8": {"description": "Select hotbar slot 8.", "realtime": false, "steps": [{"key": "8", "seconds": 0.05}]},
+    "raft.pause": {"description": "Open the pause menu.", "realtime": false, "steps": [{"key": "escape", "seconds": 0.08}]}
+  }
+}

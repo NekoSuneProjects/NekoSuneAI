@@ -6,6 +6,11 @@ datas = [('game-skills', 'game-skills')]
 binaries = []
 hiddenimports = ['nekosuneai', 'nekosuneai.game_skills', 'nekosuneai.windows_gaming_agent', 'PIL', 'PIL.Image', 'pytesseract']
 hiddenimports += collect_submodules('nekosuneai')
+for package in ('pyaudiowpatch', 'soundfile', 'soxr', 'pythonosc'):
+    package_data, package_binaries, package_imports = collect_all(package)
+    datas += package_data
+    binaries += package_binaries
+    hiddenimports += package_imports
 tmp_ret = collect_all('vgamepad')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('obsws_python')

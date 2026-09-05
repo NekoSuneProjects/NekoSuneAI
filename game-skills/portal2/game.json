@@ -1,0 +1,22 @@
+{
+  "schema_version": 1,
+  "game_id": "portal2",
+  "display_name": "Portal 2",
+  "profile": {"platform": "windows", "executable_names": ["portal2.exe"], "window_title_pattern": "Portal 2", "multiplayer_policy": "single_player", "automation_permitted": true, "competitive_or_anticheat": false, "allow_vision": true, "allow_input": false, "allow_keyboard": true, "allow_mouse": true, "allow_controller": false, "allow_obs": true, "allow_twitch": true, "capture_fps": 2.0, "capture_width": 960, "realtime_enabled": true},
+  "skills": {
+    "portal2.walk_forward": {"description": "Walk forward.", "realtime": true, "steps": [{"key": "w", "seconds": 0.25}]},
+    "portal2.walk_back": {"description": "Walk backward.", "realtime": true, "steps": [{"key": "s", "seconds": 0.2}]},
+    "portal2.strafe_left": {"description": "Strafe left.", "realtime": true, "steps": [{"key": "a", "seconds": 0.2}]},
+    "portal2.strafe_right": {"description": "Strafe right.", "realtime": true, "steps": [{"key": "d", "seconds": 0.2}]},
+    "portal2.turn_left": {"description": "Turn camera left.", "realtime": true, "steps": [{"mouse_move": {"x": -45, "y": 0}, "seconds": 0.02}]},
+    "portal2.turn_right": {"description": "Turn camera right.", "realtime": true, "steps": [{"mouse_move": {"x": 45, "y": 0}, "seconds": 0.02}]},
+    "portal2.look_up": {"description": "Tilt camera up.", "realtime": true, "steps": [{"mouse_move": {"x": 0, "y": -30}, "seconds": 0.02}]},
+    "portal2.look_down": {"description": "Tilt camera down.", "realtime": true, "steps": [{"mouse_move": {"x": 0, "y": 30}, "seconds": 0.02}]},
+    "portal2.jump": {"description": "Jump.", "realtime": false, "steps": [{"key": "space", "seconds": 0.08}]},
+    "portal2.crouch": {"description": "Crouch briefly.", "realtime": true, "steps": [{"key": "ctrl", "seconds": 0.3}]},
+    "portal2.fire_blue_portal": {"description": "Fire the blue portal.", "realtime": false, "steps": [{"mouse_button": "left", "seconds": 0.08}]},
+    "portal2.fire_orange_portal": {"description": "Fire the orange portal.", "realtime": false, "steps": [{"mouse_button": "right", "seconds": 0.08}]},
+    "portal2.interact": {"description": "Use/pick up the highlighted object (e.g. a cube).", "realtime": false, "steps": [{"key": "e", "seconds": 0.08}]},
+    "portal2.pause": {"description": "Open the pause menu.", "realtime": false, "steps": [{"key": "escape", "seconds": 0.08}]}
+  }
+}

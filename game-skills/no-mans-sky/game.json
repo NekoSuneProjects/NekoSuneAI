@@ -12,6 +12,10 @@
     "nms.scan": {"description": "Trigger scan.", "realtime": false, "steps": [{"key": "c", "seconds": 0.08}]},
     "nms.inventory": {"description": "Open inventory.", "realtime": false, "steps": [{"key": "tab", "seconds": 0.08}]},
     "nms.mine": {"description": "Use mining beam briefly.", "realtime": true, "steps": [{"mouse_button": "left", "seconds": 0.3}]},
+    "nms.sprint": {"description": "Sprint briefly.", "realtime": true, "steps": [{"key": "shift", "seconds": 0.3}]},
+    "nms.crouch": {"description": "Toggle crouch briefly.", "realtime": true, "steps": [{"key": "ctrl", "seconds": 0.3}]},
+    "nms.melee": {"description": "Melee strike.", "realtime": false, "steps": [{"key": "v", "seconds": 0.1}]},
+    "nms.reload": {"description": "Reload/recharge the equipped multi-tool mode.", "realtime": false, "steps": [{"key": "r", "seconds": 0.08}]},
     "nms.pause": {"description": "Open pause/options.", "realtime": false, "steps": [{"key": "escape", "seconds": 0.08}]}
   }
 }

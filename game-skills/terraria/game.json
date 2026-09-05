@@ -11,6 +11,18 @@
     "terraria.interact": {"description": "Interact or use alternate action.", "realtime": false, "steps": [{"mouse_button": "right", "seconds": 0.08}]},
     "terraria.inventory": {"description": "Open inventory.", "realtime": false, "steps": [{"key": "escape", "seconds": 0.08}]},
     "terraria.aim_left": {"description": "Move cursor left a bounded amount.", "realtime": true, "steps": [{"mouse_move": {"x": -60, "y": 0}, "seconds": 0.02}]},
-    "terraria.aim_right": {"description": "Move cursor right a bounded amount.", "realtime": true, "steps": [{"mouse_move": {"x": 60, "y": 0}, "seconds": 0.02}]}
+    "terraria.aim_right": {"description": "Move cursor right a bounded amount.", "realtime": true, "steps": [{"mouse_move": {"x": 60, "y": 0}, "seconds": 0.02}]},
+    "terraria.hotbar_1": {"description": "Select hotbar slot 1.", "realtime": false, "steps": [{"key": "1", "seconds": 0.05}]},
+    "terraria.hotbar_2": {"description": "Select hotbar slot 2.", "realtime": false, "steps": [{"key": "2", "seconds": 0.05}]},
+    "terraria.hotbar_3": {"description": "Select hotbar slot 3.", "realtime": false, "steps": [{"key": "3", "seconds": 0.05}]},
+    "terraria.hotbar_4": {"description": "Select hotbar slot 4.", "realtime": false, "steps": [{"key": "4", "seconds": 0.05}]},
+    "terraria.hotbar_5": {"description": "Select hotbar slot 5.", "realtime": false, "steps": [{"key": "5", "seconds": 0.05}]},
+    "terraria.hotbar_6": {"description": "Select hotbar slot 6.", "realtime": false, "steps": [{"key": "6", "seconds": 0.05}]},
+    "terraria.hotbar_7": {"description": "Select hotbar slot 7.", "realtime": false, "steps": [{"key": "7", "seconds": 0.05}]},
+    "terraria.hotbar_8": {"description": "Select hotbar slot 8.", "realtime": false, "steps": [{"key": "8", "seconds": 0.05}]},
+    "terraria.hotbar_9": {"description": "Select hotbar slot 9.", "realtime": false, "steps": [{"key": "9", "seconds": 0.05}]},
+    "terraria.map": {"description": "Open the full map.", "realtime": false, "steps": [{"key": "m", "seconds": 0.08}]},
+    "terraria.quick_heal": {"description": "Use a quick-heal item.", "realtime": false, "steps": [{"key": "h", "seconds": 0.08}]},
+    "terraria.quick_mana": {"description": "Use a quick-mana item.", "realtime": false, "steps": [{"key": "g", "seconds": 0.08}]}
   }
 }

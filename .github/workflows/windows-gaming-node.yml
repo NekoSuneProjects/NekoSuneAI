@@ -44,25 +44,7 @@ jobs:
         shell: pwsh
         timeout-minutes: 10
         run: |
-          pyinstaller `
-            --noconfirm `
-            --clean `
-            --onefile `
-            --windowed `
-            --name NekoSuneAI-Windows-Gaming-Node `
-            --icon data/logo.ico `
-            --paths . `
-            --add-data "game-skills;game-skills" `
-            --collect-submodules nekosuneai `
-            --collect-all vgamepad `
-            --collect-all obsws_python `
-            --hidden-import nekosuneai `
-            --hidden-import nekosuneai.game_skills `
-            --hidden-import nekosuneai.windows_gaming_agent `
-            --hidden-import PIL `
-            --hidden-import PIL.Image `
-            --hidden-import pytesseract `
-            tools/windows_gaming_node_gui.py
+          python -m PyInstaller --noconfirm --clean NekoSuneAI-Windows-Gaming-Node.spec
 
       - name: Smoke test package imports before release
         shell: pwsh
@@ -79,6 +61,7 @@ jobs:
           Copy-Item dist/NekoSuneAI-Windows-Gaming-Node.exe $root/
           Copy-Item config/windows-gaming-agent.example.json "$root/windows-gaming-agent.example.json"
           Copy-Item docs/GAME_SKILLS_AND_REMOTE_PLAY.md "$root/GAME_SKILLS_AND_REMOTE_PLAY.md"
+          Copy-Item docs/WINDOWS_MEDIA_AND_VRCHAT.md "$root/WINDOWS_MEDIA_AND_VRCHAT.md"
           Copy-Item game-skills "$root/game-skills" -Recurse
 
           @'
