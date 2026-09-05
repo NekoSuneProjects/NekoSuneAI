@@ -126,7 +126,6 @@ def _install_schema() -> None:
         "bluetooth": "Automatic Bluetooth speaker/Alexa reconnection.",
         "home": "Wake word recognition and Home Assistant MQTT integration.",
         "singing": "Singing backend, RVC model and cloud singing service.",
-        "vrchat_friends": "Optional VRChat friends integration and credentials.",
     }
     for key, text in descriptions.items():
         if key in schema:
@@ -176,8 +175,8 @@ SETTINGS_UI = r'''
 </style>
 <script id="neko-settings-redesign-js">
 (function(){
-  const icons={all:'⌂',ai:'✦',voice:'◖',connections:'⌁',home:'⌾',media:'♫',vtuber:'◇'};
-  const descriptions={all:'Everything in one view',ai:'Models, vision & memory',voice:'TTS, STT & audio',connections:'Web, MCP & alerts',home:'Wake word & smart home',media:'Music, YouTube & singing',vtuber:'VRChat integration'};
+  const icons={all:'⌂',ai:'✦',voice:'◖',connections:'⌁',home:'⌾',media:'♫'};
+  const descriptions={all:'Everything in one view',ai:'Models, vision & memory',voice:'TTS, STT & audio',connections:'Web, MCP & alerts',home:'Wake word & smart home',media:'Music, YouTube & singing'};
   window.SETTINGS_CATEGORIES={
     all:{label:'All Settings',sections:[]},
     ai:{label:'AI & Vision',sections:['llm','vision','rag']},
@@ -185,7 +184,6 @@ SETTINGS_UI = r'''
     connections:{label:'Web & Connections',sections:['web','mcp','alerts']},
     home:{label:'Home & Wake Word',sections:['home']},
     media:{label:'Media & YouTube',sections:['media','youtube','singing']},
-    vtuber:{label:'VTuber & VRChat',sections:['vrchat_friends']},
   };
   window.renderSettingsTabs=function(){
     const tabs=document.getElementById('settings-tabs');if(!tabs)return;
@@ -196,7 +194,7 @@ SETTINGS_UI = r'''
     const search=document.getElementById('settings-search');if(search)search.value='';
     window.renderSettingsTabs();window.filterSettings('');
   };
-  const sectionIcons={llm:'✦',vision:'◉',rag:'▤',voice:'◖',stt:'≋',web:'⌕',mcp:'⌁',alerts:'!',bluetooth:'⌁',home:'⌾',media:'♫',youtube:'▶',singing:'♪',vrchat_friends:'◇'};
+  const sectionIcons={llm:'✦',vision:'◉',rag:'▤',voice:'◖',stt:'≋',web:'⌕',mcp:'⌁',alerts:'!',bluetooth:'⌁',home:'⌾',media:'♫',youtube:'▶',singing:'♪'};
   const originalRender=window._renderAppSection;
   window._renderAppSection=function(name,meta){
     const card=document.createElement('section');card.className='settings-config-card';card.dataset.settingsSection=name;

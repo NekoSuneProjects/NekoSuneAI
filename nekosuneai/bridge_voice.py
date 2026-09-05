@@ -158,7 +158,7 @@ def synthesize(text: str, config: Config) -> Path:
     fast = config.bridge_tts_engine in {"edge", "edge-stream", "fast", "stream"}
     output_path = AUDIO_DIR / ("latest_reply_remote.mp3" if fast else "latest_reply_remote.wav")
     chunks: list[bytes] = []
-    ffplay = shutil.which("ffplay") if fast else None
+    ffplay = shutil.which("ffplay") if fast and not getattr(config, "node_tts_no_playback", False) else None
     player: subprocess.Popen | None = None
     player_broken = False
     if ffplay:

@@ -375,18 +375,6 @@ tailwind.config = {
             <button id="game-stop-btn" onclick="doStopGame()" class="btn-secondary px-4 py-2 rounded-lg text-[12px] font-semibold">Stop</button>
           </div>
         </div>
-        <div class="card p-5">
-          <div class="flex items-center justify-between mb-3">
-            <div class="text-[13px] font-bold">VRChat Friends (opt-in)</div>
-            <span id="vrcf-badge" class="text-[11px] font-semibold text-nova-muted">Off</span>
-          </div>
-          <div class="text-[12px] text-nova-muted mb-3">Auto-accepts friend requests, watches friend online/offline via VRChat's unofficial web API, and sends a thank-you chatbox message. Needs credentials in Settings → VRChat Friends — this is against VRChat's ToS for bots, so use a throwaway account, not your main.</div>
-          <div id="vrcf-warning" class="hidden text-[11px] text-amber-400 mb-3">Set VRChat username/password (and TOTP secret if 2FA) in Settings → VRChat Friends, and enable it there, before starting.</div>
-          <div class="flex gap-2">
-            <button id="vrcf-start-btn" onclick="doStartVrchatFriends()" class="btn-primary px-4 py-2 rounded-lg text-[12px] font-semibold">Start</button>
-            <button id="vrcf-stop-btn" onclick="doStopVrchatFriends()" class="btn-secondary px-4 py-2 rounded-lg text-[12px] font-semibold">Stop</button>
-          </div>
-        </div>
       </div>
 
       <!-- ═══════════════════════════════════════════════════════════════ -->
@@ -673,7 +661,7 @@ function showPage(key) {
   if (!_appReady) return;
   if (key === 'sing')       loadMemories();
   if (key === 'monitors')   loadScheduledMonitors();
-  if (key === 'game')       { loadGame(); loadVrchatFriends(); }
+  if (key === 'game')       { loadGame(); }
   if (key === 'watch')      loadWatchReact();
   if (key === 'profiles')   loadProfiles();
   if (key === 'settings')   { syncSettings(); loadAppSettings(); }
@@ -1114,28 +1102,6 @@ async function doStartGame() {
 async function doStopGame() { try { await api().stop_game(); loadGame(); } catch(e) { console.error(e); } }
 async function doSetGameGoal() {
   try { const r = await api().set_game_goal($('game-goal').value || ''); if (r && !r.ok && r.msg) showNotification(r.msg); } catch(e) { console.error(e); }
-}
-
-// ── VRChat Friends (opt-in, unofficial API) ──────────────────────────────────
-
-async function loadVrchatFriends() {
-  try {
-    const s = await api().get_vrchat_friends_status() || {};
-    const badge = $('vrcf-badge');
-    if (badge) {
-      badge.textContent = s.running ? 'Running' : 'Off';
-      badge.className = 'text-[11px] font-semibold ' + (s.running ? 'text-emerald-400' : 'text-nova-muted');
-    }
-    const warning = $('vrcf-warning');
-    if (warning) warning.classList.toggle('hidden', !!(s.enabled && s.has_credentials));
-  } catch(e) { console.error(e); }
-}
-async function doStartVrchatFriends() {
-  try { const r = await api().start_vrchat_friends(); if (r && !r.ok && r.msg) showNotification(r.msg); loadVrchatFriends(); }
-  catch(e) { console.error(e); }
-}
-async function doStopVrchatFriends() {
-  try { await api().stop_vrchat_friends(); loadVrchatFriends(); } catch(e) { console.error(e); }
 }
 
 // ── Watch & React (NekoSuneAI looks at the screen and reacts) ────────────────

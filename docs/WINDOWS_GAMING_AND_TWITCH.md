@@ -1,57 +1,41 @@
-# Windows Gaming Agent, OBS and Twitch
+# Windows Gaming Agent, OBS and Twitch (server-side view)
 
 The Raspberry Pi/Docker host remains NekoSuneAI's persistent brain. Games,
 selected-window capture, bounded input skills, OBS and Twitch IRC run on the
-Windows gaming PC. A Pi running Moonlight may view/capture a Sunshine stream
-for OBS encoding, but it does not gain permission to control the Windows game.
+Windows gaming PC, in the separate Windows checkout (`build/windows-gaming-node-release`
+branch). This Docker/server checkout does not contain the agent implementation,
+the game-skills packages, or any direct game/VRChat control code — it only
+reaches a paired Windows node through the generic node-capability relay
+described below.
 
 This framework is intended for offline/single-player games and environments
 where automation is explicitly permitted. It never attempts to bypass
 anti-cheat, bot detection, platform rules or game restrictions. Set
 `competitive_or_anticheat: true` for multiplayer/competitive profiles; this
-forces autonomous input off even if another field requests it.
+forces autonomous input off even if another field requests it. (This policy is
+enforced by the Windows-side agent; the server only forwards owner-controlled
+capability policies.)
 
-## Install on Windows
+## Where things live
 
-From a checkout of the same repository on the gaming PC:
+- **Windows checkout**: the full gaming agent, one `game.json`/`GUIDE.md`
+  package per supported game, real-time intents, bounded learning, console
+  Remote Play, VRChat OSC/API control, OBS and Twitch IRC connectivity, and the
+  local install/pairing CLI (`nekosuneai.windows_gaming_agent`).
+- **This Docker/server checkout**: pairing and node registry APIs, the
+  dashboard's Nodes & Routines and Game pages, capability policy storage
+  (`allow`/`confirm`/`deny`), and `nekosuneai/games/windows_remote.py` — a
+  generic relay driver that queues named capabilities (`game.status`,
+  `game.skill`, `game.plan`, `game.input.stop`, `vrchat.*`, etc.) to whichever
+  node is paired and reads back whatever state/telemetry (including
+  `state["vrchat"]`) that node reports over heartbeat. The server never talks
+  to a game or to VRChat directly — it only knows named capabilities and
+  heartbeat state.
 
-```powershell
-py -m venv .venv-agent
-.\.venv-agent\Scripts\python -m pip install -r requirements.txt -r requirements-windows-agent.txt
-Copy-Item config\windows-gaming-agent.example.json config\windows-gaming-agent.json
-Copy-Item config\game-profiles\offline-single-player.example.json config\game-profiles\my-game.json
-```
+For installing and configuring the actual agent, packages and VRChat
+integration, see the Windows checkout's own docs.
 
-Alternatively, select a versioned package with `--skills-root game-skills
---game minecraft`. See
-[`GAME_SKILLS_AND_REMOTE_PLAY.md`](GAME_SKILLS_AND_REMOTE_PLAY.md) for bundled
-games, bounded learning, real-time intents and console Remote Play.
-
-Keep `windows-gaming-agent.json` private: it contains the one-time node token,
-OBS password and optional Twitch OAuth token. Use authenticated HTTPS or a
-trusted VPN/Tailscale route; the agent authenticates every request but does not
-pretend plain HTTP is encrypted.
-
-Create a pairing code in **Studio → Nodes & Routines**, then pair once:
-
-```powershell
-.\.venv-agent\Scripts\python -m nekosuneai.windows_gaming_agent `
-  --config config\windows-gaming-agent.json `
-  --profile config\game-profiles\my-game.json `
-  --pairing-id PAIRING_ID --pairing-code ONE_TIME_CODE
-```
-
-The plaintext device token is returned once and saved only in the local agent
-configuration. The Pi stores its SHA-256 digest. Subsequent runs omit the two
-pairing arguments. Optional logon startup can be installed explicitly:
-
-```powershell
-.\.venv-agent\Scripts\python -m nekosuneai.windows_gaming_agent `
-  --config config\windows-gaming-agent.json `
-  --profile config\game-profiles\my-game.json --install-startup
-```
-
-## Fail-closed game control
+## Fail-closed game control (enforced on the Windows agent, reported to the server)
 
 - Only a foreground window matching `window_title_pattern` can be captured or
   receive input.
@@ -70,23 +54,25 @@ pairing arguments. Optional logon startup can be installed explicitly:
   compact scene hash/OCR/transition state and last command result are reported
   through the normal authenticated heartbeat.
 
-To use the high-level goal loop, first verify the local profile and game, then
-set only the node's `game.skill` capability to `allow` in **Studio → Nodes &
-Routines**. Select **Paired Windows game** on the Game page and start a goal.
-Pairing alone never enables autonomous input. The Pi sends only exact named
-skills advertised by the profile; the Windows agent validates the foreground
-window and releases input locally. Setting the policy back to `confirm` or
-pressing the emergency hotkey stops further autonomous actions.
-For uninterrupted movement while the Pi thinks, review the package and also
-set `game.plan` to `allow`; each local intent still expires within eight seconds.
+To use the high-level goal loop, first verify the local profile and game on
+the Windows machine, then set only the node's `game.skill` capability to
+`allow` in **Studio → Nodes & Routines**. Select **Paired Windows game** on the
+Game page and start a goal. Pairing alone never enables autonomous input. The
+Pi sends only exact named skills advertised by the node's heartbeat; the
+Windows agent validates the foreground window and releases input locally.
+Setting the policy back to `confirm` or pressing the emergency hotkey stops
+further autonomous actions. For uninterrupted movement while the Pi thinks,
+also set `game.plan` to `allow`; each local intent still expires within eight
+seconds.
 
 ## OBS
 
-Enable OBS WebSocket in OBS 28+ and set its local password in the private agent
-config. Available capabilities include status, scene switching, stream
-start/stop, recording and replay-buffer save. State-changing node capabilities
-default to `confirm`; live stream start/stop additionally refuses locally when
-the command does not contain confirmation.
+Enable OBS WebSocket in OBS 28+ and set its local password in the private
+Windows agent config. Available capabilities include status, scene switching,
+stream start/stop, recording and replay-buffer save, relayed the same way as
+game capabilities. State-changing node capabilities default to `confirm`; live
+stream start/stop additionally refuses locally when the command does not
+contain confirmation.
 
 Ask `prepare stream minecraft` for a read-only preflight or use the Windows
 node card in the dashboard. The preflight checks node connectivity, selected

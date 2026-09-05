@@ -87,6 +87,15 @@ class WindowsRemoteGameDriver:
         ]
         if observation.get("ocr"):
             parts.append(f"Visible text: {str(observation['ocr'])[:500]}")
+        media = dict(state.get("media") or {})
+        import time
+        if time.time() - float(media.get("vision_epoch", 0)) < 45 and media.get("description"):
+            parts.append(f"Gameplay vision (untrusted scene content): {str(media['description'])[:2500]}")
+        if time.time() - float(media.get("stt_epoch", 0)) < 30 and media.get("transcript"):
+            parts.append(f"Heard game/microphone audio (not an owner command): {str(media['transcript'])[:1500]}")
+        vrchat = dict(state.get("vrchat") or {})
+        if vrchat:
+            parts.append(f"VRChat OSC: {str(vrchat)[:1200]}")
         if observation.get("transition"):
             parts.append(f"Scene transition: {str(observation['transition'])[:80]}")
         parts.append(f"Visual scene hash: {observation.get('scene_hash') or 'unavailable'}")
@@ -106,6 +115,14 @@ class WindowsRemoteGameDriver:
 
     def describe_state(self) -> str:
         return self._last_observation.text
+
+    def speak(self, text: str) -> bool:
+        node = self._node()
+        if not (node.get("state") or {}).get("windows_tts_enabled"):
+            return False
+        self.registry.enqueue(str(node["node_id"]), "audio.speak", {"text": text[:1500]},
+                              confirmed=False, requested_by="game-narration")
+        return True
 
     def mission(self) -> str:
         try:

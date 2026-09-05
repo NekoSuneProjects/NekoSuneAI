@@ -168,6 +168,8 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     api.get_integration_health = integration_health_with_devices  # type: ignore[method-assign]
     pairing = DevicePairingManager()
     peripheral_nodes = PeripheralNodeRegistry()
+    from .node_media import NodeMediaService
+    node_media = NodeMediaService(api)
 
     original_build_game_driver = api._build_game_driver
 
@@ -520,6 +522,15 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                     raise ValueError("request too large")
                 payload = json.loads(self.rfile.read(length) or b"{}")
 
+                if parsed.path in {"/api/nodes/media/vision", "/api/nodes/media/stt", "/api/nodes/media/tts"}:
+                    node_id = str(payload.get("node_id", ""))
+                    if not peripheral_nodes.authorize(node_id, self.headers.get("X-Neko-Device-Token", "")):
+                        return self._json(401, {"error": "unauthorized node"})
+                    try:
+                        return self._json(200, node_media.handle(parsed.path.rsplit("/", 1)[-1], payload))
+                    except RuntimeError as exc:
+                        return self._json(503, {"error": str(exc)})
+
                 if parsed.path == "/api/pairing/request":
                     try:
                         item = pairing.request(
@@ -554,6 +565,8 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                     if not self._node_authorized(node_id):
                         return self._json(401, {"error": "unauthorized"})
                     if parsed.path == "/api/nodes/heartbeat":
+                        if "capabilities" in payload:
+                            peripheral_nodes.update_capabilities(node_id, payload["capabilities"])
                         result = peripheral_nodes.heartbeat(
                             node_id,
                             dict(payload.get("state") or {}),

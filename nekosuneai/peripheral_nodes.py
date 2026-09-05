@@ -275,6 +275,25 @@ class PeripheralNodeRegistry:
             spec = dict(node.get("capabilities") or {}).get(str(capability).strip().lower())
             return str(spec.get("policy", "deny")) if spec else "deny"
 
+    def update_capabilities(self, node_id: str, capabilities: Any) -> None:
+        manifest = self._normalise_manifest(capabilities)
+        with self._changed:
+            node = self._nodes.get(str(node_id))
+            if not node:
+                raise ValueError("node is not registered")
+            previous = node.get("capabilities") or {}
+            history = node.setdefault("capability_history", {})
+            history.update(previous)
+            for name, spec in manifest.items():
+                old = history.get(name)
+                if old and (old.get("kind") == spec["kind"] or old.get("policy") == "deny"):
+                    spec["policy"] = old["policy"]
+            if previous != manifest:
+                node["capabilities"] = manifest
+                node["commands"] = [item for item in node.get("commands", []) if item.get("capability") in manifest]
+                self._save()
+                self._changed.notify_all()
+
     def wait_commands(self, node_id: str, after: int = 0, wait_seconds: float = 25.0) -> list[dict[str, Any]]:
         deadline = time.monotonic() + max(0.0, min(float(wait_seconds), 30.0))
         with self._changed:

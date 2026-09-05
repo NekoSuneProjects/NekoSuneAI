@@ -78,3 +78,16 @@ def test_offline_and_revoke(tmp_path):
     assert registry.list_nodes()[0]["online"] is False
     assert registry.revoke("pi-kitchen") is True
     assert not registry.authorize("pi-kitchen", registered["device_token"])
+
+
+def test_manifest_refresh_preserves_owner_denial_across_removal(tmp_path):
+    registry = PeripheralNodeRegistry(tmp_path / "nodes.json")
+    _register(registry)
+    registry.set_policy("pi-kitchen", "audio.speak", "deny")
+    registry.update_capabilities("pi-kitchen", {"audio.speak": {"kind": "read"}})
+    assert registry.action_policy("pi-kitchen", "audio.speak") == "deny"
+    registry.update_capabilities("pi-kitchen", {"sensor.temperature": {"kind": "read"}})
+    registry = PeripheralNodeRegistry(tmp_path / "nodes.json")
+    registry.update_capabilities("pi-kitchen", {"audio.speak": {"kind": "write"}, "vrchat.input": {"kind": "write"}})
+    assert registry.action_policy("pi-kitchen", "audio.speak") == "deny"
+    assert registry.action_policy("pi-kitchen", "vrchat.input") == "confirm"
