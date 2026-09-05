@@ -115,18 +115,6 @@ GAME_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
         "preview": False,
         "fields": [],
     },
-    "vrchat": {
-        "label": "VRChat (OSC)",
-        "preview": False,
-        "fields": [
-            {"key": "vrchat_osc_host", "label": "OSC host", "type": "text"},
-            {"key": "vrchat_osc_port", "label": "OSC send port", "type": "int"},
-            {"key": "vrchat_osc_read_port", "label": "OSC listen port (avatar params)", "type": "int"},
-            {"key": "vrchat_log_dir", "label": "VRChat log dir (blank = auto-detect)", "type": "text"},
-            {"key": "vision_model", "label": "Vision model (optional)", "type": "text"},
-            {"key": "game_tick_seconds", "label": "Think interval (sec)", "type": "float"},
-        ],
-    },
 }
 _GAME_FIELD_TYPES: dict[str, str] = {
     f["key"]: f["type"] for meta in GAME_SETTINGS_SCHEMA.values() for f in meta["fields"]
@@ -278,15 +266,6 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "singing_api_key", "label": "Singing API key (cloud)", "type": "password"},
         ],
     },
-    "vrchat_friends": {
-        "label": "VRChat Friends (opt-in, unofficial API — ToS risk, use a throwaway account)",
-        "fields": [
-            {"key": "vrchat_friends_enabled", "label": "Enable", "type": "bool"},
-            {"key": "vrchat_username", "label": "VRChat username", "type": "text"},
-            {"key": "vrchat_password", "label": "VRChat password", "type": "password"},
-            {"key": "vrchat_totp_secret", "label": "TOTP 2FA secret (authenticator app only)", "type": "password"},
-        ],
-    },
 }
 _APP_FIELD_TYPES: dict[str, str] = {
     f["key"]: f["type"] for meta in APP_SETTINGS_SCHEMA.values() for f in meta["fields"]
@@ -339,8 +318,6 @@ class Api:
         # Watch & React — periodically glance at the screen and react in-character.
         self._watch_enabled = False
         self._watch_thread: threading.Thread | None = None
-        # VRChat friends system — opt-in, separate from the OSC game driver.
-        self._vrchat_friends: Any = None
         self.monitor_manager: MonitorManager | None = None
         self.wake_word: WakeWordListener | None = None
         self._wake_activation_lock = threading.Lock()
@@ -1143,6 +1120,13 @@ class Api:
                 pass
         # Speak only when not busy with a chat/stream turn (don't block them).
         if self.state.voice_enabled:
+            if drv is not None and hasattr(drv, "speak"):
+                try:
+                    if drv.speak(text):
+                        return
+                except (PermissionError, ValueError, RuntimeError) as exc:
+                    self._push_status(f"Windows narration unavailable: {exc}")
+                    return
             if self._acquire():
                 try:
                     self._speak(text, emotion)
@@ -1301,11 +1285,6 @@ class Api:
         def _do_restart() -> None:
             time.sleep(0.4)
             self._watch_enabled = False
-            if self._vrchat_friends is not None:
-                try:
-                    self._vrchat_friends.stop()
-                except Exception:
-                    pass
             # Stop the game agent cleanly so ports free up before relaunch.
             try:
                 if self.game_agent:
@@ -1472,7 +1451,7 @@ class Api:
             drivers[drv] = {"label": meta["label"], "preview": meta["preview"], "fields": fields}
         return {
             "drivers": drivers,
-            "current": "vrchat",
+            "current": "windows",
         }
 
     def save_game_settings(self, driver: str, values: dict[str, Any]) -> dict[str, Any]:
@@ -1501,9 +1480,9 @@ class Api:
     def get_game_status(self) -> dict[str, Any]:
         running = bool(self.game_agent and self.game_agent.is_running())
         viewer_url = ""
-        # Report the actually-running driver when there is one, else the only
-        # supported driver (VRChat).
-        driver = getattr(self, "game_driver_key", None) or "vrchat"
+        # Report the actually-running driver when there is one, else the
+        # default paired-node driver.
+        driver = getattr(self, "game_driver_key", None) or "windows"
         if running and self.game_agent is not None:
             drv = getattr(self.game_agent, "driver", None)
             if drv is not None and hasattr(drv, "viewer_url"):
@@ -1532,16 +1511,14 @@ class Api:
         return {"ok": True, "url": url}
 
     def _build_game_driver(self, driver_name: str):
-        if driver_name == "vrchat":
-            from .games.vrchat import VRChatDriver
-
-            return VRChatDriver(self.config)
+        # No local drivers remain here; a paired node's "windows"/"windows-gaming"
+        # driver is wired in by webserver.py, which wraps this method.
         return None
 
     def start_game(self, goal: str = "", driver: str = "") -> dict[str, Any]:
         if (err := self._not_ready()):
             return err
-        driver_name = (driver or "vrchat").strip().lower()
+        driver_name = (driver or "windows").strip().lower()
         # If a game is already running, stop it first so switching drivers works
         # (otherwise the old game just keeps running).
         if self.game_agent and self.game_agent.is_running():
@@ -1723,52 +1700,6 @@ class Api:
             except Exception:
                 pass
 
-    # ── VRChat friends system (opt-in, credential-gated) ─────────────────────────
-
-    def _vrchat_friends_event(self, message: str) -> None:
-        """on_event callback for VRChatFriendsService — narrate like the game/watch
-        features do: push to chat, and speak it if voice is on and we're free."""
-        self._push_chat("System", message, "system")
-        if self.state.voice_enabled and not self.busy:
-            try:
-                self._speak(message, "neutral")
-            except Exception:
-                pass
-
-    def get_vrchat_friends_status(self) -> dict[str, Any]:
-        return {
-            "running": bool(self._vrchat_friends and self._vrchat_friends.is_running()),
-            "enabled": bool(self.config and self.config.vrchat_friends_enabled),
-            "has_credentials": bool(
-                self.config and self.config.vrchat_username and self.config.vrchat_password
-            ),
-        }
-
-    def start_vrchat_friends(self) -> dict[str, Any]:
-        if (err := self._not_ready()):
-            return err
-        from .games.vrchat_friends import VRChatFriendsService
-
-        if self._vrchat_friends is None:
-            self._vrchat_friends = VRChatFriendsService(self.config, self._vrchat_friends_event)
-        if self._vrchat_friends.is_running():
-            return {"ok": True, "msg": "Already running."}
-        try:
-            self._vrchat_friends.start()
-        except RuntimeError as exc:
-            return {"ok": False, "msg": str(exc)}
-        self._push_chat(
-            "System",
-            "VRChat friends system on — logging in and watching for friend activity.",
-            "system",
-        )
-        return {"ok": True, "msg": "Starting."}
-
-    def stop_vrchat_friends(self) -> dict[str, Any]:
-        if self._vrchat_friends is not None:
-            self._vrchat_friends.stop()
-        self._push_chat("System", "VRChat friends system off.", "system")
-        return {"ok": True}
 
     # ── singing ─────────────────────────────────────────────────────────────────
 

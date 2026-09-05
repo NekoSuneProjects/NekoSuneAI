@@ -15,10 +15,9 @@ COMPAT_UI = r'''
     connections:{label:'Web & Connections',sections:['web','mcp','alerts']},
     home:{label:'Home & Wake Word',sections:['home']},
     media:{label:'Media & YouTube',sections:['media','youtube','singing']},
-    vtuber:{label:'VTuber & VRChat',sections:['vrchat_friends']},
   });
-  const icons={all:'⌂',ai:'✦',voice:'◖',connections:'⌁',home:'⌾',media:'♫',vtuber:'◇'};
-  const descriptions={all:'Everything in one view',ai:'Models, vision & memory',voice:'TTS, STT & audio',connections:'Web, MCP & alerts',home:'Wake word & smart home',media:'Music, YouTube & singing',vtuber:'VRChat integration'};
+  const icons={all:'⌂',ai:'✦',voice:'◖',connections:'⌁',home:'⌾',media:'♫'};
+  const descriptions={all:'Everything in one view',ai:'Models, vision & memory',voice:'TTS, STT & audio',connections:'Web, MCP & alerts',home:'Wake word & smart home',media:'Music, YouTube & singing'};
   renderSettingsTabs=function(){
     const tabs=document.getElementById('settings-tabs');if(!tabs)return;
     tabs.innerHTML=Object.entries(SETTINGS_CATEGORIES).map(([key,item])=>`<button onclick="setSettingsCategory('${key}')" class="settings-nav-btn ${key===_settingsCategory?'active':''}"><span class="settings-nav-icon">${icons[key]||'•'}</span><span><span class="settings-nav-name">${item.label}</span><span class="settings-nav-desc">${descriptions[key]||''}</span></span></button>`).join('');
