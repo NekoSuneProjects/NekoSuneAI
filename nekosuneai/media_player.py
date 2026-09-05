@@ -130,8 +130,6 @@ class MediaPlayer:
             if self._process is None or not self._current.source_url:
                 return "Nothing is playing right now."
             position = self._position_locked()
-            # SIGSTOP/SIGCONT provides a real pause on POSIX and preserves stream
-            # buffers. Windows falls back to restarting from the tracked position.
             if os.name != "nt":
                 try:
                     os.kill(self._process.pid, signal.SIGSTOP)
@@ -180,7 +178,13 @@ class MediaPlayer:
             replacement = MediaPlaybackState(kind=state.kind, title=state.title, source_url=state.source_url, position_seconds=target)
             if was_paused:
                 self._terminate_locked(clear_current=True)
-                self._paused = MediaPlaybackState(**replacement.__dict__, is_paused=True)
+                self._paused = MediaPlaybackState(
+                    kind=replacement.kind,
+                    title=replacement.title,
+                    source_url=replacement.source_url,
+                    is_paused=True,
+                    position_seconds=replacement.position_seconds,
+                )
                 return f"Seeked {replacement.title} to {int(target)} seconds; it remains paused."
             self._start_locked(replacement, remember_previous=False)
             return f"Seeked {replacement.title} to {int(target)} seconds."
@@ -210,9 +214,6 @@ class MediaPlayer:
             target = max(0, min(100, int(percent)))
             if target == self._volume:
                 return f"Volume already at {self._volume}%."
-            # ffplay does not offer a dependable process-control API for absolute
-            # volume changes. Restart at the tracked timestamp so volume changes
-            # do not jump back to the beginning of the song.
             state = self._current if self._current.source_url else self._paused
             self._volume = target
             if not state.source_url:
@@ -222,7 +223,13 @@ class MediaPlayer:
             replacement = MediaPlaybackState(kind=state.kind, title=state.title, source_url=state.source_url, position_seconds=position)
             if was_paused:
                 self._terminate_locked(clear_current=True)
-                self._paused = MediaPlaybackState(**replacement.__dict__, is_paused=True)
+                self._paused = MediaPlaybackState(
+                    kind=replacement.kind,
+                    title=replacement.title,
+                    source_url=replacement.source_url,
+                    is_paused=True,
+                    position_seconds=replacement.position_seconds,
+                )
             else:
                 self._start_locked(replacement, remember_previous=False)
             return f"Volume adjusted to {self._volume}% without losing the track position."
