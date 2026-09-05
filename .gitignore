@@ -12,6 +12,7 @@
 venv/
 env/
 node_modules/
+.gradle/
 
 # ── Python bytecode ──────────────────────────────────────────────────────
 __pycache__/
