@@ -862,9 +862,12 @@ class WindowsGamingAgent:
         args = dict(command.get("arguments") or {})
         confirmed = bool(command.get("confirmed"))
         if capability == "game.input.stop":
+            self.world_mapper.stop()
             if self.vrchat is not None:
                 self.vrchat.stop_input()
             self.realtime.cancel(disable=True); return {"ok": True, "input_disabled": True}
+        if self.world_mapper.running and capability in {"game.skill", "game.plan", "vrchat.input", "vrchat.avatar.set"}:
+            raise PermissionError("Manual world mapper owns movement; stop mapping before remote game control")
         if capability == "audio.speak":
             if not self.config.get("windows_tts_enabled", True):
                 raise PermissionError("Windows speech output is disabled")
@@ -1011,6 +1014,28 @@ class WindowsGamingAgent:
         if self.vrchat is not None:
             self.vrchat.stop_input()
 
+    def _handle_connection_failure(self, exc: Exception) -> None:
+        self.realtime.cancel()
+        response = getattr(exc, "response", None)
+        status = getattr(response, "status_code", None)
+        temporary = isinstance(exc, (requests.ConnectionError, requests.Timeout)) or (
+            isinstance(exc, requests.HTTPError) and status is not None and (status == 429 or 500 <= status < 600)
+        )
+        temporary = temporary and not isinstance(exc, requests.exceptions.SSLError)
+        reason = f"Backend HTTP {status}" if status is not None else f"Backend {type(exc).__name__}"
+        # Manual mapping is local, not a remotely supervised input session.
+        # Never re-arm here: explicit stops and authentication failures stay stopped.
+        if temporary and self.world_mapper.running and self.vrchat is not None and self.vrchat.armed.is_set():
+            message = reason + "; manual mapping continues locally while reconnecting."
+        else:
+            self.world_mapper.stop()
+            if self.vrchat is not None:
+                self.vrchat.stop_input(reason=reason)
+            message = reason + "; OSC disarmed."
+        if getattr(self, "_connection_error", "") != message:
+            self.world_mapper._emit(message)
+        self._connection_error = message
+
     def run(self) -> None:
         if not self.token:
             raise RuntimeError("pair the agent first and store device_token in its config")
@@ -1027,11 +1052,11 @@ class WindowsGamingAgent:
             if self.vrchat_friends is not None: self.vrchat_friends.start()
             if self.web_status is not None: self.web_status.start()
             while not self._stop.is_set():
-                try: self.heartbeat_once()
-                except Exception:
-                    self.realtime.cancel()
-                    if self.vrchat is not None:
-                        self.vrchat.stop_input()
+                try:
+                    self.heartbeat_once()
+                    self._connection_error = ""
+                except Exception as exc:
+                    self._handle_connection_failure(exc)
                     if self._stop.wait(3): break
         finally:
             self.stop()

@@ -34,6 +34,7 @@ class VrchatOsc:
         self._last_received = 0.0
         self._error = ""
         self._last_chat = 0.0
+        self._disarm_reason = "Not armed locally"
 
     def start(self):
         from pythonosc.dispatcher import Dispatcher
@@ -65,17 +66,19 @@ class VrchatOsc:
             return {"enabled": True, "armed": self.armed.is_set(),
                     "receiving": time.time() - self._last_received < 30,
                     "last_received_epoch": self._last_received, "avatar_id": self._avatar,
-                    "parameters": dict(self._parameters), "error": self._error}
+                    "parameters": dict(self._parameters), "error": self._error,
+                    "disarm_reason": self._disarm_reason}
 
     def arm(self):
         if not self.gate():
             raise PermissionError("Select the VRChat profile and enable local game input first")
         self._cancel.clear()
         self.armed.set()
+        self._disarm_reason = ""
 
     def _check(self):
         if not self.armed.is_set() or not self.gate() or self._cancel.is_set():
-            raise PermissionError("VRChat OSC control is not armed locally")
+            raise PermissionError("VRChat OSC control is not armed locally" + (": " + self._disarm_reason if self._disarm_reason else ""))
 
     def pulse(self, name, value=1, seconds=0.25):
         if name not in AXES | BUTTONS:
@@ -120,8 +123,9 @@ class VrchatOsc:
             self._last_chat = time.monotonic()
         return {"ok": True, "sent": True}
 
-    def stop_input(self):
+    def stop_input(self, reason="Local stop / disarm"):
         with self._lock:
+            self._disarm_reason = reason
             self.armed.clear()
             self._cancel.set()
             for name in AXES | BUTTONS:
