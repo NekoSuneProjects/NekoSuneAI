@@ -8,11 +8,21 @@ from typing import Any
 from urllib.parse import quote, quote_plus, urlparse
 
 from .config import Config, normalize_music_provider
+from .media_devices import (
+    MediaTargetError,
+    control_remote_media,
+    default_media_target,
+    normalize_media_target,
+    play_remote_media,
+)
 from .media_player import (
     media_status_text,
+    next_media_playback,
     pause_media_playback,
     play_media_stream,
+    previous_media_playback,
     resume_media_playback,
+    seek_media_playback,
     set_media_volume,
     stop_media_playback,
 )
@@ -26,12 +36,26 @@ PROVIDER_SUFFIX_PATTERN = re.compile(
     r"\s+(?:on|using|via)\s+(soundcloud|spotify|deezer)\s*$",
     flags=re.IGNORECASE,
 )
+TARGET_SUFFIX_PATTERN = re.compile(
+    r"\s+(?:on|using|via)\s+(local(?: speaker)?|speaker|chromecast|google cast|cast|dlna|upnp|android tv|androidtv|adb|lg tv|lg webos|webos|samsung tv|samsung)\s*$",
+    flags=re.IGNORECASE,
+)
 STOP_PATTERN = re.compile(r"^\s*(stop|stop music|stop audio)\s*$", flags=re.IGNORECASE)
 PAUSE_PATTERN = re.compile(r"^\s*(pause|pause music|pause audio)\s*$", flags=re.IGNORECASE)
-RESUME_PATTERN = re.compile(r"^\s*(resume|resume music|resume audio)\s*$", flags=re.IGNORECASE)
+RESUME_PATTERN = re.compile(r"^\s*(resume|resume music|resume audio|continue|continue music)\s*$", flags=re.IGNORECASE)
+NEXT_PATTERN = re.compile(r"^\s*(next|next track|next song|skip|skip track|skip song)\s*$", flags=re.IGNORECASE)
+PREVIOUS_PATTERN = re.compile(r"^\s*(previous|previous track|previous song|last track|back a track)\s*$", flags=re.IGNORECASE)
 STATUS_PATTERN = re.compile(r"^\s*(what is playing|what's playing|media status|music status)\s*$", flags=re.IGNORECASE)
 VOLUME_PATTERN = re.compile(
     r"^\s*(?:set\s+)?(?:the\s+)?(?:(?:music|audio)\s+)?volume\s*(?:to\s*)?(\d{1,3})\s*%?\s*$",
+    flags=re.IGNORECASE,
+)
+SEEK_ABSOLUTE_PATTERN = re.compile(
+    r"^\s*(?:seek|jump|go)\s+(?:to\s+)?(?:(\d+)\s*:\s*(\d{1,2})|(\d+(?:\.\d+)?)\s*(seconds?|secs?|s|minutes?|mins?|m))\s*$",
+    flags=re.IGNORECASE,
+)
+SEEK_RELATIVE_PATTERN = re.compile(
+    r"^\s*(?:seek|skip|jump)\s+(forward|ahead|back|backward)\s+(\d+(?:\.\d+)?)\s*(seconds?|secs?|s|minutes?|mins?|m)\s*$",
     flags=re.IGNORECASE,
 )
 SOUNDCLOUD_URL_PATTERN = re.compile(r"https?://(?:www\.)?soundcloud\.com/[^\s]+", flags=re.IGNORECASE)
@@ -73,8 +97,18 @@ def _extract_requested_provider(text: str) -> tuple[str | None, str]:
     if not match:
         return None, text
     provider = normalize_music_provider(match.group(1))
-    stripped = text[: match.start()].strip()
-    return provider, stripped
+    return provider, text[: match.start()].strip()
+
+
+def _extract_target(text: str) -> tuple[str | None, str]:
+    match = TARGET_SUFFIX_PATTERN.search(text)
+    if not match:
+        return None, text
+    return normalize_media_target(match.group(1)), text[: match.start()].strip()
+
+
+def _effective_target(explicit_target: str | None) -> str:
+    return normalize_media_target(explicit_target or default_media_target())
 
 
 def _looks_like_media_request(text: str) -> bool:
@@ -83,10 +117,6 @@ def _looks_like_media_request(text: str) -> bool:
 
 
 def _music_search_url(query: str, provider: str) -> str:
-    # Fallback for providers with no direct-stream resolution (SoundCloud tracks
-    # get one via _find_soundcloud_track_url/_build_soundcloud_stream_url below;
-    # a future YouTube search/download provider would plug in here too — see
-    # TODO.md).
     if provider == "spotify":
         return f"https://open.spotify.com/search/{quote_plus(query)}"
     if provider == "deezer":
@@ -101,13 +131,8 @@ def _normalize_soundcloud_track_url(url: str) -> str | None:
         host = host[4:]
     if host != "soundcloud.com":
         return None
-    path = parsed.path.strip("/")
-    if not path:
-        return None
-    parts = [part for part in path.split("/") if part]
-    if len(parts) < 2:
-        return None
-    if parts[0].lower() in {"discover", "search", "you", "charts", "upload"}:
+    parts = [part for part in parsed.path.strip("/").split("/") if part]
+    if len(parts) < 2 or parts[0].lower() in {"discover", "search", "you", "charts", "upload"}:
         return None
     return f"https://soundcloud.com/{parts[0]}/{parts[1]}"
 
@@ -122,12 +147,9 @@ def _score_soundcloud_result(query: str, result: dict[str, str]) -> float:
     if normalized_query in combined:
         score += 55.0
     for token in normalized_query.split():
-        if token in title:
-            score += 9.0
-        if token in snippet:
-            score += 4.0
-        if token in url:
-            score += 6.0
+        if token in title: score += 9.0
+        if token in snippet: score += 4.0
+        if token in url: score += 6.0
     if "/sets/" in url or "/albums/" in url:
         score -= 10.0
     return score
@@ -137,22 +159,17 @@ def _find_soundcloud_track_url(query: str, config: Config) -> str | None:
     direct_match = SOUNDCLOUD_URL_PATTERN.search(query)
     if direct_match:
         return _normalize_soundcloud_track_url(direct_match.group(0))
-
-    search_query = f"site:soundcloud.com {query} soundcloud"
-    results = search_web(search_query, config)
+    results = search_web(f"site:soundcloud.com {query} soundcloud", config)
     candidates: list[tuple[float, str]] = []
     for result in results:
         normalized_url = _normalize_soundcloud_track_url(str(result.get("url", "")))
-        if not normalized_url:
-            continue
-        candidates.append((_score_soundcloud_result(query, result), normalized_url))
+        if normalized_url:
+            candidates.append((_score_soundcloud_result(query, result), normalized_url))
     if not candidates:
         return None
     candidates.sort(key=lambda item: item[0], reverse=True)
     best_score, best_url = candidates[0]
-    if best_score < 40.0:
-        return None
-    return best_url
+    return best_url if best_score >= 40.0 else None
 
 
 def _build_soundcloud_stream_url(track_url: str, config: Config) -> str:
@@ -167,9 +184,33 @@ def _open_url(url: str) -> None:
         raise RuntimeError(f"Could not open {url} in the default browser.")
 
 
+def _seconds(value: float, unit: str) -> float:
+    return value * 60.0 if unit.lower().startswith("m") else value
+
+
+def _control(action: str, target: str, value: float | int | None = None) -> str:
+    if target == "local":
+        if action == "play": return resume_media_playback()
+        if action == "pause": return pause_media_playback()
+        if action == "stop": return stop_media_playback()
+        if action == "next": return next_media_playback()
+        if action == "previous": return previous_media_playback()
+        if action == "seek": return seek_media_playback(float(value or 0), relative=False)
+        if action == "seek-relative": return seek_media_playback(float(value or 0), relative=True)
+        if action == "volume": return set_media_volume(int(value or 0))
+        raise RuntimeError(f"Unsupported local media action: {action}")
+    remote_action = "play" if action == "resume" else action
+    if remote_action == "seek-relative":
+        # Remote protocols generally expose absolute seek. Relative seek needs a
+        # position query per vendor, so keep this explicit rather than guessing.
+        raise MediaTargetError("Relative seek is currently local-only; use 'seek to 2:15' for remote renderers.")
+    return control_remote_media(remote_action, target=target, value=value)
+
+
 def _handle_music_request(
     cleaned_request: str,
     explicit_provider: str | None,
+    target: str,
     profile: dict[str, Any],
     config: Config,
 ) -> MediaActionResult:
@@ -177,57 +218,81 @@ def _handle_music_request(
     if not query or query.lower() in {"music", "some music", "a song", "songs"}:
         query = "trending music"
     provider = explicit_provider or _preferred_music_provider(profile, config)
-    stop_media_playback()
+    if target == "local":
+        stop_media_playback()
     if provider == "soundcloud":
         track_url = _find_soundcloud_track_url(query, config)
         if track_url:
             stream_url = _build_soundcloud_stream_url(track_url, config)
-            response = play_media_stream(
-                stream_url,
-                title=f"SoundCloud: {query}",
-                kind="music",
+            title = f"SoundCloud: {query}"
+            response = (
+                play_media_stream(stream_url, title=title, kind="music")
+                if target == "local"
+                else play_remote_media(stream_url, target=target, title=title, content_type="audio/mpeg")
             )
             media = _get_profile_media(profile)
             media["default_music_provider"] = provider
             media["last_music_query"] = query
-            return MediaActionResult(
-                handled=True,
-                response=f"{response} Resolved track: {track_url}",
-            )
+            media["last_media_target"] = target
+            return MediaActionResult(handled=True, response=f"{response} Resolved track: {track_url}")
+    if target != "local":
+        return MediaActionResult(
+            handled=True,
+            response=f"I can control {target}, but {provider} search did not provide a directly castable media URL. Use SoundCloud/direct media for remote playback or start the provider app on that device first.",
+        )
     url = _music_search_url(query, provider)
     _open_url(url)
     media = _get_profile_media(profile)
     media["default_music_provider"] = provider
     media["last_music_query"] = query
-    return MediaActionResult(
-        handled=True,
-        response=f"Opening {provider} results for '{query}' in your browser.",
-    )
+    media["last_media_target"] = target
+    return MediaActionResult(handled=True, response=f"Opening {provider} results for '{query}' in your browser.")
 
 
-def handle_media_request(
-    user_text: str,
-    profile: dict[str, Any],
-    config: Config,
-) -> MediaActionResult:
-    if STOP_PATTERN.match(user_text):
-        return MediaActionResult(handled=True, response=stop_media_playback())
-    if PAUSE_PATTERN.match(user_text):
-        return MediaActionResult(handled=True, response=pause_media_playback())
-    if RESUME_PATTERN.match(user_text):
-        return MediaActionResult(handled=True, response=resume_media_playback())
-    if STATUS_PATTERN.match(user_text):
-        return MediaActionResult(handled=True, response=media_status_text())
+def handle_media_request(user_text: str, profile: dict[str, Any], config: Config) -> MediaActionResult:
+    explicit_target, command = _extract_target(user_text.strip())
+    target = _effective_target(explicit_target)
 
-    volume_match = VOLUME_PATTERN.match(user_text)
-    if volume_match:
-        percent = int(volume_match.group(1))
-        return MediaActionResult(handled=True, response=set_media_volume(percent))
+    try:
+        if STOP_PATTERN.match(command):
+            return MediaActionResult(True, _control("stop", target))
+        if PAUSE_PATTERN.match(command):
+            return MediaActionResult(True, _control("pause", target))
+        if RESUME_PATTERN.match(command):
+            return MediaActionResult(True, _control("play", target))
+        if NEXT_PATTERN.match(command):
+            return MediaActionResult(True, _control("next", target))
+        if PREVIOUS_PATTERN.match(command):
+            return MediaActionResult(True, _control("previous", target))
+        if STATUS_PATTERN.match(command):
+            if target == "local":
+                return MediaActionResult(True, media_status_text())
+            return MediaActionResult(True, f"Remote target selected: {target}. Status queries vary by renderer; media controls are available.")
 
-    if not _looks_like_media_request(user_text):
-        return MediaActionResult(handled=False)
+        volume_match = VOLUME_PATTERN.match(command)
+        if volume_match:
+            return MediaActionResult(True, _control("volume", target, int(volume_match.group(1))))
 
-    cleaned_request = _strip_play_prefix(user_text)
-    explicit_provider, cleaned_request = _extract_requested_provider(cleaned_request)
+        absolute = SEEK_ABSOLUTE_PATTERN.match(command)
+        if absolute:
+            if absolute.group(1) is not None:
+                seconds = int(absolute.group(1)) * 60 + int(absolute.group(2))
+            else:
+                seconds = _seconds(float(absolute.group(3)), absolute.group(4))
+            return MediaActionResult(True, _control("seek", target, seconds))
 
-    return _handle_music_request(cleaned_request, explicit_provider, profile, config)
+        relative = SEEK_RELATIVE_PATTERN.match(command)
+        if relative:
+            amount = _seconds(float(relative.group(2)), relative.group(3))
+            if relative.group(1).lower() in {"back", "backward"}:
+                amount *= -1
+            return MediaActionResult(True, _control("seek-relative", target, amount))
+
+        if not _looks_like_media_request(command):
+            return MediaActionResult(handled=False)
+
+        cleaned_request = _strip_play_prefix(command)
+        explicit_provider, cleaned_request = _extract_requested_provider(cleaned_request)
+        return _handle_music_request(cleaned_request, explicit_provider, target, profile, config)
+    except (MediaTargetError, RuntimeError, ValueError) as exc:
+        return MediaActionResult(handled=True, response=f"Media control failed: {exc}")
