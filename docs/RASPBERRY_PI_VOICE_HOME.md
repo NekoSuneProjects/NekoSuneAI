@@ -17,44 +17,78 @@ trust AA:BB:CC:DD:EE:FF
 connect AA:BB:CC:DD:EE:FF
 ```
 
-Select Alexa as the Raspberry Pi host output in the normal audio panel. After
-that, NekoSuneAI handles the Docker side automatically.
+Select Alexa as the Raspberry Pi host output in the normal audio panel.
 
-On startup Docker mounts the host `/run/user` sessions read-only. The entrypoint:
+Unlike the Docker/`main` backend, Pi Proxy's `Dockerfile.pi-proxy` has no
+auto-detecting audio entrypoint (no session scanning, no UID auto-detection,
+no privilege drop) — `compose.pi-proxy.yml` mounts the host's PulseAudio/
+PipeWire session statically, assuming it belongs to UID 1000 (the default
+`pi` user):
 
-1. scans all active user sessions,
-2. finds a working PulseAudio/PipeWire socket,
-3. detects the socket owner's UID/GID,
-4. reads the host default sink,
-5. configures `XDG_RUNTIME_DIR`, `PULSE_SERVER`/`PIPEWIRE_REMOTE`, and ffplay,
-6. drops the app to the detected host audio user, and
-7. lets PortAudio follow the host default speaker.
-
-You normally **do not** need to set `PUID`, `PGID`, `AUDIO_GID`, `VIDEO_GID`,
-`XDG_RUNTIME_DIR`, `PULSE_SERVER`, or `SPEAKER_DEVICE_INDEX` anymore.
-
-Keep this enabled in `.env`:
-
-```env
-NEKOSUNEAI_AUTO_AUDIO=true
-SPEAKER_DEVICE_INDEX=
-MIC_DEVICE_INDEX=
+```yaml
+environment:
+  PULSE_SERVER: unix:/run/pulse/native
+  PULSE_COOKIE: /run/pulse-cookie
+volumes:
+  - ${PULSE_RUNTIME_DIR:-/run/user/1000/pulse}:/run/pulse:ro
+  - ${PULSE_COOKIE_FILE:-/home/pi/.config/pulse/cookie}:/run/pulse-cookie:ro
 ```
 
-The startup log should contain something like:
+If the Bluetooth watchdog logs `Command '['pactl', ...]' timed out after 15
+seconds`, the mounted socket almost always isn't a live server. Diagnose on
+the host itself (not inside the container) **as the `pi` user, not root** —
+`id -u`/`pactl info` run as root check root's own (nonexistent) audio
+session at `/run/user/0/`, not `pi`'s at `/run/user/1000/`, and will fail
+even when `pi`'s session is perfectly fine:
 
-```text
-[startup] Auto-detected host audio: PulseAudio/PipeWire session UID 1000; default sink: bluez_output....
-[startup] Running NekoSuneAI as detected host audio UID:GID 1000:1000
+```bash
+sudo -u pi XDG_RUNTIME_DIR=/run/user/1000 pactl info      # must succeed
+ls -l /run/user/1000/pulse/native                          # must exist as a socket
+loginctl show-user pi -p Linger                             # Linger=no means this
+                                                             # disappears once nobody
+                                                             # is logged in as pi
 ```
 
-If you intentionally need to override detection for an unusual host, the old
-`PUID`, `PGID`, `XDG_RUNTIME_DIR`, `PULSE_SERVER`, and `PIPEWIRE_REMOTE`
-variables remain optional compatibility overrides.
+Two common headless-Pi causes, often together:
 
-The dashboard shows the host default source/sink names. Leaving Speaker on
-**System default** means Bluetooth reconnects and host default-sink changes are
-followed without editing NekoSuneAI settings.
+1. `/run/user/<uid>/` only exists while that user has an active `logind`
+   session, so a Pi that boots straight into background services with
+   nobody ever logged in as `pi` may never create it:
+
+   ```bash
+   sudo loginctl enable-linger pi
+   sudo systemctl status user@1000.service   # enable-linger doesn't always start
+   sudo systemctl start user@1000.service    # it immediately -- start it directly if inactive
+   ```
+
+2. Even with that session running, PipeWire/PulseAudio itself may never have
+   started — normally something a desktop login triggers, which never
+   happens on a Lite/headless install. Enable it for `pi` directly:
+
+   ```bash
+   sudo -u pi XDG_RUNTIME_DIR=/run/user/1000 systemctl --user enable --now pipewire pipewire-pulse wireplumber
+   ```
+
+Re-run the `pactl info` check above after each step until it succeeds, then
+restart the Pi Proxy container.
+
+If your host user's UID isn't 1000 or its home isn't `/home/pi`, set
+`PULSE_RUNTIME_DIR`/`PULSE_COOKIE_FILE` in `.env` (or as shell env before
+`docker compose up`) to match reality instead of the defaults above --
+`scripts/detect-pulse-audio.sh` does this for you instead of guessing by
+hand: it scans `/run/user/*/pulse/native` for a socket that actually answers
+`pactl info`, then writes the matching `PULSE_RUNTIME_DIR`/
+`PULSE_COOKIE_FILE` into `.env`.
+
+```bash
+chmod +x scripts/detect-pulse-audio.sh   # first time only
+./scripts/detect-pulse-audio.sh
+```
+
+Re-run it any time the host's audio-session user changes (a different user
+logs in, or you move the speaker setup to a different Pi account) --
+`compose.pi-proxy.yml`'s own defaults (UID 1000, `/home/pi`) still work fine
+unmodified for the common case where `pi` is that user.
 
 ## 2. Kinect 360 microphone
 
@@ -84,22 +118,23 @@ MIC_CHANNEL_INDEX=0
 The Compose file passes `/dev/snd` and `/dev/bus/usb` through. Kinect 360 is a
 libfreenect device; do not install libfreenect2, which is for Kinect v2.
 
-## 3. Wake word and dashboard
+## 3. Wake word and status page
 
-Set a long random `WEB_DASHBOARD_TOKEN`, then enable wake-word detection:
+Enable wake-word detection:
 
 ```env
-WEB_DASHBOARD_TOKEN=replace-with-a-long-random-value
 WAKE_WORD_ENABLED=true
 WAKE_WORD_MODEL=hey_jarvis
 WAKE_WORD_FRAMEWORK=onnx
 WAKE_WORD_THRESHOLD=0.55
 ```
 
-Start with `docker compose up -d` and open:
+Start with `docker compose -f compose.pi-proxy.yml up -d` and open the
+read-only status page (no token — see `AGENTS.md`'s note that this is
+deliberately the lightweight view, not the full Docker backend dashboard):
 
 ```text
-http://RASPBERRY_PI_IP:8788/?token=YOUR_TOKEN
+http://RASPBERRY_PI_IP:8799/
 ```
 
 `hey_jarvis` is the bundled model name, not a custom “Neko” model. For a custom

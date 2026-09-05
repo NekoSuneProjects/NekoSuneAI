@@ -26,7 +26,7 @@ services:
       - 'c 189:* rwm'
     volumes:
       - /dev/bus/usb:/dev/bus/usb
-      - ./data:/data
+      - ./pi-proxy-agent.json:/data/pi-proxy-agent.json
       - /run/dbus:/run/dbus:ro
       - ${PULSE_RUNTIME_DIR:-/run/user/1000/pulse}:/run/pulse:ro
       - ${PULSE_COOKIE_FILE:-/home/pi/.config/pulse/cookie}:/run/pulse-cookie:ro
