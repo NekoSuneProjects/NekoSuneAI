@@ -4,7 +4,7 @@ services:
       context: .
       args:
         APP_VERSION: "1.2.1"
-    image: ghcr.io/nekosuneprojects/nekosuneai:1.2.1
+    image: ghcr.io/nekosuneprojects/nekosuneai:release-1.2.1
     restart: unless-stopped
     # Protect small hosts such as an 8 GB Raspberry Pi from a runaway decoder,
     # extractor or model process taking the entire machine down. Override these
@@ -21,19 +21,18 @@ services:
         required: false
     volumes:
       - ./data:/app/data
-      - ./audio:/app/audio
       - nekosuneai-models:/app/models
-      - /dev/bus/usb:/dev/bus/usb
-      - /run/user:/run/user:ro
-      - /run/dbus/system_bus_socket:/run/dbus/system_bus_socket
-    device_cgroup_rules:
-      - 'c 189:* rwm'
-    devices:
-      - /dev/snd:/dev/snd
     environment:
-      NEKOSUNEAI_AUTO_AUDIO: ${NEKOSUNEAI_AUTO_AUDIO:-true}
-      BLUETOOTH_RECONNECT_ENABLED: ${BLUETOOTH_RECONNECT_ENABLED:-true}
-      PIPEWIRE_REMOTE: ${PIPEWIRE_REMOTE:-pipewire-0}
+      # Local hardware (Bluetooth speaker, mic/speaker audio, Kinect USB
+      # camera) is a Pi Proxy node's job now (see PiProxy/), not this
+      # backend's -- that's why there's no /dev/snd, /dev/bus/usb or D-Bus
+      # socket mount here any more, and this backend can run anywhere,
+      # including a VPS with no local audio/Bluetooth hardware at all. A
+      # single-box deployment with no separate Pi Proxy can still opt back
+      # into the legacy in-process Bluetooth watchdog (see webgui.py) by
+      # setting BLUETOOTH_RECONNECT_ENABLED=true in .env, but doing so also
+      # needs the hardware mounts this file no longer ships by default -- add
+      # them back in a local override file if you need that path.
       WEB_DASHBOARD_HOST: 0.0.0.0
       WEB_DASHBOARD_PORT: 8788
 

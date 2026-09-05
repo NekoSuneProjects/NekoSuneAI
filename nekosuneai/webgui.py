@@ -357,9 +357,16 @@ class Api:
             self._monitor_notification,
         )
         self.home_assistant.start()
-        from .bluetooth_watchdog import BluetoothSpeakerWatchdog
-        self.bluetooth_watchdog = BluetoothSpeakerWatchdog(self.config, self._push_notification)
-        self.bluetooth_watchdog.start()
+        # Bluetooth speaker management is a Pi Proxy responsibility now (see
+        # BRANCH_MAP.md / PiProxy/) — a paired Pi Proxy node handles physical
+        # Bluetooth reconnect so this backend can run anywhere (a VPS with
+        # more cores/GPU, not only a Pi) without an always-on hardware-polling
+        # loop. This legacy in-process path stays available, off by default,
+        # only for a single-box deployment with no separate Pi Proxy.
+        if self.config.bluetooth_reconnect_enabled:
+            from .bluetooth_watchdog import BluetoothSpeakerWatchdog
+            self.bluetooth_watchdog = BluetoothSpeakerWatchdog(self.config, self._push_notification)
+            self.bluetooth_watchdog.start()
         # Update window title with the loaded companion name
         global _window
         if _window:

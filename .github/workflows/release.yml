@@ -22,7 +22,7 @@ env:
 jobs:
   smoke_test:
     name: Local smoke test amd64 + arm64
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v4
@@ -103,7 +103,7 @@ jobs:
 
   sync_release_tag:
     name: Update version tag after smoke tests
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main'
     needs: smoke_test
     runs-on: [self-hosted, Linux, X64]
     steps:
@@ -169,10 +169,9 @@ jobs:
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          flavor: latest=false
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
+            type=raw,value=release-${{ steps.version.outputs.version }}
 
       - name: Build and publish tested Docker image
         uses: docker/build-push-action@v6

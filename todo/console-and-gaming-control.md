@@ -2,6 +2,8 @@
 
 Build one gaming-control layer so Neko can understand consoles, PCs, TVs and streaming/remote-play devices without every command being platform-specific. Use official/local interfaces where available and fall back gracefully when a console does not expose a supported action.
 
+**Local-network reachability note (PI-PROXY split):** `nekosuneai/console_control.py`'s discovery/status/command logic (PS5/Xbox) only works from something on the *same local network* as the console — a Docker backend hosted on a VPS has no LAN path to a PS5/Xbox at home at all. `PiProxy/` (branch `build/pi-proxy-release`) now also carries this module and calls it directly as new paired-node capabilities (`console.status`, `console.capabilities`, `console.command`), since Pi Proxy runs on the home network. This backend should route console intents to a paired Pi Proxy node's capabilities (same pattern as routing game intents to the Windows Gaming Node in GAME-01) rather than assuming it can reach the console itself when deployed off-LAN; keep `console_control.py` here too for a same-box/LAN deployment where the backend *is* on the local network, but don't assume that's always true going forward.
+
 ### PlayStation 5 / PlayStation
 
 - [ ] PS5 discovery/online-state monitoring on the local network where feasible.

@@ -1,5 +1,14 @@
 # Raspberry Pi voice, Kinect 360, Alexa Bluetooth and Home Assistant
 
+> **Superseded for local hardware setup.** Bluetooth speaker management,
+> Kinect camera/mic and local wake word now run on a Pi Proxy node (see
+> `PiProxy/`, which carries an adapted copy of this same guide) rather than
+> this backend container — this backend no longer ships the
+> `/dev/snd`/`/dev/bus/usb`/D-Bus mounts these steps assume (see
+> `docker-compose.yml`). Follow `PiProxy/README.md` and
+> `PiProxy/docs/RASPBERRY_PI_VOICE_HOME.md` for the Pi-side hardware setup;
+> the Home Assistant/MQTT section below is still accurate for this backend.
+
 ## 1. Prepare host audio
 
 Pair the Alexa as a Bluetooth speaker on the Raspberry Pi host, not inside the

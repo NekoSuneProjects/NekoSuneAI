@@ -1,5 +1,8 @@
 # NekoSuneAI Docker TODO
 
+- [x] Container publishing uses `release-<VERSION>`; Compose uses `release-1.2.1`. See [image tags](docs/CONTAINER_TAGS.md).
+- [ ] Verify successful amd64/arm64 CI publication of `release-1.2.1` before updating live deployments.
+
 Owner checkout: `Docker/`
 Product branch and PR target: `main`
 Scope: Docker/Pi backend, server APIs, web dashboard, orchestration and integrations.
