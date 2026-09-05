@@ -24,7 +24,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-      alsa-utils bluez ca-certificates curl ffmpeg libasound2-plugins libatomic1 libportaudio2 \
+      adb alsa-utils bluez ca-certificates curl ffmpeg libasound2-plugins libatomic1 libportaudio2 \
       libfreenect0.5 pipewire-bin pulseaudio-utils usbutils util-linux xz-utils; \
     case "$TARGETARCH" in \
       amd64) node_arch=x64 ;; \
