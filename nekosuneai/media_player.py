@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import os
 import random
 import shutil
+import signal
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -21,6 +24,7 @@ class MediaPlaybackState:
     title: str = ""
     source_url: str = ""
     is_paused: bool = False
+    position_seconds: float = 0.0
 
 
 class MediaPlayer:
@@ -30,6 +34,9 @@ class MediaPlayer:
         self._current = MediaPlaybackState()
         self._paused = MediaPlaybackState()
         self._volume = 100
+        self._started_monotonic = 0.0
+        self._history: list[MediaPlaybackState] = []
+        self._queue: list[MediaPlaybackState] = []
 
     def _resolve_ffplay(self) -> str:
         ffplay_path = shutil.which("ffplay")
@@ -39,126 +46,199 @@ class MediaPlayer:
             )
         return ffplay_path
 
-    def play_stream(self, url: str, *, title: str, kind: str) -> str:
-        ffplay_path = self._resolve_ffplay()
-        with self._lock:
-            self.stop()
-            command = [
-                ffplay_path,
-                "-nodisp",
-                "-autoexit",
-                "-loglevel",
-                "error",
-            ]
-            # Remote audio endpoints (SoundCloud/proxies/CDNs) can briefly drop
-            # their HTTP socket during an otherwise valid song. Tell FFmpeg to
-            # reconnect instead of treating that transient disconnect as EOF.
-            if urlparse(url).scheme.lower() in {"http", "https"}:
-                command += [
-                    "-reconnect", "1",
-                    "-reconnect_streamed", "1",
-                    "-reconnect_on_network_error", "1",
-                    "-reconnect_on_http_error", "4xx,5xx",
-                    "-reconnect_delay_max", "8",
-                ]
-            command += [
-                "-volume",
-                str(self._volume),
-                url,
-            ]
+    def _position_locked(self) -> float:
+        base = float(self._current.position_seconds or 0.0)
+        if self._process is not None and self._started_monotonic > 0 and not self._current.is_paused:
+            base += max(0.0, time.monotonic() - self._started_monotonic)
+        return base
+
+    def _terminate_locked(self, *, clear_current: bool = True) -> bool:
+        stopped = False
+        if self._process is not None:
             try:
-                self._process = subprocess.Popen(
-                    command,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                )
-            except OSError as exc:
-                raise RuntimeError(f"Could not start ffplay for {title}. {exc}") from exc
-            self._current = MediaPlaybackState(
-                kind=kind,
-                title=title,
-                source_url=url,
-                is_paused=False,
+                self._process.terminate()
+                self._process.wait(timeout=3)
+            except Exception:
+                try:
+                    self._process.kill()
+                except Exception:
+                    pass
+            stopped = True
+        self._process = None
+        self._started_monotonic = 0.0
+        if clear_current:
+            self._current = MediaPlaybackState()
+        return stopped
+
+    def _start_locked(self, state: MediaPlaybackState, *, remember_previous: bool) -> str:
+        ffplay_path = self._resolve_ffplay()
+        if remember_previous and self._current.source_url:
+            previous = MediaPlaybackState(
+                kind=self._current.kind,
+                title=self._current.title,
+                source_url=self._current.source_url,
+                position_seconds=0.0,
             )
-            self._paused = MediaPlaybackState()
-        return f"Playing {title}."
+            if not self._history or self._history[-1].source_url != previous.source_url:
+                self._history.append(previous)
+                del self._history[:-50]
+        self._terminate_locked(clear_current=True)
+        command = [ffplay_path, "-nodisp", "-autoexit", "-loglevel", "error"]
+        if urlparse(state.source_url).scheme.lower() in {"http", "https"}:
+            command += [
+                "-reconnect", "1",
+                "-reconnect_streamed", "1",
+                "-reconnect_on_network_error", "1",
+                "-reconnect_on_http_error", "4xx,5xx",
+                "-reconnect_delay_max", "8",
+            ]
+        if state.position_seconds > 0:
+            command += ["-ss", f"{state.position_seconds:.3f}"]
+        command += ["-volume", str(self._volume), state.source_url]
+        try:
+            self._process = subprocess.Popen(
+                command,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            raise RuntimeError(f"Could not start ffplay for {state.title}. {exc}") from exc
+        self._current = MediaPlaybackState(
+            kind=state.kind,
+            title=state.title,
+            source_url=state.source_url,
+            is_paused=False,
+            position_seconds=max(0.0, float(state.position_seconds or 0.0)),
+        )
+        self._paused = MediaPlaybackState()
+        self._started_monotonic = time.monotonic()
+        return f"Playing {state.title}."
+
+    def play_stream(self, url: str, *, title: str, kind: str) -> str:
+        with self._lock:
+            return self._start_locked(MediaPlaybackState(kind=kind, title=title, source_url=url), remember_previous=True)
 
     def stop(self) -> bool:
         with self._lock:
-            stopped = False
-            if self._process is not None:
-                try:
-                    self._process.terminate()
-                    self._process.wait(timeout=3)
-                except Exception:
-                    try:
-                        self._process.kill()
-                    except Exception:
-                        pass
-                stopped = True
-            self._process = None
-            self._current = MediaPlaybackState()
+            stopped = self._terminate_locked(clear_current=True)
+            self._paused = MediaPlaybackState()
             return stopped
 
     def pause(self) -> str:
         with self._lock:
             if self._process is None or not self._current.source_url:
                 return "Nothing is playing right now."
+            position = self._position_locked()
+            # SIGSTOP/SIGCONT provides a real pause on POSIX and preserves stream
+            # buffers. Windows falls back to restarting from the tracked position.
+            if os.name != "nt":
+                try:
+                    os.kill(self._process.pid, signal.SIGSTOP)
+                    self._current.is_paused = True
+                    self._current.position_seconds = position
+                    self._started_monotonic = 0.0
+                    self._paused = MediaPlaybackState(**self._current.__dict__)
+                    return f"Paused {self._current.title}."
+                except Exception:
+                    pass
             self._paused = MediaPlaybackState(
                 kind=self._current.kind,
                 title=self._current.title,
                 source_url=self._current.source_url,
                 is_paused=True,
+                position_seconds=position,
             )
-            self.stop()
-            return f"Paused {self._paused.title}."
+            title = self._paused.title
+            self._terminate_locked(clear_current=True)
+            return f"Paused {title}."
 
     def resume(self) -> str:
         with self._lock:
+            if self._process is not None and self._current.is_paused and os.name != "nt":
+                try:
+                    os.kill(self._process.pid, signal.SIGCONT)
+                    self._current.is_paused = False
+                    self._started_monotonic = time.monotonic()
+                    self._paused = MediaPlaybackState()
+                    return f"Resumed {self._current.title}."
+                except Exception:
+                    pass
             if not self._paused.source_url:
                 return "Nothing is paused right now."
             paused = self._paused
-            self._paused = MediaPlaybackState()
-        return self.play_stream(paused.source_url, title=paused.title, kind=paused.kind)
+            return self._start_locked(paused, remember_previous=False).replace("Playing ", "Resumed ", 1)
 
-    def _send_ffplay_key(self, key: bytes) -> None:
-        if self._process is None or self._process.stdin is None:
-            return
-        try:
-            self._process.stdin.write(key + b'\n')
-            self._process.stdin.flush()
-        except Exception:
-            pass
+    def seek(self, seconds: float, *, relative: bool = False) -> str:
+        with self._lock:
+            state = self._current if self._current.source_url else self._paused
+            if not state.source_url:
+                return "Nothing is playing right now."
+            current_pos = self._position_locked() if self._current.source_url else float(state.position_seconds or 0.0)
+            target = max(0.0, current_pos + float(seconds) if relative else float(seconds))
+            was_paused = bool(self._current.is_paused or self._paused.source_url)
+            replacement = MediaPlaybackState(kind=state.kind, title=state.title, source_url=state.source_url, position_seconds=target)
+            if was_paused:
+                self._terminate_locked(clear_current=True)
+                self._paused = MediaPlaybackState(**replacement.__dict__, is_paused=True)
+                return f"Seeked {replacement.title} to {int(target)} seconds; it remains paused."
+            self._start_locked(replacement, remember_previous=False)
+            return f"Seeked {replacement.title} to {int(target)} seconds."
+
+    def enqueue(self, url: str, *, title: str, kind: str = "music") -> None:
+        with self._lock:
+            self._queue.append(MediaPlaybackState(kind=kind, title=title, source_url=url))
+
+    def next(self) -> str:
+        with self._lock:
+            if not self._queue:
+                return "There is no next queued track."
+            nxt = self._queue.pop(0)
+            return self._start_locked(nxt, remember_previous=True).replace("Playing ", "Skipped to ", 1)
+
+    def previous(self) -> str:
+        with self._lock:
+            if not self._history:
+                return "There is no previous track in local playback history."
+            previous = self._history.pop()
+            if self._current.source_url:
+                self._queue.insert(0, MediaPlaybackState(kind=self._current.kind, title=self._current.title, source_url=self._current.source_url))
+            return self._start_locked(previous, remember_previous=False).replace("Playing ", "Returned to ", 1)
 
     def set_volume(self, percent: int) -> str:
         with self._lock:
-            target = max(0, min(100, percent))
-            if self._process is None or not self._current.source_url:
-                self._volume = target
-                return f"Volume set to {self._volume}% for the next track."
-
-            difference = target - self._volume
-            if difference == 0:
-                return f"Volume already at {self._volume}% ."
-
-            step_count = abs(difference)
-            step_key = b'0' if difference > 0 else b'9'
-            for _ in range(step_count):
-                self._send_ffplay_key(step_key)
+            target = max(0, min(100, int(percent)))
+            if target == self._volume:
+                return f"Volume already at {self._volume}%."
+            # ffplay does not offer a dependable process-control API for absolute
+            # volume changes. Restart at the tracked timestamp so volume changes
+            # do not jump back to the beginning of the song.
+            state = self._current if self._current.source_url else self._paused
             self._volume = target
-            return f"Volume adjusted to {self._volume}% without restarting playback."
+            if not state.source_url:
+                return f"Volume set to {self._volume}% for the next track."
+            position = self._position_locked() if self._current.source_url else float(state.position_seconds or 0.0)
+            was_paused = bool(self._current.is_paused or self._paused.source_url)
+            replacement = MediaPlaybackState(kind=state.kind, title=state.title, source_url=state.source_url, position_seconds=position)
+            if was_paused:
+                self._terminate_locked(clear_current=True)
+                self._paused = MediaPlaybackState(**replacement.__dict__, is_paused=True)
+            else:
+                self._start_locked(replacement, remember_previous=False)
+            return f"Volume adjusted to {self._volume}% without losing the track position."
 
     def current_kind(self) -> str:
         with self._lock:
-            return self._current.kind if self._process is not None else ""
+            return self._current.kind if self._process is not None else (self._paused.kind if self._paused.source_url else "")
 
     def status_text(self) -> str:
         with self._lock:
             if self._process is not None and self._current.title:
-                return f"Now playing: {self._current.title} ({self._current.kind})."
+                position = int(self._position_locked())
+                prefix = "Paused" if self._current.is_paused else "Now playing"
+                return f"{prefix}: {self._current.title} ({self._current.kind}) at {position}s, volume {self._volume}%."
             if self._paused.title:
-                return f"Paused: {self._paused.title} ({self._paused.kind})."
+                return f"Paused: {self._paused.title} ({self._paused.kind}) at {int(self._paused.position_seconds)}s, volume {self._volume}%."
             return "No media is playing."
 
 
@@ -182,6 +262,22 @@ def resume_media_playback() -> str:
     return _PLAYER.resume()
 
 
+def seek_media_playback(seconds: float, *, relative: bool = False) -> str:
+    return _PLAYER.seek(seconds, relative=relative)
+
+
+def next_media_playback() -> str:
+    return _PLAYER.next()
+
+
+def previous_media_playback() -> str:
+    return _PLAYER.previous()
+
+
+def queue_media_stream(url: str, *, title: str, kind: str = "music") -> None:
+    _PLAYER.enqueue(url, title=title, kind=kind)
+
+
 def set_media_volume(percent: int) -> str:
     return _PLAYER.set_volume(percent)
 
@@ -195,15 +291,9 @@ def current_media_kind() -> str:
 
 
 def _resolve_thinking_sound_path(configured_path: str) -> str | None:
-    """*configured_path* may be a single audio file OR a folder of tracks to
-    pick a random one from each time — ffplay itself can't play a directory,
-    so a folder has to be resolved to one file's path first."""
     candidate = Path(configured_path)
     if candidate.is_dir():
-        tracks = [
-            entry for entry in candidate.iterdir()
-            if entry.is_file() and entry.suffix.lower() in _AUDIO_EXTENSIONS
-        ]
+        tracks = [entry for entry in candidate.iterdir() if entry.is_file() and entry.suffix.lower() in _AUDIO_EXTENSIONS]
         if not tracks:
             return None
         return str(random.choice(tracks))
@@ -219,17 +309,10 @@ def _play_thinking_sound(config: "Config") -> None:
             return
         play_media_stream(resolved_path, title="Thinking...", kind="thinking")
     except Exception as exc:
-        # Runs on a background Timer thread with nothing watching stderr in the
-        # GUI (pythonw.exe) — an uncaught exception here would otherwise just
-        # vanish, making a bad thinking-sound path look like "nothing happens".
         print(f"[ThinkingSound] Could not play: {exc}")
 
 
 def start_thinking_sound(config: "Config") -> threading.Timer | None:
-    """Start a delayed one-shot "thinking" cue — plays only if *config* enables
-    it, a sound file/folder is set, and nothing else is already playing (never
-    interrupts music the user started). Callers must always pass the returned
-    timer to stop_thinking_sound() in a ``finally`` block."""
     if not config.thinking_sound_enabled or not config.thinking_sound_path:
         return None
     if current_media_kind():
@@ -244,7 +327,5 @@ def stop_thinking_sound(timer: threading.Timer | None) -> None:
     if timer is None:
         return
     timer.cancel()
-    # Only stop playback if it's actually our cue — avoids clobbering music that
-    # started (e.g. a media request) while we were thinking.
     if current_media_kind() == "thinking":
         stop_media_playback()
