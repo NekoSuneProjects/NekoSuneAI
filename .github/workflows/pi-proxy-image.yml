@@ -15,15 +15,12 @@ concurrency:
 
 jobs:
   smoke:
+    name: Local smoke test amd64 + arm64
     if: github.ref == 'refs/heads/build/pi-proxy-release'
     runs-on: [self-hosted, Linux, X64]
-    strategy:
-      matrix:
-        arch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+
       - name: Read version
         id: version
         shell: bash
@@ -32,29 +29,62 @@ jobs:
           version="$(tr -d '\r\n' < VERSION)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "version=$version" >> "$GITHUB_OUTPUT"
-      - name: Build architecture smoke image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.pi-proxy
-          platforms: linux/${{ matrix.arch }}
-          load: true
-          tags: nekosuneai-piproxy-smoke:${{ github.run_id }}-${{ matrix.arch }}
-          build-args: APP_VERSION=${{ steps.version.outputs.version }}
-          cache-from: type=gha,scope=piproxy-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=piproxy-${{ matrix.arch }}
-      - name: Smoke test imports and command line
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+
+      # Sequential, single job -- not a matrix. There is only one self-hosted
+      # [Linux, X64] runner; a matrix strategy schedules amd64 and arm64 as
+      # two separate jobs that both want that one runner, so one leg (usually
+      # the fast amd64 build) just queues forever behind the much slower
+      # QEMU-emulated arm64 build instead of actually running. One job with
+      # two steps avoids that entirely -- same layout as Docker's own
+      # release.yml smoke_test job.
+      - name: Local smoke build linux/amd64
         shell: bash
         run: |
           set -euo pipefail
-          image="nekosuneai-piproxy-smoke:${{ github.run_id }}-${{ matrix.arch }}"
-          test "$(docker image inspect "$image" --format '{{.Architecture}}')" = "${{ matrix.arch }}"
-          docker run --rm --platform linux/${{ matrix.arch }} "$image" --help
-          docker run --rm --platform linux/${{ matrix.arch }} --entrypoint python "$image" \
-            -c "import sounddevice, openwakeword; import nekosuneai.pi_proxy_agent; print('Pi Proxy imports OK')"
-      - name: Clean smoke image
+          docker buildx build \
+            --platform linux/amd64 \
+            --load \
+            --tag nekosuneai-piproxy-smoke:amd64 \
+            --file Dockerfile.pi-proxy \
+            --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
+            --cache-from type=gha,scope=piproxy-amd64 \
+            --cache-to type=gha,mode=max,scope=piproxy-amd64 \
+            .
+
+          test "$(docker image inspect nekosuneai-piproxy-smoke:amd64 --format '{{.Architecture}}')" = "amd64"
+
+          docker run --rm --platform linux/amd64 nekosuneai-piproxy-smoke:amd64 --help
+
+          docker run --rm --platform linux/amd64 --entrypoint python nekosuneai-piproxy-smoke:amd64 \
+            -c "import sounddevice, openwakeword; import nekosuneai.pi_proxy_agent; print('amd64 Pi Proxy imports OK')"
+
+      - name: Local smoke build linux/arm64
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --platform linux/arm64 \
+            --load \
+            --tag nekosuneai-piproxy-smoke:arm64 \
+            --file Dockerfile.pi-proxy \
+            --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
+            --cache-from type=gha,scope=piproxy-arm64 \
+            --cache-to type=gha,mode=max,scope=piproxy-arm64 \
+            .
+
+          test "$(docker image inspect nekosuneai-piproxy-smoke:arm64 --format '{{.Architecture}}')" = "arm64"
+
+          docker run --rm --platform linux/arm64 nekosuneai-piproxy-smoke:arm64 --help
+
+          docker run --rm --platform linux/arm64 --entrypoint python nekosuneai-piproxy-smoke:arm64 \
+            -c "import sounddevice, openwakeword; import nekosuneai.pi_proxy_agent; print('arm64 Pi Proxy imports OK')"
+
+      - name: Clean local smoke images
         if: always()
-        run: docker image rm -f nekosuneai-piproxy-smoke:${{ github.run_id }}-${{ matrix.arch }} || true
+        run: docker image rm -f nekosuneai-piproxy-smoke:amd64 nekosuneai-piproxy-smoke:arm64 2>/dev/null || true
 
   publish:
     needs: smoke
