@@ -52,6 +52,7 @@ jobs:
             --name NekoSuneAI-Windows-Gaming-Node `
             --icon data/logo.ico `
             --paths . `
+            --add-data "game-skills;game-skills" `
             --collect-submodules nekosuneai `
             --collect-all vgamepad `
             --collect-all obsws_python `

@@ -7,6 +7,7 @@ import sys
 import threading
 import time
 import tkinter as tk
+import webbrowser
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from tkinter import messagebox, ttk
@@ -22,6 +23,8 @@ APP_TITLE = "NekoSuneAI Windows Gaming Node"
 BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
 CONFIG_PATH = BASE_DIR / "windows-gaming-agent.json"
 SKILLS_ROOT = BASE_DIR / "game-skills"
+if not SKILLS_ROOT.is_dir():
+    SKILLS_ROOT = Path(getattr(sys, "_MEIPASS", BASE_DIR)) / "game-skills"
 DEFAULT_SERVER_PORT = 8788
 MDNS_SERVICE = "_nekosuneai._tcp.local."
 PAIRING_TIMEOUT_SECONDS = 300
@@ -88,6 +91,18 @@ def _local_ipv4_addresses() -> list[str]:
     except OSError:
         pass
     return sorted(addresses)
+
+
+def _check_pairing_response(response: requests.Response) -> None:
+    if response.ok:
+        return
+    try:
+        detail = str(response.json().get("error") or "")
+    except (ValueError, AttributeError):
+        detail = ""
+    if response.status_code == 403:
+        detail += " Use the local server URL for approval pairing, or create a one-use code in Nodes & Routines and choose Pair with code."
+    raise RuntimeError(f"Pairing HTTP {response.status_code}: {detail.strip() or response.reason}")
 
 
 def _looks_like_nekosuneai(url: str) -> bool:
@@ -242,6 +257,8 @@ class App(tk.Tk):
         self.agent_thread: threading.Thread | None = None
         self.agent: WindowsGamingAgent | None = None
         self.pairing_busy = False
+        self.pairing_id_var = tk.StringVar()
+        self.pairing_code_var = tk.StringVar()
         self.status_var = tk.StringVar(value="Ready")
         self.connection_var = tk.StringVar(value="Not paired")
         self.pairing_status_var = tk.StringVar(value="Press Request pairing, then approve this PC in the NekoSuneAI dashboard.")
@@ -309,10 +326,19 @@ class App(tk.Tk):
         header = ttk.Frame(content, style="App.TFrame")
         header.pack(fill="x", padx=34, pady=(28, 14))
         ttk.Label(header, text="Windows Gaming Node", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(header, text="Android-style discovery and approval pairing • HTTPS domain first • LAN IPv4:8788 fallback.", style="Subtitle.TLabel").pack(anchor="w", pady=(5, 0))
+        ttk.Label(header, text="Windows device pairing and connection", style="Subtitle.TLabel").pack(anchor="w", pady=(5, 0))
 
-        self.page_host = ttk.Frame(content, style="App.TFrame")
-        self.page_host.pack(fill="both", expand=True, padx=34, pady=(0, 24))
+        viewport = ttk.Frame(content, style="App.TFrame")
+        viewport.pack(fill="both", expand=True, padx=34, pady=(0, 24))
+        self.page_canvas = tk.Canvas(viewport, bg=BG, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(viewport, orient="vertical", command=self.page_canvas.yview)
+        scrollbar.pack(side="right", fill="y")
+        self.page_canvas.pack(side="left", fill="both", expand=True)
+        self.page_canvas.configure(yscrollcommand=scrollbar.set)
+        self.page_host = ttk.Frame(self.page_canvas, style="App.TFrame")
+        page_window = self.page_canvas.create_window((0, 0), window=self.page_host, anchor="nw")
+        self.page_canvas.bind("<Configure>", lambda event: self.page_canvas.itemconfigure(page_window, width=event.width))
+        self.page_host.bind("<Configure>", lambda event: self.page_canvas.configure(scrollregion=self.page_canvas.bbox("all")))
         self.pages: dict[str, ttk.Frame] = {}
         self._build_setup_page()
         self._build_gaming_page()
@@ -331,7 +357,9 @@ class App(tk.Tk):
         top.pack(fill="x", padx=22, pady=(18, 12))
         ttk.Label(top, text=title, style="Heading.TLabel").pack(anchor="w")
         if subtitle:
-            ttk.Label(top, text=subtitle, style="Muted.TLabel").pack(anchor="w", pady=(4, 0))
+            subtitle_label = ttk.Label(top, text=subtitle, style="Muted.TLabel")
+            subtitle_label.pack(anchor="w", pady=(4, 0))
+            top.bind("<Configure>", lambda event: subtitle_label.configure(wraplength=max(100, event.width)))
         body = ttk.Frame(outer, style="Card.TFrame")
         body.pack(fill="x", expand=True, pady=(0, 6))
         return body
@@ -356,19 +384,33 @@ class App(tk.Tk):
         ttk.Button(controls, text="Discover server", command=self.discover, style="Secondary.TButton").pack(side="right")
         ttk.Button(controls, text="Save settings", command=self.save, style="Primary.TButton").pack(side="right", padx=(0, 10))
 
-        pair = self._card(page, "Pair this PC", "Same approval flow as Android Companion — no pairing ID or code required.")
-        ttk.Label(
+        pair = self._card(page, "Pair this PC", "Device approval or one-use dashboard code")
+        pair_description = ttk.Label(
             pair,
             text="Request pairing here, then open the authenticated NekoSuneAI dashboard and approve this Windows PC when the pairing request appears.",
             style="Body.TLabel",
             wraplength=720,
-        ).pack(anchor="w", padx=22, pady=(2, 8))
-        ttk.Label(pair, textvariable=self.pairing_status_var, style="Muted.TLabel", wraplength=720).pack(anchor="w", padx=22, pady=(0, 12))
+        )
+        pair_description.pack(anchor="w", padx=22, pady=(2, 8))
+        pair_status = ttk.Label(pair, textvariable=self.pairing_status_var, style="Muted.TLabel", wraplength=720)
+        pair_status.pack(anchor="w", padx=22, pady=(0, 12))
+        pair.bind("<Configure>", lambda event: [label.configure(wraplength=max(100, event.width - 44)) for label in (pair_description, pair_status)])
         actions = ttk.Frame(pair, style="Card.TFrame")
         actions.pack(fill="x", padx=22, pady=(0, 14))
         ttk.Label(actions, textvariable=self.connection_var, style="Muted.TLabel").pack(side="left")
         self.pair_button = ttk.Button(actions, text="Request pairing", command=self.pair, style="Primary.TButton")
         self.pair_button.pack(side="right")
+        ttk.Button(actions, text="Open dashboard", command=self.open_dashboard, style="Secondary.TButton").pack(side="right", padx=8)
+        code_fields = ttk.Frame(pair, style="Card.TFrame")
+        code_fields.pack(fill="x", padx=22, pady=(0, 12))
+        code_fields.columnconfigure(0, weight=1)
+        code_fields.columnconfigure(1, weight=1)
+        ttk.Label(code_fields, text="Pairing ID", style="Muted.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(code_fields, text="One-use code", style="Muted.TLabel").grid(row=0, column=1, sticky="w", padx=8)
+        ttk.Entry(code_fields, textvariable=self.pairing_id_var).grid(row=1, column=0, sticky="ew")
+        ttk.Entry(code_fields, textvariable=self.pairing_code_var).grid(row=1, column=1, sticky="ew", padx=8)
+        self.code_pair_button = ttk.Button(code_fields, text="Pair with code", command=lambda: self.pair(use_code=True), style="Secondary.TButton")
+        self.code_pair_button.grid(row=1, column=2)
 
     def _build_gaming_page(self) -> None:
         page = ttk.Frame(self.page_host, style="App.TFrame")
@@ -406,6 +448,7 @@ class App(tk.Tk):
         for page in self.pages.values():
             page.pack_forget()
         self.pages[name].pack(fill="both", expand=True)
+        self.page_canvas.yview_moveto(0)
         for key, button in self.nav_buttons.items():
             active = key == name
             button.configure(bg="#181f2a" if active else "#0d131a", fg=TEXT if active else MUTED)
@@ -467,11 +510,20 @@ class App(tk.Tk):
             raise RuntimeError("Select a game profile first.")
         return GameProfile.from_mapping(GameSkillLibrary(SKILLS_ROOT).load(game).profile_mapping())
 
-    def pair(self) -> None:
+    def open_dashboard(self) -> None:
+        if self.save():
+            webbrowser.open(self.config_data["server_url"].rstrip("/") + "/automations")
+
+    def pair(self, use_code: bool = False) -> None:
         if self.pairing_busy:
             self.status_var.set("Pairing request is already waiting for approval")
             return
         if not self.save():
+            return
+        pairing_id = self.pairing_id_var.get().strip() if use_code else ""
+        pairing_code = self.pairing_code_var.get().strip() if use_code else ""
+        if use_code and not (pairing_id and pairing_code):
+            messagebox.showerror(APP_TITLE, "Enter both the pairing ID and one-use code from the dashboard.")
             return
         try:
             profile = self._profile()
@@ -481,16 +533,25 @@ class App(tk.Tk):
 
         self.pairing_busy = True
         self.pair_button.configure(state="disabled")
+        self.code_pair_button.configure(state="disabled")
         self.connection_var.set("Waiting for approval")
         self.pairing_status_var.set("Sending pairing request to NekoSuneAI…")
         self.status_var.set(f"Requesting pairing through {self.config_data['server_url']}…")
 
+        config = dict(self.config_data)
+
         def worker() -> None:
             try:
-                server = str(self.config_data["server_url"]).rstrip("/")
-                verify = bool(self.config_data.get("verify_tls", True))
-                node_id = str(self.config_data.get("node_id") or socket.gethostname())
-                name = str(self.config_data.get("name") or "Windows Gaming Node")
+                server = str(config["server_url"]).rstrip("/")
+                verify = bool(config.get("verify_tls", True))
+                node_id = str(config.get("node_id") or socket.gethostname())
+                name = str(config.get("name") or "Windows Gaming Node")
+                if use_code:
+                    agent = WindowsGamingAgent(config, profile)
+                    config["device_token"] = agent.pair(pairing_id, pairing_code)
+                    save_config(config)
+                    self.after(0, lambda: self._pair_success(config))
+                    return
                 session = requests.Session()
                 request = session.post(
                     server + "/api/pairing/request",
@@ -498,7 +559,7 @@ class App(tk.Tk):
                     timeout=10,
                     verify=verify,
                 )
-                request.raise_for_status()
+                _check_pairing_response(request)
                 payload = request.json()
                 request_id = str(payload.get("request_id") or "")
                 if not request_id:
@@ -514,7 +575,7 @@ class App(tk.Tk):
                         timeout=10,
                         verify=verify,
                     )
-                    status.raise_for_status()
+                    _check_pairing_response(status)
                     result = status.json()
                     state = str(result.get("status") or "waiting").lower()
                     if state == "approved":
@@ -529,13 +590,13 @@ class App(tk.Tk):
 
                 # Convert the owner-approved device pairing into the capability-
                 # scoped peripheral-node token required by the gaming agent.
-                agent = WindowsGamingAgent(self.config_data, profile)
+                agent = WindowsGamingAgent(config, profile)
                 node_token = agent.pair("approved-device", approved_token)
-                self.config_data["device_token"] = node_token
-                save_config(self.config_data)
-                self.after(0, self._pair_success)
+                config["device_token"] = node_token
+                save_config(config)
+                self.after(0, lambda: self._pair_success(config))
             except Exception as exc:
-                self.after(0, lambda: self._pair_failed(str(exc)))
+                self.after(0, lambda error=str(exc): self._pair_failed(error))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -543,18 +604,23 @@ class App(tk.Tk):
         self.pairing_status_var.set(f"Pairing request sent. Open {server} and approve “{self.name_var.get()}” in the dashboard pairing popup.")
         self.status_var.set("Waiting for owner approval in NekoSuneAI dashboard…")
 
-    def _pair_success(self) -> None:
+    def _pair_success(self, config: dict) -> None:
+        self.config_data = config
         self.pairing_busy = False
         self.pair_button.configure(state="normal")
+        self.code_pair_button.configure(state="normal")
+        self.pairing_id_var.set("")
+        self.pairing_code_var.set("")
         self._refresh_pair_state()
         self.pairing_status_var.set("Approved and paired successfully. This PC now has its own saved gaming-node token.")
         self.status_var.set("Paired successfully")
-        messagebox.showinfo(APP_TITLE, "Windows Gaming Node paired successfully through the same approval flow as Android.")
+        messagebox.showinfo(APP_TITLE, "Windows Gaming Node paired successfully.")
 
     def _pair_failed(self, error: str) -> None:
         self.pairing_busy = False
         self.pair_button.configure(state="normal")
-        self.connection_var.set("Not paired")
+        self.code_pair_button.configure(state="normal")
+        self._refresh_pair_state()
         self.pairing_status_var.set("Pairing failed. You can request pairing again.")
         self.status_var.set("Pairing failed")
         messagebox.showerror(APP_TITLE, f"Pairing failed:\n{error}")

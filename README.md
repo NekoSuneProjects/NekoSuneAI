@@ -1,5 +1,9 @@
 # NekoSuneAI Windows Gaming Node
 
+Branch ownership: **Windows** on `build/windows-gaming-node-release`. See the
+[branch map](BRANCH_MAP.md) and this product's [TODO](TODO.md) before making
+changes. Native app branches remain separate from the Docker backend on main.
+
 [![Windows Gaming Node](https://img.shields.io/badge/build-windows--gaming--node-0078D6)](.github/workflows/windows-gaming-node.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-see-VERSION-violet)](VERSION)
@@ -28,14 +32,25 @@ profiles force autonomous input off.
 - `requirements-windows-gaming-node.txt` — minimal build dependencies
 - `.github/workflows/windows-gaming-node.yml` — CI build/release workflow
 
+## Pairing
+
+Set the Server URL and select a game profile in the Windows app. **Open
+dashboard** opens the server's **Nodes & Routines** page. Sign in there.
+
+- **Request pairing**: approve the PC under **Windows & Android pairing
+  requests**. Local-network approval is enabled by default.
+- **Pair with code**: select **Create pairing code** on the dashboard, enter
+  both the Pairing ID and One-use code in Windows, then select **Pair with code**.
+  Codes expire after five minutes and can only be used once. This also works
+  through your HTTPS server URL when remote approval requests are disabled.
+
+After pairing, select **Start node** on the Gaming page to connect the PC.
+
 ## Building
 
 ```powershell
 python -m pip install -r requirements-windows-gaming-node.txt
-pyinstaller --noconfirm --clean --onefile --name NekoSuneAI-Windows-Gaming-Node `
-  --icon data/logo.ico --collect-all vgamepad --collect-all obsws_python `
-  --hidden-import PIL --hidden-import PIL.Image --hidden-import pytesseract `
-  tools/windows_gaming_node_entry.py
+pyinstaller --noconfirm --clean NekoSuneAI-Windows-Gaming-Node.spec
 ```
 
 See `docs/GAME_SKILLS_AND_REMOTE_PLAY.md` for running the built executable and

@@ -2,7 +2,7 @@
 from PyInstaller.utils.hooks import collect_submodules
 from PyInstaller.utils.hooks import collect_all
 
-datas = []
+datas = [('game-skills', 'game-skills')]
 binaries = []
 hiddenimports = ['nekosuneai', 'nekosuneai.game_skills', 'nekosuneai.windows_gaming_agent', 'PIL', 'PIL.Image', 'pytesseract']
 hiddenimports += collect_submodules('nekosuneai')
