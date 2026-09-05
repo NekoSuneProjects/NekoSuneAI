@@ -1,5 +1,9 @@
 # NekoSuneAI Android Companion
 
+Branch ownership: **Android** on `build/android-apk`. See the
+[branch map](BRANCH_MAP.md) and this product's [TODO](TODO.md) before making
+changes. Native app branches remain separate from the Docker backend on main.
+
 [![Android APK Build](https://img.shields.io/badge/build-android--apk-3DDC84)](.github/workflows/android-companion.yml)
 [![License: GPL v3](https://img.shields.io/badge/License-GPL_v3-green.svg)](LICENSE)
 [![Version](https://img.shields.io/badge/version-see-VERSION-violet)](VERSION)
