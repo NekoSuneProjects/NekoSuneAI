@@ -105,6 +105,16 @@ plain folder specifically so a finished map can be committed to its own branch
 and pulled down elsewhere; "Sync map for current world" downloads one from a
 raw file host (e.g. a raw.githubusercontent.com URL) instead of remapping it.
 
+Stopping and later starting a new pass for a world that already has a saved
+map resumes from that map's last known position ("Resume from last saved
+position", on by default) instead of resetting to (0, 0) wherever the avatar
+happens to be standing — stand at roughly the same physical spot you stopped
+at before moving. This matters: two passes with unrelated coordinate frames
+would make the merge step below wrongly think the earlier pass's real walls
+"didn't show up this run" and delete them. Turn the checkbox off only when
+you deliberately want a fresh pass at (0, 0), e.g. re-mapping after the world
+actually changed layout.
+
 Once it walks back to near where it started the current pass, that loop is
 considered closed and it stops circling it — the traced path is also stored
 as a fillable floor outline (`floor_polygon`), so a viewer can shade the whole
@@ -123,6 +133,25 @@ the World Map page shows a live top-down sketch (walls, path, landmarks,
 current position) below the log, drawn from the in-progress run or, when idle,
 from the last saved map for the world you're in.
 
+This top-down sketch is a real blueprint, not just the VRChat game view: a
+minimap rendered from scratch out of the walls/path/landmarks data, so you can
+see how much of the world has actually been covered so far without needing to
+be looking at the game itself. Landmarks are colored by kind so a VIP room
+stands out at a glance from other tagged spots (door, elevator, teleporter,
+entrance, exit, or a plain manual tag) — "Tag landmark here" infers the kind
+from whatever you type (a label containing "VIP" is colored as VIP) the same
+way OCR auto-tagging does, so it doesn't need a separate kind picker. The
+mobile web view (below) shows the same blueprint, drawn client-side from the
+same data the desktop GUI uses, so a phone gets the identical picture.
+
+If the automatic wall-following gets a room wrong (an open area with nothing
+nearby to hug, glass/mirrors confusing velocity-based wall detection, or it's
+just stuck), "Manual driving" pauses the automatic loop and hands you forward/
+back/strafe/turn buttons instead — a manual step is recorded into the same
+in-progress map the same way an automatic one would be (position update, or a
+recorded wall if it didn't move), so turning manual driving back off resumes
+automatic exploration from wherever you left it, in the same map file.
+
 Stairs up/down are detected from sustained vertical OSC velocity while still
 moving horizontally (corroborated by OCR text mentioning a floor/stairs when
 visible) and treated as a new floor: the current floor's walls/path/landmarks
@@ -137,9 +166,11 @@ independently per floor on re-runs.
 With one monitor, the desktop app can't sit visibly on top of a fullscreen
 game the way it could with a second screen. Enable "Mobile web view" on the
 Status page (a port, default 8799) and it serves the same OCR text, a
-refreshing JPEG of the captured game view, VRChat/world-mapper status and
-recent friends-bot activity to any browser on the same Wi-Fi — the Status
-page shows the exact address to type into your phone once the node is
+refreshing JPEG of the captured game view, VRChat/world-mapper status
+(including the same top-down blueprint the desktop GUI draws, with VIP/door/
+elevator/teleporter landmarks colored the same way) and recent friends-bot
+activity to any browser on the same Wi-Fi — the Status page shows the exact
+address to type into your phone once the node is
 running. It's read-only by design: there is no command/input path on this
 page, only the observation data the agent already collects for itself, so it
 can't become a second, less-guarded way to control the game. It isn't

@@ -44,6 +44,9 @@ _PAGE = """<!doctype html>
   .ok { background: #16352c; color: #2ed69b; }
   .bad { background: #3a1820; color: #ff9aa6; }
   .stale { opacity: .5; }
+  .blueprint { width: 100%; height: auto; border-radius: 8px; background: #0f151c; display: block; margin-top: 10px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 10px; margin: 8px 0 0; font-size: 11px; color: #93a4b7; }
+  .legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; vertical-align: middle; }
 </style>
 </head>
 <body>
@@ -80,6 +83,8 @@ _PAGE = """<!doctype html>
     <div class="row"><span>State</span><span id="mapper-state"></span></div>
     <div class="row"><span>Floor</span><span id="mapper-floor"></span></div>
     <div class="row"><span>Steps / walls / branches</span><span id="mapper-counts"></span></div>
+    <canvas id="mapper-canvas" class="blueprint" width="480" height="360"></canvas>
+    <div class="legend" id="mapper-legend"></div>
     <div class="log" id="mapper-log">&mdash;</div>
   </div>
 
@@ -93,6 +98,86 @@ _PAGE = """<!doctype html>
 function setText(id, text) { document.getElementById(id).textContent = text; }
 function pill(ok, textOk, textBad) {
   return '<span class="pill ' + (ok ? 'ok' : 'bad') + '">' + (ok ? textOk : textBad) + '</span>';
+}
+
+// Kind -> color, kept in sync with FEATURE_PATTERNS in world_mapper.py and
+// the same palette tools/world_map_gui.py uses for the desktop canvas, so a
+// VIP room (or door/lift/teleporter) reads the same way on a phone as it
+// does on the PC.
+const LANDMARK_COLORS = {
+  vip: '#ff3d81', elevator: '#4da6ff', teleporter: '#a855f7',
+  door: '#f4c542', entrance: '#2ed69b', exit: '#ff8c42',
+};
+let legendDrawn = false;
+function drawLegend() {
+  if (legendDrawn) return;
+  legendDrawn = true;
+  const items = [['VIP', LANDMARK_COLORS.vip], ['Elevator', LANDMARK_COLORS.elevator],
+    ['Teleporter', LANDMARK_COLORS.teleporter], ['Door', LANDMARK_COLORS.door],
+    ['Entrance', LANDMARK_COLORS.entrance], ['Exit', LANDMARK_COLORS.exit], ['Manual tag', '#f4c542']];
+  document.getElementById('mapper-legend').innerHTML = items.map(([label, color]) =>
+    '<span><span class="dot" style="background:' + color + '"></span>' + label + '</span>').join('');
+}
+function drawBlueprint(m) {
+  drawLegend();
+  const canvas = document.getElementById('mapper-canvas');
+  const ctx = canvas.getContext('2d');
+  const width = canvas.width, height = canvas.height;
+  ctx.clearRect(0, 0, width, height);
+  const walls = m.walls || [], path = m.path || [], landmarks = m.landmarks || [], position = m.position;
+  let points = [];
+  walls.forEach(w => { points.push([w.x1, w.y1]); points.push([w.x2, w.y2]); });
+  path.forEach(p => points.push([p[0], p[1]]));
+  landmarks.forEach(l => points.push([l.x, l.y]));
+  if (position && m.running) points.push([position.x, position.y]);
+  if (!points.length) {
+    ctx.fillStyle = '#93a4b7';
+    ctx.font = '13px -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('No map data yet for the current world.', width / 2, height / 2);
+    return;
+  }
+  const xs = points.map(p => p[0]), ys = points.map(p => p[1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+  const spanX = Math.max(maxX - minX, 1.0), spanY = Math.max(maxY - minY, 1.0);
+  const margin = 24;
+  const scale = Math.min((width - 2 * margin) / spanX, (height - 2 * margin) / spanY);
+  const toCanvas = (x, y) => [margin + (x - minX) * scale, height - (margin + (y - minY) * scale)];
+  if (path.length >= 2) {
+    ctx.strokeStyle = '#7c5cff';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    path.forEach((p, i) => {
+      const [cx, cy] = toCanvas(p[0], p[1]);
+      if (i === 0) ctx.moveTo(cx, cy); else ctx.lineTo(cx, cy);
+    });
+    ctx.stroke();
+  }
+  ctx.strokeStyle = '#ff5d6c';
+  ctx.lineWidth = 3;
+  walls.forEach(w => {
+    const [x1, y1] = toCanvas(w.x1, w.y1), [x2, y2] = toCanvas(w.x2, w.y2);
+    ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+  });
+  landmarks.forEach(l => {
+    const [lx, ly] = toCanvas(l.x, l.y);
+    const isVip = l.kind === 'vip';
+    const color = LANDMARK_COLORS[l.kind] || (l.auto ? '#2ed69b' : '#f4c542');
+    const radius = isVip ? 6 : 4;
+    ctx.fillStyle = color;
+    ctx.beginPath(); ctx.arc(lx, ly, radius, 0, Math.PI * 2); ctx.fill();
+    if (isVip) { ctx.strokeStyle = '#0f151c'; ctx.lineWidth = 1; ctx.stroke(); }
+    ctx.fillStyle = '#f4f7fb';
+    ctx.font = (isVip ? 'bold ' : '') + '11px -apple-system, "Segoe UI", Roboto, sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillText(String(l.label || '').slice(0, 30), lx + radius + 4, ly + 4);
+  });
+  if (position && m.running) {
+    const [px, py] = toCanvas(position.x, position.y);
+    ctx.strokeStyle = '#67e8f9';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(px, py, 5, 0, Math.PI * 2); ctx.stroke();
+  }
 }
 async function refresh() {
   try {
@@ -120,6 +205,7 @@ async function refresh() {
       setText('mapper-floor', 'floor ' + m.floor_index + ' (' + m.floors_mapped + ' so far)');
       setText('mapper-counts', m.steps + ' / ' + m.walls_found + ' / ' + m.frontiers_queued);
       setText('mapper-log', (m.events || []).slice(-8).join('\\n') || 'No events yet.');
+      drawBlueprint(m);
     }
 
     if (s.vrchat_friends) {
@@ -271,7 +357,18 @@ class WebStatusServer:
             except Exception:
                 pass
         try:
-            data["world_mapper"] = agent.world_mapper.status()
+            mapper_state = agent.world_mapper.status()
+            if not mapper_state.get("running"):
+                # Nothing's actively being mapped right now -- fall back to the
+                # last saved map for the current world so the blueprint still
+                # has something to draw, same as the desktop GUI's canvas does.
+                saved = agent.world_mapper.load_saved()
+                if saved and saved.get("floors"):
+                    floor = next((f for f in saved["floors"] if f.get("floor_index") == 0), saved["floors"][0])
+                    mapper_state["walls"] = floor.get("walls") or []
+                    mapper_state["path"] = floor.get("path") or []
+                    mapper_state["landmarks"] = floor.get("landmarks") or []
+            data["world_mapper"] = mapper_state
         except Exception:
             pass
         friends = getattr(agent, "vrchat_friends", None)

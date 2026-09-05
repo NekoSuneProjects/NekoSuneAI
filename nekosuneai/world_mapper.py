@@ -36,6 +36,15 @@ keeps stacking them the same way.
 This is a best-effort sketch, not a laser-precision map:
   * Position/heading are pure dead reckoning (estimated walk speed and turn
     rate times elapsed time) — drift accumulates over a large world.
+  * A plain "hug the wall" bias can lock onto a small interior obstacle (a
+    bar counter, a pillar) and circle it forever instead of ever reaching a
+    doorway to the next area. If it hasn't made real net progress over a
+    stretch of steps, it forces a large break-out turn rather than politely
+    continuing to circle whatever it's stuck on — but this is a heuristic,
+    not a guarantee it finds every doorway in a busy room; positioning the
+    avatar in the area you actually want mapped and starting a fresh pass
+    from there (rather than always starting at the entrance) still works and
+    merges in with what's already saved.
   * Wall-following can miss interior rooms that don't touch the boundary it's
     tracing; use "Tag landmark here" to manually mark anything it walks past
     (VIP rooms, back rooms, etc.) — it also auto-tags doors, lifts/elevators,
@@ -46,6 +55,16 @@ This is a best-effort sketch, not a laser-precision map:
   * It needs the avatar's velocity OSC parameters to detect walls (and
     stairs) at all; if the current avatar doesn't send them, it still traces
     a path but can't tell where the walls or floor changes are.
+
+Starting a new pass for a world that already has a saved map resumes from
+that map's last known position/heading (``world_map_resume`` in config,
+default on) instead of resetting to (0, 0) wherever the avatar currently
+stands -- stand at roughly the same physical spot you stopped at before
+moving. Without this, two separate passes would have unrelated coordinate
+frames, and merging would see the earlier pass's still-real walls as
+"not confirmed this run" and delete them by mistake. Turn it off to
+deliberately start a fresh pass at (0, 0) instead (e.g. re-mapping after a
+layout change where the old coordinates no longer mean anything).
 
 One JSON file per world lives under ``world_map_dir`` (default
 ``world-maps/``), named from the world's display name so a finished map is
@@ -77,6 +96,15 @@ STAIR_VY_THRESHOLD = 0.3      # m/s vertical; above this while moving horizontal
 STAIR_CONFIRM_STEPS = 3       # consecutive stair-like steps needed before treating it as a real floor change
 LOOP_CLOSE_RADIUS_M = 1.5     # back within this of this pass's start counts as "closed the loop"
 LOOP_CLOSE_MIN_STEPS = 15     # don't allow loop-closure until it's actually gone somewhere first
+LOOP_CLOSE_MIN_TRAVELED_M = 3.0   # ...and must have gotten at least this far from start at some point --
+                                  # otherwise a tight circle around a bar counter/pillar near the start
+                                  # falsely counts as "the whole room's loop is done"
+OSCILLATION_WINDOW_STEPS = 24     # if position hasn't moved net OSCILLATION_MIN_NET_DISPLACEMENT_M in
+OSCILLATION_MIN_NET_DISPLACEMENT_M = 3.0  # this many steps, it's circling the same spot (an obstacle,
+                                           # not the room boundary) -- force a large turn to break out
+HUG_BIAS_MAX_CLEAR_STEPS = 12  # only keep curving back toward a wall for this many clear steps after
+                               # actually touching one -- past that it's likely lost the wall (open
+                               # space), so it should walk straight instead of spiralling forever
 FRONTIER_MIN_SPACING_M = 3.0  # don't note/re-visit a frontier this close to one already queued or covered
 FRONTIER_JUNCTION_TURNS = 3   # needing at least this many 30 degree turns to get through implies a junction
 FRONTIER_ARRIVE_RADIUS_M = 1.5
@@ -124,12 +152,16 @@ class WorldMapper:
         self._stair_streak = 0
         self._stair_direction = 0
         self._last_saved_path = ""
+        self._active_world: dict[str, str] | None = None
         self._frontiers: list[dict[str, float]] = []
         self._visited_frontiers: list[tuple[float, float]] = []
+        self._manual = threading.Event()
+        self._manual_lock = threading.Lock()
 
     def status(self) -> dict[str, Any]:
         return {
             "running": self.running,
+            "manual": self._manual.is_set(),
             "steps": self.steps,
             "walls_found": self.walls_found,
             "floor_index": self.floor_index,
@@ -155,8 +187,18 @@ class WorldMapper:
             raise RuntimeError("Select the VRChat profile and enable OSC first")
         if not self.agent.vrchat.armed.is_set():
             raise RuntimeError("Arm VRChat OSC first (VRChat OSC page)")
+        # Resolve the world ONCE, now, and reuse it at save time -- VRChat's
+        # log file only gets read a bounded tail for world detection, and a
+        # long/busy mapping session can push the original "Joining wrld_..."
+        # line out of that window by the time the run ends, silently making
+        # save() unable to tell what world it was even in. Detecting it here
+        # (right as this starts, when the join line is guaranteed recent) and
+        # trusting that for the whole run avoids that failure mode entirely.
+        world = vrchat_logs.current_world(self.agent.config.get("vrchat_log_dir") or None)
+        if not world or not world.get("id"):
+            raise RuntimeError("Could not detect the current world from VRChat's logs — join a world first")
+        self._active_world = world
         self.steps = self.walls_found = self.floor_index = 0
-        self.x = self.y = self.heading_deg = 0.0
         self.path = []
         self._new_walls = []
         self._new_landmarks = []
@@ -166,6 +208,33 @@ class WorldMapper:
         self._stair_direction = 0
         self._frontiers = []
         self._visited_frontiers = []
+
+        # Resume this world's floor-0 coordinate frame from where the last
+        # save left off, rather than always resetting to (0, 0) at wherever
+        # the avatar currently stands -- that would put this run in an
+        # unrelated coordinate frame from any earlier saved run, making merge
+        # wrongly treat the earlier run's still-real walls as unconfirmed and
+        # delete them. Off via world_map_resume: false in config if you'd
+        # rather always start a fresh pass at (0, 0) (e.g. re-mapping after a
+        # layout change where the old coordinates no longer mean anything).
+        self.x = self.y = self.heading_deg = 0.0
+        if bool(self.agent.config.get("world_map_resume", True)):
+            existing = self._load_raw(self._map_path(world))
+            if existing and existing.get("world_id") == world["id"]:
+                floor0 = next((f for f in (existing.get("floors") or []) if f.get("floor_index") == 0), None)
+                last_position = (floor0 or {}).get("last_position")
+                if last_position:
+                    self.x = float(last_position.get("x", 0.0))
+                    self.y = float(last_position.get("y", 0.0))
+                    self.heading_deg = float(last_position.get("heading_deg", 0.0))
+                    self._emit(
+                        f"Resuming from the last saved position ({self.x}, {self.y}) — "
+                        "stand at roughly the same spot before moving, or turn off "
+                        "\"Resume from last position\" to start a fresh pass at (0, 0)."
+                    )
+        if self.x == 0.0 and self.y == 0.0 and self.heading_deg == 0.0:
+            self._emit("Starting a fresh pass at (0, 0).")
+
         self._stop.clear()
         self.running = True
         self._thread = threading.Thread(target=self._run, daemon=True, name="world-mapper")
@@ -178,8 +247,85 @@ class WorldMapper:
         if not self.running:
             raise RuntimeError("Start mapping before tagging a landmark")
         label = str(label).strip()[:80] or "Landmark"
-        self._new_landmarks.append({"label": label, "x": round(self.x, 2), "y": round(self.y, 2), "epoch": time.time()})
+        # Infer a "kind" from the label's own text using the same patterns
+        # auto-tagging uses, so a manually-typed "VIP Room" colors the same
+        # on the blueprint as an OCR auto-detected one, without a separate
+        # kind picker in the UI.
+        kind = next((k for k, pattern in FEATURE_PATTERNS if pattern.search(label)), None)
+        landmark: dict[str, Any] = {"label": label, "x": round(self.x, 2), "y": round(self.y, 2), "epoch": time.time()}
+        if kind:
+            landmark["kind"] = kind
+        self._new_landmarks.append(landmark)
         self._emit(f"Tagged landmark '{label}' at ({round(self.x, 2)}, {round(self.y, 2)})")
+
+    # ── manual driving (fallback for when auto wall-following makes a mess) ──
+
+    def set_manual_mode(self, enabled: bool) -> None:
+        """Pause/resume the automatic wall-following loop so a person can
+        drive the avatar directly instead -- for a layout the heuristic keeps
+        getting wrong (open rooms, glass, mirrors, anything that confuses
+        velocity-based wall detection). Manual steps still update position and
+        record walls/path into the same in-progress map, so switching back to
+        auto afterwards continues from wherever manual driving left off."""
+        if not self.running:
+            raise RuntimeError("Start mapping before enabling manual driving")
+        if enabled:
+            self._manual.set()
+            self._emit("Manual driving enabled — automatic wall-following paused.")
+        else:
+            self._manual.clear()
+            self._emit("Manual driving disabled — automatic wall-following resumed.")
+
+    def is_manual(self) -> bool:
+        return self._manual.is_set()
+
+    _MANUAL_OFFSETS = {"forward": 0.0, "back": 180.0, "strafe_left": -90.0, "strafe_right": 90.0}
+
+    def manual_step(self, direction: str) -> None:
+        """One manual movement/turn, recorded the same way an automatic step
+        would be (position update or a recorded wall on no movement)."""
+        if not self.running:
+            raise RuntimeError("Start mapping before driving manually")
+        if not self._manual.is_set():
+            raise RuntimeError("Enable manual driving first")
+        config = self.agent.config
+        step_seconds = max(0.2, min(float(config.get("world_map_step_seconds", 0.6)), 2.0))
+        walk_speed = max(0.1, float(config.get("world_map_walk_speed_mps", 2.0)))
+        turn_rate = max(10.0, float(config.get("world_map_turn_deg_per_sec", 90.0)))
+        with self._manual_lock:
+            if direction == "turn_left":
+                self._turn(-30.0, turn_rate)
+            elif direction == "turn_right":
+                self._turn(30.0, turn_rate)
+            elif direction in self._MANUAL_OFFSETS:
+                self._manual_move(self._MANUAL_OFFSETS[direction], step_seconds, walk_speed)
+            else:
+                raise ValueError(f"Unknown manual direction: {direction}")
+
+    def _manual_move(self, offset_deg: float, step_seconds: float, walk_speed_mps: float) -> None:
+        move_heading_rad = math.radians(self.heading_deg + offset_deg)
+        if offset_deg == 0.0:
+            axis, sign = "Vertical", 1.0
+        elif offset_deg == 180.0:
+            axis, sign = "Vertical", -1.0
+        else:
+            axis, sign = "Horizontal", (-1.0 if offset_deg < 0 else 1.0)
+        self.agent.vrchat.pulse(axis, sign, step_seconds)
+        velocity = self._velocity()
+        if velocity is None:
+            moved = True
+        else:
+            self._saw_velocity = True
+            vx, vy, vz = velocity
+            moved = math.hypot(vx, vz) > WALL_SPEED_THRESHOLD
+        if moved:
+            distance = walk_speed_mps * step_seconds
+            self.x += math.cos(move_heading_rad) * distance
+            self.y += math.sin(move_heading_rad) * distance
+            self.path.append((round(self.x, 2), round(self.y, 2)))
+        else:
+            self._record_wall(move_heading_rad)
+        self.steps += 1
 
     # ── movement primitives ──────────────────────────────────────────────────
 
@@ -301,6 +447,13 @@ class WorldMapper:
             "landmarks": self._new_landmarks,
             "path": self.path[-1000:],
             "floor_polygon": self._floor_polygon(),
+            # Where this floor's local coordinate frame was left off, so a
+            # later separate run can resume from here instead of resetting to
+            # (0, 0) at wherever the avatar happens to be standing -- without
+            # this, two separate passes would have unrelated coordinate
+            # frames, and merge would see the earlier pass's real walls as
+            # "not confirmed this run" and delete them.
+            "last_position": {"x": round(self.x, 2), "y": round(self.y, 2), "heading_deg": round(self.heading_deg, 1)},
         }
 
     def _begin_new_floor(self, direction: int) -> None:
@@ -359,7 +512,25 @@ class WorldMapper:
         actual "go check the other branch" step to the caller."""
         turn_probe_deg, hug_deg, clear_run = 30.0, 8.0, 0
         start_x, start_y, steps_this_pass = self.x, self.y, 0
+        max_dist_from_start = 0.0
+        recent_positions: deque[tuple[float, float]] = deque(maxlen=OSCILLATION_WINDOW_STEPS)
+        breakouts = 0
+        was_manual = False
         while not self._stop.is_set() and time.monotonic() < deadline:
+            if self._manual.is_set():
+                was_manual = True
+                time.sleep(0.2)
+                continue
+            if was_manual:
+                # Manual driving may have moved the avatar somewhere new --
+                # restart this pass's loop-closure/oscillation baselines from
+                # here rather than judging against wherever automatic
+                # exploration happened to start before the manual detour.
+                start_x, start_y, steps_this_pass = self.x, self.y, 0
+                max_dist_from_start = 0.0
+                recent_positions.clear()
+                clear_run = 0
+                was_manual = False
             pre_x, pre_y, pre_heading = self.x, self.y, self.heading_deg
             moved = self._try_forward(step_seconds, walk_speed)
             steps_this_pass += 1
@@ -373,22 +544,55 @@ class WorldMapper:
                     self._maybe_add_frontier(pre_x, pre_y, pre_heading)
             else:
                 clear_run += 1
-                if clear_run % 3 == 0:
-                    self._turn(-hug_deg, turn_rate)  # curve back toward the wall it's hugging
+                # Only curve back while still close to the wall it just found --
+                # applying this bias unconditionally forever makes it spiral
+                # through open space with nothing nearby to actually hug, which
+                # produces a smooth curvy/S-shaped path instead of a room-like
+                # sketch. Past HUG_BIAS_MAX_CLEAR_STEPS clear steps, it's likely
+                # in open space, so just walk straight until it hits something.
+                if clear_run <= HUG_BIAS_MAX_CLEAR_STEPS and clear_run % 3 == 0:
+                    self._turn(-hug_deg, turn_rate)
+            max_dist_from_start = max(max_dist_from_start, math.hypot(self.x - start_x, self.y - start_y))
+            recent_positions.append((self.x, self.y))
             if self.steps % 5 == 0:
                 self._maybe_auto_tag_landmarks()
-            if steps_this_pass >= LOOP_CLOSE_MIN_STEPS and math.hypot(self.x - start_x, self.y - start_y) < LOOP_CLOSE_RADIUS_M:
+            if (
+                steps_this_pass >= LOOP_CLOSE_MIN_STEPS
+                and max_dist_from_start >= LOOP_CLOSE_MIN_TRAVELED_M
+                and math.hypot(self.x - start_x, self.y - start_y) < LOOP_CLOSE_RADIUS_M
+            ):
                 self._emit("Back near where this pass started — loop closed.")
                 return
+            # A plain "hug the wall" bias can lock onto a small interior
+            # obstacle (a bar counter, a pillar) and circle it forever instead
+            # of ever reaching the room's actual boundary/doorway -- if
+            # position hasn't gone anywhere net over the last stretch despite
+            # taking that many steps, force a break out of the loop with a
+            # large, varying turn rather than politely continuing to hug
+            # whatever it's stuck on.
+            if len(recent_positions) == OSCILLATION_WINDOW_STEPS:
+                oldest_x, oldest_y = recent_positions[0]
+                if math.hypot(self.x - oldest_x, self.y - oldest_y) < OSCILLATION_MIN_NET_DISPLACEMENT_M:
+                    breakouts += 1
+                    breakout_deg = 110.0 + (breakouts * 61) % 150
+                    self._emit(f"Circling the same spot without making progress — forcing a {breakout_deg:.0f}° turn to break out.")
+                    self._turn(breakout_deg, turn_rate)
+                    recent_positions.clear()
 
     def _navigate_to(self, target_x: float, target_y: float, step_seconds: float, walk_speed: float, turn_rate: float, deadline: float) -> bool:
         """Best-effort dead-reckoned walk toward a previously-noted frontier.
         Returns whether it got close enough — drift, a changed layout, or a
         dead end along the way can all make a frontier unreachable, in which
         case it's simply skipped rather than getting the mapper stuck."""
-        for _ in range(NAVIGATE_MAX_STEPS):
+        steps_taken = 0
+        while steps_taken < NAVIGATE_MAX_STEPS:
             if self._stop.is_set() or time.monotonic() >= deadline:
                 return False
+            if self._manual.is_set():
+                # Don't burn the navigation step budget while waiting out a
+                # manual-driving detour -- it isn't making backtracking progress.
+                time.sleep(0.2)
+                continue
             dx, dy = target_x - self.x, target_y - self.y
             if math.hypot(dx, dy) < FRONTIER_ARRIVE_RADIUS_M:
                 return True
@@ -397,6 +601,7 @@ class WorldMapper:
                 opened, _ = self._recover_from_wall(step_seconds, walk_speed, turn_rate)
                 if not opened:
                     return False
+            steps_taken += 1
         return math.hypot(target_x - self.x, target_y - self.y) < FRONTIER_MIN_SPACING_M
 
     def _run(self) -> None:
@@ -508,31 +713,43 @@ class WorldMapper:
         return [by_index[index] for index in sorted(by_index)]
 
     def _save(self) -> None:
-        world = vrchat_logs.current_world(self.agent.config.get("vrchat_log_dir") or None)
-        if not world or not world.get("id"):
-            self._emit("Could not detect the current world from VRChat's logs — nothing saved.")
-            return
-        version = self._fetch_world_version(world["id"])
-        path = self._map_path(world)
-        existing = self._load_raw(path)
-        if existing and existing.get("world_id") != world["id"]:
-            existing = None
-        new_floors = self._sealed_floors + [self._seal_current_floor()]
-        merged_floors = self._merge_floors((existing or {}).get("floors") or [], new_floors)
-        data = {
-            "schema_version": 2,
-            "world_id": world["id"],
-            "world_name": world.get("name") or world["id"],
-            "world_version": version if version is not None else (existing or {}).get("world_version"),
-            "mapped_epoch": time.time(),
-            "floors": merged_floors,
-        }
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(data, indent=2), "utf-8")
-        self._last_saved_path = str(path)
-        total_walls = sum(len(f.get("walls") or []) for f in merged_floors)
-        total_landmarks = sum(len(f.get("landmarks") or []) for f in merged_floors)
-        self._emit(f"Saved {path.name}: {len(merged_floors)} floor(s), {total_walls} wall segments, {total_landmarks} landmarks.")
+        # Runs in a background thread with no console attached -- an
+        # unhandled exception here would otherwise just vanish silently
+        # (the thread dies, nothing gets written, and there's no visible
+        # trace of why). Always emit *something* the GUI's event log shows.
+        try:
+            # Use the world resolved at start() rather than re-reading VRChat's
+            # log now: a long/busy session can push the original "Joining
+            # wrld_..." line out of the log's bounded read-tail by the time
+            # mapping ends, which would otherwise make save() silently think
+            # it can't tell what world this was and skip saving entirely.
+            world = self._active_world or vrchat_logs.current_world(self.agent.config.get("vrchat_log_dir") or None)
+            if not world or not world.get("id"):
+                self._emit("Could not detect the current world from VRChat's logs — nothing saved.")
+                return
+            version = self._fetch_world_version(world["id"])
+            path = self._map_path(world)
+            existing = self._load_raw(path)
+            if existing and existing.get("world_id") != world["id"]:
+                existing = None
+            new_floors = self._sealed_floors + [self._seal_current_floor()]
+            merged_floors = self._merge_floors((existing or {}).get("floors") or [], new_floors)
+            data = {
+                "schema_version": 2,
+                "world_id": world["id"],
+                "world_name": world.get("name") or world["id"],
+                "world_version": version if version is not None else (existing or {}).get("world_version"),
+                "mapped_epoch": time.time(),
+                "floors": merged_floors,
+            }
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(json.dumps(data, indent=2), "utf-8")
+            self._last_saved_path = str(path)
+            total_walls = sum(len(f.get("walls") or []) for f in merged_floors)
+            total_landmarks = sum(len(f.get("landmarks") or []) for f in merged_floors)
+            self._emit(f"Saved {path.name}: {len(merged_floors)} floor(s), {total_walls} wall segments, {total_landmarks} landmarks.")
+        except Exception as exc:
+            self._emit(f"Failed to save the world map: {exc}")
 
     def load_saved(self) -> dict[str, Any] | None:
         """The last-saved map for whatever world VRChat's logs say we're

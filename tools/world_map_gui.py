@@ -14,6 +14,20 @@ from tkinter import messagebox, ttk
 # the EXE's folder) — once saved, the value in config wins regardless.
 _BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
 
+# Landmark "kind" -> blueprint dot color, kept in sync with the
+# FEATURE_PATTERNS kinds in nekosuneai/world_mapper.py so VIP rooms and other
+# auto/manually tagged rooms are visually distinct at a glance, not just by
+# auto-vs-manual. VIP gets its own loud color plus a bigger/bold marker below
+# since that's the room type the user actually cares about spotting fastest.
+_LANDMARK_COLORS = {
+    "vip": "#ff3d81",
+    "elevator": "#4da6ff",
+    "teleporter": "#a855f7",
+    "door": "#f4c542",
+    "entrance": "#2ed69b",
+    "exit": "#ff8c42",
+}
+
 
 class WorldMapControls:
     def _init_world_map_controls(self):
@@ -24,11 +38,13 @@ class WorldMapControls:
             "world_map_turn_deg_per_sec": 90.0,
             "world_map_max_minutes": 10,
             "world_map_sync_base_url": "",
+            "world_map_resume": True,
         }
         self.world_map_settings = {}
         for key, value in defaults.items():
-            cls = tk.IntVar if isinstance(value, int) and not isinstance(value, bool) else \
-                (tk.DoubleVar if isinstance(value, float) else tk.StringVar)
+            cls = tk.BooleanVar if isinstance(value, bool) else \
+                (tk.IntVar if isinstance(value, int) else
+                 (tk.DoubleVar if isinstance(value, float) else tk.StringVar))
             self.world_map_settings[key] = cls(value=self.config_data.get(key, value))
         self.world_map_current_var = tk.StringVar(value="Current world: unknown (pair, select the VRChat profile and start the node)")
         self.world_map_status_var = tk.StringVar(value="Not mapping")
@@ -66,23 +82,54 @@ class WorldMapControls:
         self._field(settings, "Max minutes per run", self.world_map_settings["world_map_max_minutes"], 4)
         settings.columnconfigure(1, weight=1)
 
+        ttk.Checkbutton(
+            card, text="Resume from last saved position for this world (instead of always starting fresh at 0,0)",
+            variable=self.world_map_settings["world_map_resume"], style="Modern.TCheckbutton",
+        ).grid(row=2, column=0, columnspan=2, sticky="w", padx=22, pady=(0, 4))
+
         actions = ttk.Frame(card, style="Card.TFrame")
-        actions.grid(row=2, column=0, columnspan=2, sticky="ew", padx=22, pady=8)
+        actions.grid(row=3, column=0, columnspan=2, sticky="ew", padx=22, pady=8)
         ttk.Button(actions, text="Save settings", command=self._save_world_map_settings, style="Secondary.TButton").pack(side="left")
         ttk.Button(actions, text="Start mapping", command=self._start_world_mapping, style="Primary.TButton").pack(side="left", padx=6)
         ttk.Button(actions, text="Stop mapping", command=self._stop_world_mapping, style="Danger.TButton").pack(side="right")
 
         landmark = ttk.Frame(card, style="Card.TFrame")
-        landmark.grid(row=3, column=0, columnspan=2, sticky="ew", padx=22, pady=4)
+        landmark.grid(row=4, column=0, columnspan=2, sticky="ew", padx=22, pady=4)
         landmark.columnconfigure(0, weight=1)
         ttk.Entry(landmark, textvariable=self.landmark_label_var, style="Modern.TEntry").grid(row=0, column=0, sticky="ew")
         ttk.Button(landmark, text="Tag landmark here", command=self._tag_world_landmark, style="Secondary.TButton").grid(row=0, column=1, padx=(8, 0))
 
-        ttk.Label(card, textvariable=self.world_map_status_var, style="Muted.TLabel", wraplength=500).grid(row=4, column=0, columnspan=2, sticky="w", padx=22, pady=8)
+        manual = ttk.Frame(card, style="Card.TFrame")
+        manual.grid(row=5, column=0, columnspan=2, sticky="ew", padx=22, pady=(4, 4))
+        self.manual_drive_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            manual, text="Manual driving (pause auto wall-following, drive with the buttons below)",
+            variable=self.manual_drive_var, command=self._toggle_manual_drive, style="Modern.TCheckbutton",
+        ).pack(anchor="w")
+        pad = ttk.Frame(manual, style="Card.TFrame")
+        pad.pack(anchor="w", pady=(6, 0))
+        ttk.Button(pad, text="↶ Turn", command=lambda: self._manual_drive("turn_left"), style="Secondary.TButton").grid(row=0, column=0, padx=3, pady=2)
+        ttk.Button(pad, text="↑ Forward", command=lambda: self._manual_drive("forward"), style="Secondary.TButton").grid(row=0, column=1, padx=3, pady=2)
+        ttk.Button(pad, text="Turn ↷", command=lambda: self._manual_drive("turn_right"), style="Secondary.TButton").grid(row=0, column=2, padx=3, pady=2)
+        ttk.Button(pad, text="← Strafe", command=lambda: self._manual_drive("strafe_left"), style="Secondary.TButton").grid(row=1, column=0, padx=3, pady=2)
+        ttk.Button(pad, text="↓ Back", command=lambda: self._manual_drive("back"), style="Secondary.TButton").grid(row=1, column=1, padx=3, pady=2)
+        ttk.Button(pad, text="Strafe →", command=lambda: self._manual_drive("strafe_right"), style="Secondary.TButton").grid(row=1, column=2, padx=3, pady=2)
+
+        ttk.Label(card, textvariable=self.world_map_status_var, style="Muted.TLabel", wraplength=500).grid(row=6, column=0, columnspan=2, sticky="w", padx=22, pady=8)
         self.world_map_canvas = tk.Canvas(card, width=480, height=360, bg="#0f151c", highlightthickness=0)
-        self.world_map_canvas.grid(row=5, column=0, columnspan=2, sticky="ew", padx=22, pady=(0, 8))
+        self.world_map_canvas.grid(row=7, column=0, columnspan=2, sticky="ew", padx=22, pady=(0, 4))
+        legend = ttk.Frame(card, style="Card.TFrame")
+        legend.grid(row=8, column=0, columnspan=2, sticky="w", padx=22, pady=(0, 8))
+        for text, color in (("VIP", _LANDMARK_COLORS["vip"]), ("Elevator", _LANDMARK_COLORS["elevator"]),
+                            ("Teleporter", _LANDMARK_COLORS["teleporter"]), ("Door", _LANDMARK_COLORS["door"]),
+                            ("Entrance", _LANDMARK_COLORS["entrance"]), ("Exit", _LANDMARK_COLORS["exit"]),
+                            ("Manual tag", "#f4c542")):
+            dot = tk.Canvas(legend, width=10, height=10, highlightthickness=0, bg="#151e28")
+            dot.create_oval(1, 1, 9, 9, fill=color, outline="")
+            dot.pack(side="left", padx=(0 if text == "VIP" else 10, 3))
+            ttk.Label(legend, text=text, style="Muted.TLabel").pack(side="left")
         self.world_map_log = self._text_output(card)
-        self.world_map_log.grid(row=6, column=0, columnspan=2, sticky="ew", padx=22, pady=(0, 8))
+        self.world_map_log.grid(row=9, column=0, columnspan=2, sticky="ew", padx=22, pady=(0, 8))
 
         sync = self._card(
             page, "Sync a finished map",
@@ -124,6 +171,25 @@ class WorldMapControls:
             return
         try:
             self.agent.world_mapper.tag_landmark(self.landmark_label_var.get())
+        except RuntimeError as exc:
+            messagebox.showerror("World map", str(exc))
+
+    def _toggle_manual_drive(self):
+        if self.agent is None:
+            self.manual_drive_var.set(False)
+            messagebox.showerror("World map", "Start the Gaming Node and mapping first.")
+            return
+        try:
+            self.agent.world_mapper.set_manual_mode(self.manual_drive_var.get())
+        except RuntimeError as exc:
+            self.manual_drive_var.set(False)
+            messagebox.showerror("World map", str(exc))
+
+    def _manual_drive(self, direction: str):
+        if self.agent is None:
+            return
+        try:
+            self.agent.world_mapper.manual_step(direction)
         except RuntimeError as exc:
             messagebox.showerror("World map", str(exc))
 
@@ -181,9 +247,10 @@ class WorldMapControls:
             canvas.create_line(x1, y1, x2, y2, fill="#ff5d6c", width=3)
         for landmark in landmarks:
             lx, ly = to_canvas(landmark["x"], landmark["y"])
-            color = "#2ed69b" if landmark.get("auto") else "#f4c542"
-            canvas.create_oval(lx - 4, ly - 4, lx + 4, ly + 4, fill=color, outline="")
-            canvas.create_text(lx + 8, ly, text=str(landmark.get("label", ""))[:30], fill="#f4f7fb", font=("Segoe UI", 8), anchor="w")
+            color = _LANDMARK_COLORS.get(landmark.get("kind"), "#2ed69b" if landmark.get("auto") else "#f4c542")
+            radius = 6 if landmark.get("kind") == "vip" else 4
+            canvas.create_oval(lx - radius, ly - radius, lx + radius, ly + radius, fill=color, outline="#0f151c" if landmark.get("kind") == "vip" else "")
+            canvas.create_text(lx + radius + 4, ly, text=str(landmark.get("label", ""))[:30], fill="#f4f7fb", font=("Segoe UI", 8, "bold" if landmark.get("kind") == "vip" else "normal"), anchor="w")
         if position:
             px, py = to_canvas(position["x"], position["y"])
             canvas.create_oval(px - 5, py - 5, px + 5, py + 5, outline="#67e8f9", width=2)
@@ -201,9 +268,11 @@ class WorldMapControls:
             else:
                 self.world_map_current_var.set("Current world: not detected yet (join a world in VRChat).")
             state = self.agent.world_mapper.status()
+            if not state["running"] and self.manual_drive_var.get():
+                self.manual_drive_var.set(False)  # mapping stopped elsewhere -- don't leave a stale checked box
             position = state["position"]
             self.world_map_status_var.set(
-                ("Mapping…" if state["running"] else "Not mapping") +
+                (("Mapping (manual driving)…" if state["manual"] else "Mapping…") if state["running"] else "Not mapping") +
                 f" — floor {state['floor_index']} ({state['floors_mapped']} floor(s) so far), "
                 f"steps: {state['steps']}, walls found: {state['walls_found']}, "
                 f"unexplored branches queued: {state['frontiers_queued']}, "
