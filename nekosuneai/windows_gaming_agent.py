@@ -716,6 +716,13 @@ class WindowsGamingAgent:
             )
         from .world_mapper import WorldMapper
         self.world_mapper = WorldMapper(self)
+        self.web_status = None
+        if config.get("web_status_enabled"):
+            from .web_status_server import WebStatusServer
+            self.web_status = WebStatusServer(
+                self, port=int(config.get("web_status_port", 8799)),
+                frame_interval=float(config.get("web_status_frame_interval_seconds", 2.0)),
+            )
 
     def capabilities(self) -> dict[str, dict[str, str]]:
         caps = {
@@ -999,6 +1006,8 @@ class WindowsGamingAgent:
         self.media.close()
         self.realtime.cancel(disable=True)
         self.world_mapper.stop()
+        if self.web_status is not None:
+            self.web_status.stop()
         if self.vrchat is not None:
             self.vrchat.stop_input()
 
@@ -1016,6 +1025,7 @@ class WindowsGamingAgent:
             threading.Thread(target=self._speech_loop, daemon=True, name="windows-node-speech").start()
             if self.twitch is not None: self.twitch.start()
             if self.vrchat_friends is not None: self.vrchat_friends.start()
+            if self.web_status is not None: self.web_status.start()
             while not self._stop.is_set():
                 try: self.heartbeat_once()
                 except Exception:

@@ -11,11 +11,19 @@ full room-by-room exploration), so it traces corridors and room boundaries
 the way someone feeling their way along a wall would, rather than wandering
 randomly around the whole world.
 
-Once it walks back to within a short distance of where it started this floor,
-that's a closed loop — the boundary is done, so it stops on its own instead of
-retracing the same lap forever. The traced path itself is stored as a filled
-floor polygon, so a viewer can shade in the whole room instead of needing
-every square metre individually walked.
+Once it walks back to within a short distance of where it started this pass,
+that's a closed loop — that boundary is done, so it stops circling it. It
+doesn't stop mapping there, though: a junction where it had to turn hard to
+find a way through gets noted as a possible unexplored branch, and once the
+current loop is closed it backtracks (dead-reckoned) to each noted branch in
+turn and explores from there too — so a big, multi-room world like Popcorn
+Palace keeps getting checked for more area instead of stopping after the
+first lap, without re-walking ground it's already covered. It gives up on a
+branch it can't dead-reckon its way back to (drift, or the layout changed)
+rather than getting stuck, and still respects the overall time limit. The
+traced path itself is stored as a filled floor polygon per pass, so a viewer
+can shade in the whole room instead of needing every square metre individually
+walked.
 
 Stairs going up or down are detected the same wall-less-detection way, from
 sustained vertical (``VelocityY``) motion while still moving horizontally,
@@ -67,8 +75,13 @@ WALL_MATCH_RADIUS_M = 1.0     # merge distance: an old wall within this of a new
 VIP_LANDMARK_RADIUS_M = 3.0   # don't re-auto-tag a VIP landmark this close to an existing one
 STAIR_VY_THRESHOLD = 0.3      # m/s vertical; above this while moving horizontally, count as "on stairs"
 STAIR_CONFIRM_STEPS = 3       # consecutive stair-like steps needed before treating it as a real floor change
-LOOP_CLOSE_RADIUS_M = 1.5     # back within this of this floor's start counts as "closed the loop"
+LOOP_CLOSE_RADIUS_M = 1.5     # back within this of this pass's start counts as "closed the loop"
 LOOP_CLOSE_MIN_STEPS = 15     # don't allow loop-closure until it's actually gone somewhere first
+FRONTIER_MIN_SPACING_M = 3.0  # don't note/re-visit a frontier this close to one already queued or covered
+FRONTIER_JUNCTION_TURNS = 3   # needing at least this many 30 degree turns to get through implies a junction
+FRONTIER_ARRIVE_RADIUS_M = 1.5
+FRONTIER_MAX_QUEUED = 60      # sanity cap so a very branchy world can't queue forever
+NAVIGATE_MAX_STEPS = 80       # give up backtracking to a frontier after this many steps (drift/blocked)
 FLOOR_HINT_RE = re.compile(r"\b(\d+)(?:st|nd|rd|th)?\s*f(?:loor)?\b|upstairs|downstairs|\bvip\b", re.I)
 
 # Auto-tagged from on-screen OCR text alone (signage, button labels, VIP
@@ -111,6 +124,8 @@ class WorldMapper:
         self._stair_streak = 0
         self._stair_direction = 0
         self._last_saved_path = ""
+        self._frontiers: list[dict[str, float]] = []
+        self._visited_frontiers: list[tuple[float, float]] = []
 
     def status(self) -> dict[str, Any]:
         return {
@@ -119,9 +134,13 @@ class WorldMapper:
             "walls_found": self.walls_found,
             "floor_index": self.floor_index,
             "floors_mapped": len(self._sealed_floors) + 1,
+            "frontiers_queued": len(self._frontiers),
             "position": {"x": round(self.x, 2), "y": round(self.y, 2), "heading_deg": round(self.heading_deg, 1)},
             "events": list(self.events),
             "last_saved_path": self._last_saved_path,
+            "walls": list(self._new_walls),
+            "path": list(self.path[-500:]),
+            "landmarks": list(self._new_landmarks),
         }
 
     def _emit(self, text: str) -> None:
@@ -145,6 +164,8 @@ class WorldMapper:
         self._saw_velocity = False
         self._stair_streak = 0
         self._stair_direction = 0
+        self._frontiers = []
+        self._visited_frontiers = []
         self._stop.clear()
         self.running = True
         self._thread = threading.Thread(target=self._run, daemon=True, name="world-mapper")
@@ -284,9 +305,10 @@ class WorldMapper:
 
     def _begin_new_floor(self, direction: int) -> None:
         hint = self._ocr_floor_hint()
+        abandoned = f", abandoning {len(self._frontiers)} unexplored branch(es) on it" if self._frontiers else ""
         self._emit(
             f"Detected stairs {'up' if direction > 0 else 'down'} — "
-            f"sealing floor {self.floor_index}, continuing on floor {self.floor_index + direction}."
+            f"sealing floor {self.floor_index}{abandoned}, continuing on floor {self.floor_index + direction}."
             + (f" (saw '{hint}' on screen)" if hint else "")
         )
         self._sealed_floors.append(self._seal_current_floor())
@@ -296,8 +318,86 @@ class WorldMapper:
         self._new_walls = []
         self._new_landmarks = []
         self._stair_streak = self._stair_direction = 0
+        # Frontier coordinates are relative to the floor they were seen on;
+        # they mean nothing on the new floor's reset-to-(0,0) local map.
+        self._frontiers = []
+        self._visited_frontiers = []
 
     # ── main loop ────────────────────────────────────────────────────────────
+
+    def _recover_from_wall(self, step_seconds: float, walk_speed: float, turn_rate: float, turn_probe_deg: float = 30.0) -> tuple[bool, int]:
+        """Turn in fixed increments looking for an opening after a blocked
+        step. Returns (opened, turns_taken) — a larger turns_taken means it
+        had to turn hard/far to get through, which is the closest thing to a
+        junction signal available from movement feedback alone."""
+        for attempt in range(1, 13):
+            if self._stop.is_set():
+                return False, attempt
+            self._turn(turn_probe_deg, turn_rate)
+            if self._try_forward(step_seconds, walk_speed):
+                return True, attempt
+        return False, 12
+
+    def _maybe_add_frontier(self, x: float, y: float, heading_deg: float) -> None:
+        if len(self._frontiers) >= FRONTIER_MAX_QUEUED:
+            return
+        for known in (*self._frontiers, *({"x": vx, "y": vy} for vx, vy in self._visited_frontiers)):
+            if math.hypot(known["x"] - x, known["y"] - y) < FRONTIER_MIN_SPACING_M:
+                return
+        self._frontiers.append({"x": round(x, 2), "y": round(y, 2), "heading_deg": round(heading_deg, 1)})
+        self._emit(f"Noted a possible unexplored branch near ({round(x, 2)}, {round(y, 2)}) to check later.")
+
+    def _turn_to_heading(self, target_deg: float, turn_rate: float) -> None:
+        delta = ((target_deg - self.heading_deg + 180) % 360) - 180
+        self._turn(delta, turn_rate)
+
+    def _explore_until_stuck(self, step_seconds: float, walk_speed: float, turn_rate: float, deadline: float) -> None:
+        """Wall-hug from the current position/heading until this pass's loop
+        closes, a dead end is hit, time runs out, or it's stopped. Junctions
+        found along the way are queued as frontiers, not explored immediately
+        — that keeps one pass simple (just hug the wall) and leaves the
+        actual "go check the other branch" step to the caller."""
+        turn_probe_deg, hug_deg, clear_run = 30.0, 8.0, 0
+        start_x, start_y, steps_this_pass = self.x, self.y, 0
+        while not self._stop.is_set() and time.monotonic() < deadline:
+            pre_x, pre_y, pre_heading = self.x, self.y, self.heading_deg
+            moved = self._try_forward(step_seconds, walk_speed)
+            steps_this_pass += 1
+            if not moved:
+                opened, turns_taken = self._recover_from_wall(step_seconds, walk_speed, turn_rate, turn_probe_deg)
+                if not opened:
+                    self._emit("No opening found after a full turn — this branch is a dead end.")
+                    return
+                clear_run = 0
+                if turns_taken >= FRONTIER_JUNCTION_TURNS:
+                    self._maybe_add_frontier(pre_x, pre_y, pre_heading)
+            else:
+                clear_run += 1
+                if clear_run % 3 == 0:
+                    self._turn(-hug_deg, turn_rate)  # curve back toward the wall it's hugging
+            if self.steps % 5 == 0:
+                self._maybe_auto_tag_landmarks()
+            if steps_this_pass >= LOOP_CLOSE_MIN_STEPS and math.hypot(self.x - start_x, self.y - start_y) < LOOP_CLOSE_RADIUS_M:
+                self._emit("Back near where this pass started — loop closed.")
+                return
+
+    def _navigate_to(self, target_x: float, target_y: float, step_seconds: float, walk_speed: float, turn_rate: float, deadline: float) -> bool:
+        """Best-effort dead-reckoned walk toward a previously-noted frontier.
+        Returns whether it got close enough — drift, a changed layout, or a
+        dead end along the way can all make a frontier unreachable, in which
+        case it's simply skipped rather than getting the mapper stuck."""
+        for _ in range(NAVIGATE_MAX_STEPS):
+            if self._stop.is_set() or time.monotonic() >= deadline:
+                return False
+            dx, dy = target_x - self.x, target_y - self.y
+            if math.hypot(dx, dy) < FRONTIER_ARRIVE_RADIUS_M:
+                return True
+            self._turn_to_heading(math.degrees(math.atan2(dy, dx)), turn_rate)
+            if not self._try_forward(step_seconds, walk_speed):
+                opened, _ = self._recover_from_wall(step_seconds, walk_speed, turn_rate)
+                if not opened:
+                    return False
+        return math.hypot(target_x - self.x, target_y - self.y) < FRONTIER_MIN_SPACING_M
 
     def _run(self) -> None:
         config = self.agent.config
@@ -306,35 +406,20 @@ class WorldMapper:
         turn_rate = max(10.0, float(config.get("world_map_turn_deg_per_sec", 90.0)))
         max_minutes = max(1.0, float(config.get("world_map_max_minutes", 10.0)))
         deadline = time.monotonic() + max_minutes * 60
-        turn_probe_deg = 30.0
-        hug_deg = 8.0
-        clear_run = 0
         self._emit("Mapping started.")
         try:
-            while not self._stop.is_set() and time.monotonic() < deadline:
-                moved = self._try_forward(step_seconds, walk_speed)
-                if not moved:
-                    opened = False
-                    for _ in range(12):
-                        if self._stop.is_set():
-                            break
-                        self._turn(turn_probe_deg, turn_rate)
-                        if self._try_forward(step_seconds, walk_speed):
-                            opened = True
-                            clear_run = 0
-                            break
-                    if not opened:
-                        self._emit("No opening found after a full turn — stopping (dead end or fully enclosed).")
-                        break
+            self._explore_until_stuck(step_seconds, walk_speed, turn_rate, deadline)
+            while self._frontiers and not self._stop.is_set() and time.monotonic() < deadline:
+                frontier = self._frontiers.pop(0)
+                self._emit(f"Backtracking to check an unexplored area near ({frontier['x']}, {frontier['y']})…")
+                if self._navigate_to(frontier["x"], frontier["y"], step_seconds, walk_speed, turn_rate, deadline):
+                    self._visited_frontiers.append((self.x, self.y))
+                    self._turn_to_heading(frontier["heading_deg"], turn_rate)
+                    self._explore_until_stuck(step_seconds, walk_speed, turn_rate, deadline)
                 else:
-                    clear_run += 1
-                    if clear_run % 3 == 0:
-                        self._turn(-hug_deg, turn_rate)  # curve back toward the wall it's hugging
-                if self.steps % 5 == 0:
-                    self._maybe_auto_tag_landmarks()
-                if self.steps >= LOOP_CLOSE_MIN_STEPS and math.hypot(self.x, self.y) < LOOP_CLOSE_RADIUS_M:
-                    self._emit("Back near this floor's start — loop closed, no need to keep circling.")
-                    break
+                    self._emit("Could not backtrack there (blocked, drifted, or out of time) — skipping it.")
+            if not self._frontiers and not self._stop.is_set() and time.monotonic() < deadline:
+                self._emit("No more unexplored branches noted on this floor — mapping this pass is done.")
         except PermissionError as exc:
             self._emit(f"Stopped: {exc}")
         except Exception as exc:
@@ -448,6 +533,18 @@ class WorldMapper:
         total_walls = sum(len(f.get("walls") or []) for f in merged_floors)
         total_landmarks = sum(len(f.get("landmarks") or []) for f in merged_floors)
         self._emit(f"Saved {path.name}: {len(merged_floors)} floor(s), {total_walls} wall segments, {total_landmarks} landmarks.")
+
+    def load_saved(self) -> dict[str, Any] | None:
+        """The last-saved map for whatever world VRChat's logs say we're
+        currently in, for a viewer to render when nothing is actively being
+        mapped right now."""
+        world = vrchat_logs.current_world(self.agent.config.get("vrchat_log_dir") or None)
+        if not world or not world.get("id"):
+            return None
+        data = self._load_raw(self._map_path(world))
+        if data and data.get("world_id") != world["id"]:
+            return None
+        return data
 
     def sync_from_url(self, base_url: str, world: dict[str, str] | None = None) -> str:
         """Download a finished map JSON published at ``<base_url>/<slug>.json``

@@ -100,18 +100,46 @@ plain folder specifically so a finished map can be committed to its own branch
 and pulled down elsewhere; "Sync map for current world" downloads one from a
 raw file host (e.g. a raw.githubusercontent.com URL) instead of remapping it.
 
-Once it walks back to near where it started the current floor, that loop is
-considered closed and it stops on its own rather than retracing the same lap
-— the traced path is also stored as a fillable floor outline (`floor_polygon`),
-so a viewer can shade the whole room in instead of needing every square metre
-individually walked. Stairs up/down are detected from sustained vertical OSC
-velocity while still moving horizontally (corroborated by OCR text mentioning
-a floor/stairs when visible) and treated as a new floor: the current floor's
-walls/path/landmarks are sealed off under its own `floor_index`, position
-resets to (0, 0) for the new floor, and mapping continues — a world with more
-floors just keeps stacking them the same way. The saved JSON is a `floors`
-list (schema v2), each with its own `walls`/`landmarks`/`path`/`floor_polygon`,
-merged independently per floor on re-runs.
+Once it walks back to near where it started the current pass, that loop is
+considered closed and it stops circling it — the traced path is also stored
+as a fillable floor outline (`floor_polygon`), so a viewer can shade the whole
+room in instead of needing every square metre individually walked. It doesn't
+stop mapping there, though: a junction it had to turn hard through to find a
+way past gets noted as a possible unexplored branch, and once the current
+loop closes it dead-reckons its way back to each noted branch and explores
+from there too — so a big, multi-room world (a Popcorn Palace-sized one, say)
+keeps getting checked for more area across a run instead of stopping after
+the first lap, without deliberately re-walking ground it's already covered.
+It gives up on a branch it can't find its way back to (drift, or a changed
+layout) rather than getting stuck. `world_map_dir` defaults to a `world-maps`
+folder next to wherever the app is actually running from (the EXE's own
+folder, not whatever the launcher's current directory happened to be), and
+the World Map page shows a live top-down sketch (walls, path, landmarks,
+current position) below the log, drawn from the in-progress run or, when idle,
+from the last saved map for the world you're in.
+
+Stairs up/down are detected from sustained vertical OSC velocity while still
+moving horizontally (corroborated by OCR text mentioning a floor/stairs when
+visible) and treated as a new floor: the current floor's walls/path/landmarks
+are sealed off under its own `floor_index`, position resets to (0, 0) for the
+new floor, and mapping continues — a world with more floors just keeps
+stacking them the same way. The saved JSON is a `floors` list (schema v2),
+each with its own `walls`/`landmarks`/`path`/`floor_polygon`, merged
+independently per floor on re-runs.
+
+## Mobile web view (view-only, from your phone)
+
+With one monitor, the desktop app can't sit visibly on top of a fullscreen
+game the way it could with a second screen. Enable "Mobile web view" on the
+Status page (a port, default 8799) and it serves the same OCR text, a
+refreshing JPEG of the captured game view, VRChat/world-mapper status and
+recent friends-bot activity to any browser on the same Wi-Fi — the Status
+page shows the exact address to type into your phone once the node is
+running. It's read-only by design: there is no command/input path on this
+page, only the observation data the agent already collects for itself, so it
+can't become a second, less-guarded way to control the game. It isn't
+authenticated, so only enable it on a network you trust and never forward the
+port to the public internet.
 
 ## Verification Boundary
 

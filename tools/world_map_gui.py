@@ -1,14 +1,24 @@
 """World Map page for the Windows app: manual VRChat wall-following mapper."""
 from __future__ import annotations
 
+import sys
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, ttk
+
+# Same resolution windows_gaming_node_gui.py uses for its own BASE_DIR: the
+# frozen EXE's own folder, or this checkout's root when run from source. Used
+# only as the *default* world_map_dir so a fresh install maps to "wherever
+# the app is running from" instead of whatever the process's current working
+# directory happens to be (which a shortcut/launcher doesn't always set to
+# the EXE's folder) — once saved, the value in config wins regardless.
+_BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
 
 
 class WorldMapControls:
     def _init_world_map_controls(self):
         defaults = {
-            "world_map_dir": "world-maps",
+            "world_map_dir": str(_BASE_DIR / "world-maps"),
             "world_map_step_seconds": 0.6,
             "world_map_walk_speed_mps": 2.0,
             "world_map_turn_deg_per_sec": 90.0,
@@ -69,8 +79,10 @@ class WorldMapControls:
         ttk.Button(landmark, text="Tag landmark here", command=self._tag_world_landmark, style="Secondary.TButton").grid(row=0, column=1, padx=(8, 0))
 
         ttk.Label(card, textvariable=self.world_map_status_var, style="Muted.TLabel", wraplength=500).grid(row=4, column=0, columnspan=2, sticky="w", padx=22, pady=8)
+        self.world_map_canvas = tk.Canvas(card, width=480, height=360, bg="#0f151c", highlightthickness=0)
+        self.world_map_canvas.grid(row=5, column=0, columnspan=2, sticky="ew", padx=22, pady=(0, 8))
         self.world_map_log = self._text_output(card)
-        self.world_map_log.grid(row=5, column=0, columnspan=2, sticky="ew", padx=22, pady=(0, 8))
+        self.world_map_log.grid(row=6, column=0, columnspan=2, sticky="ew", padx=22, pady=(0, 8))
 
         sync = self._card(
             page, "Sync a finished map",
@@ -130,6 +142,52 @@ class WorldMapControls:
             return
         self.status_var.set(f"Synced world map to {path}")
 
+    def _redraw_world_map_canvas(self):
+        canvas = self.world_map_canvas
+        canvas.delete("all")
+        width, height = 480, 360
+        walls, path, landmarks, position = [], [], [], None
+        if self.agent is not None:
+            state = self.agent.world_mapper.status()
+            if state["running"]:
+                walls, path, landmarks, position = state["walls"], state["path"], state["landmarks"], state["position"]
+            else:
+                data = self.agent.world_mapper.load_saved()
+                if data and data.get("floors"):
+                    floor = next((f for f in data["floors"] if f.get("floor_index") == 0), data["floors"][0])
+                    walls, path, landmarks = floor.get("walls") or [], floor.get("path") or [], floor.get("landmarks") or []
+        points = [(w["x1"], w["y1"]) for w in walls] + [(w["x2"], w["y2"]) for w in walls]
+        points += [(p[0], p[1]) for p in path] + [(l["x"], l["y"]) for l in landmarks]
+        if position:
+            points.append((position["x"], position["y"]))
+        if not points:
+            canvas.create_text(width // 2, height // 2, text="No map data yet for the current world.", fill="#93a4b7", font=("Segoe UI", 10))
+            return
+        xs, ys = [p[0] for p in points], [p[1] for p in points]
+        min_x, max_x, min_y, max_y = min(xs), max(xs), min(ys), max(ys)
+        span_x, span_y = max(max_x - min_x, 1.0), max(max_y - min_y, 1.0)
+        margin = 24
+        scale = min((width - 2 * margin) / span_x, (height - 2 * margin) / span_y)
+
+        def to_canvas(x, y):
+            return margin + (x - min_x) * scale, height - (margin + (y - min_y) * scale)
+
+        if len(path) >= 2:
+            coords = [c for p in path for c in to_canvas(p[0], p[1])]
+            canvas.create_line(*coords, fill="#7c5cff", width=2)
+        for wall in walls:
+            x1, y1 = to_canvas(wall["x1"], wall["y1"])
+            x2, y2 = to_canvas(wall["x2"], wall["y2"])
+            canvas.create_line(x1, y1, x2, y2, fill="#ff5d6c", width=3)
+        for landmark in landmarks:
+            lx, ly = to_canvas(landmark["x"], landmark["y"])
+            color = "#2ed69b" if landmark.get("auto") else "#f4c542"
+            canvas.create_oval(lx - 4, ly - 4, lx + 4, ly + 4, fill=color, outline="")
+            canvas.create_text(lx + 8, ly, text=str(landmark.get("label", ""))[:30], fill="#f4f7fb", font=("Segoe UI", 8), anchor="w")
+        if position:
+            px, py = to_canvas(position["x"], position["y"])
+            canvas.create_oval(px - 5, py - 5, px + 5, py + 5, outline="#67e8f9", width=2)
+
     def _refresh_world_map_status(self):
         if self.agent is not None:
             log_dir = self.agent.config.get("vrchat_log_dir") or None
@@ -148,8 +206,10 @@ class WorldMapControls:
                 ("Mapping…" if state["running"] else "Not mapping") +
                 f" — floor {state['floor_index']} ({state['floors_mapped']} floor(s) so far), "
                 f"steps: {state['steps']}, walls found: {state['walls_found']}, "
+                f"unexplored branches queued: {state['frontiers_queued']}, "
                 f"position: ({position['x']}, {position['y']}), heading: {position['heading_deg']}°"
                 + (f"\nLast saved: {state['last_saved_path']}" if state["last_saved_path"] else "")
             )
             self._set_readonly_text(self.world_map_log, "\n".join(state["events"]) or "No events yet.")
+        self._redraw_world_map_canvas()
         self.after(1000, self._refresh_world_map_status)

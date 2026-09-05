@@ -280,6 +280,9 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         self._init_media_controls()
         self._init_world_map_controls()
         self.verify_tls_var = tk.BooleanVar(value=bool(self.config_data.get("verify_tls", True)))
+        self.web_status_enabled_var = tk.BooleanVar(value=bool(self.config_data.get("web_status_enabled", False)))
+        self.web_status_port_var = tk.IntVar(value=int(self.config_data.get("web_status_port", 8799)))
+        self.web_status_url_var = tk.StringVar(value="Not running")
 
         self._configure_style()
         self._build()
@@ -287,6 +290,7 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         self._refresh_pair_state()
         self.after(1000, self._refresh_media_status)
         self.after(1000, self._refresh_world_map_status)
+        self.after(2000, self._refresh_web_status_display)
         self.protocol("WM_DELETE_WINDOW", self._close_app)
 
     def _configure_style(self) -> None:
@@ -487,6 +491,21 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         safety = self._card(page, "Safety", "Input remains bounded to approved profiles and the foreground game window.")
         ttk.Label(safety, text="Ctrl + Alt + F12 immediately releases active input and disables AI game control.", style="Body.TLabel").pack(anchor="w", padx=22, pady=(4, 14))
 
+        web = self._card(
+            page, "Mobile web view",
+            "A read-only status page (OCR text, a periodically-refreshed game-view frame, VRChat/world-map "
+            "status) you can open on your phone's browser over the same Wi-Fi — useful with one monitor, "
+            "where this app can't sit visible on top of a fullscreen game. View-only: it can't send any "
+            "input/commands, only show what this app already sees. Restart the node after changing this.",
+        )
+        ttk.Checkbutton(web, text="Enable mobile web view", variable=self.web_status_enabled_var, style="Modern.TCheckbutton").pack(anchor="w", padx=22, pady=(8, 4))
+        port_row = ttk.Frame(web, style="Card.TFrame")
+        port_row.pack(fill="x", padx=22, pady=4)
+        ttk.Label(port_row, text="Port", style="Body.TLabel").pack(side="left", padx=(0, 10))
+        ttk.Entry(port_row, textvariable=self.web_status_port_var, style="Modern.TEntry", width=8).pack(side="left")
+        ttk.Button(web, text="Save", command=self.save, style="Primary.TButton").pack(anchor="e", padx=22, pady=8)
+        ttk.Label(web, textvariable=self.web_status_url_var, style="Muted.TLabel", wraplength=500).pack(anchor="w", padx=22, pady=(0, 12))
+
     def _show_page(self, name: str) -> None:
         for page in self.pages.values():
             page.pack_forget()
@@ -495,6 +514,13 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         for key, button in self.nav_buttons.items():
             active = key == name
             button.configure(bg="#181f2a" if active else "#0d131a", fg=TEXT if active else MUTED)
+
+    def _refresh_web_status_display(self) -> None:
+        if self.agent is not None and getattr(self.agent, "web_status", None) is not None and self.agent.web_status.is_running():
+            self.web_status_url_var.set(f"Open on your phone: {self.agent.web_status.local_url()}")
+        else:
+            self.web_status_url_var.set("Not running (enable it above, save, then start the node).")
+        self.after(2000, self._refresh_web_status_display)
 
     def _refresh_pair_state(self) -> None:
         paired = bool(self.config_data.get("device_token"))
@@ -521,6 +547,8 @@ class App(MediaControls, WorldMapControls, tk.Tk):
             "node_id": self.node_var.get().strip() or socket.gethostname(),
             "name": self.name_var.get().strip() or "Windows Gaming Node",
             "selected_game": self.game_var.get(),
+            "web_status_enabled": self.web_status_enabled_var.get(),
+            "web_status_port": self.web_status_port_var.get(),
             **self._media_values(),
             **self._world_map_values(),
         })
