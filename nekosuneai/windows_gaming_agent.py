@@ -708,11 +708,14 @@ class WindowsGamingAgent:
                 str(config["twitch_login"]), str(config["twitch_oauth_token"]), str(config["twitch_channel"]),
             )
         self.vrchat_friends = None
+        self.vrchat_friends_log: deque[str] = deque(maxlen=20)
         if config.get("vrchat_friends_enabled") and config.get("vrchat_username") and config.get("vrchat_password"):
             from .vrchat_friends import VRChatFriendsService
             self.vrchat_friends = VRChatFriendsService(
                 config, self._on_vrchat_friends_event, osc=self.vrchat,
             )
+        from .world_mapper import WorldMapper
+        self.world_mapper = WorldMapper(self)
 
     def capabilities(self) -> dict[str, dict[str, str]]:
         caps = {
@@ -753,6 +756,7 @@ class WindowsGamingAgent:
         return self.learning.record(skill, ok, duration_ms, reason)
 
     def _on_vrchat_friends_event(self, text: str) -> None:
+        self.vrchat_friends_log.append(f"{time.strftime('%H:%M:%S')}  {text}")
         try:
             if self.config.get("windows_tts_enabled", True):
                 self._speech_queue.put_nowait((time.monotonic(), text))
@@ -799,6 +803,7 @@ class WindowsGamingAgent:
             "vrchat_friends": {
                 "enabled": bool(self.vrchat_friends is not None),
                 "running": bool(self.vrchat_friends is not None and self.vrchat_friends.is_running()),
+                "recent_events": list(self.vrchat_friends_log),
             },
         }
         if self.vrchat is not None:
@@ -922,8 +927,33 @@ class WindowsGamingAgent:
             self._last_command = max(self._last_command, int(command.get("id", 0)))
         return response.json()
 
+    def _vision_loop(self) -> None:
+        """Keep the cheap local OCR/scene-hash observation fresh on its own
+        clock instead of only refreshing once per heartbeat.
+
+        heartbeat_once() only builds a fresh observation when it happens to
+        run, and each cycle is paced by the server poll's blocking wait (up
+        to ~2s), so a game profile's own `capture_fps` (which can be set much
+        higher for fast-paced games or short-lived text like a VRChat chat
+        bubble) was previously capped at roughly one refresh per heartbeat
+        regardless of that setting. WindowVision.capture() already throttles
+        its own real work to the profile's capture_fps internally and returns
+        the cached result otherwise, so calling it often here is cheap; it
+        just means _telemetry()/_safe_to_act() always read an observation
+        that's as fresh as the profile's capture_fps allows, independent of
+        network/poll timing.
+        """
+        while not self._stop.is_set():
+            try:
+                self.vision.capture()
+            except Exception:
+                pass
+            if self._stop.wait(0.05):
+                break
+
     def _media_loop(self):
         last_vision = 0.0
+        last_chatterbox_nudge = 0.0
         while not self._stop.is_set():
             try:
                 if self.config.get("game_vision_enabled") and time.monotonic() - last_vision >= max(5, float(self.config.get("vision_interval_seconds", 10))):
@@ -931,6 +961,22 @@ class WindowsGamingAgent:
                     self.media.vision(self.vision.capture(detailed=True, image_limit=500_000))
                 if self.config.get("audio_listen_enabled") and not self.media.speech_pending.is_set():
                     self.media.listen()
+                    # Recording ends once it hears silence_seconds of quiet
+                    # (they stopped talking), up to a hard max_seconds cap. If
+                    # someone talks non-stop long enough to hit that cap
+                    # without ever pausing, they get cut off with no natural
+                    # end-point. Nudge them once in a while (not every single
+                    # capture) instead of silently truncating them forever.
+                    if self.media.audio.last_capture_truncated and time.monotonic() - last_chatterbox_nudge > 60:
+                        last_chatterbox_nudge = time.monotonic()
+                        try:
+                            self._speech_queue.put_nowait((
+                                time.monotonic(),
+                                "Whoa, I'm not a chatterbox! Try pausing for a moment every so often "
+                                "so I know when you're done talking.",
+                            ))
+                        except queue.Full:
+                            pass
             except Exception as exc:
                 self.media.update(error=str(exc)[:300])
             if self._stop.wait(1):
@@ -952,6 +998,7 @@ class WindowsGamingAgent:
         self._stop.set()
         self.media.close()
         self.realtime.cancel(disable=True)
+        self.world_mapper.stop()
         if self.vrchat is not None:
             self.vrchat.stop_input()
 
@@ -963,6 +1010,7 @@ class WindowsGamingAgent:
                 self.vrchat.start()
             self.emergency_hotkey.start()
             self.realtime.start()
+            threading.Thread(target=self._vision_loop, daemon=True, name="windows-node-vision").start()
             self._media_thread = threading.Thread(target=self._media_loop, daemon=True, name="windows-node-media")
             self._media_thread.start()
             threading.Thread(target=self._speech_loop, daemon=True, name="windows-node-speech").start()

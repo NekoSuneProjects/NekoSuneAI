@@ -12,8 +12,10 @@ class MediaControls:
         self.media_settings = {}
         defaults = {"game_vision_enabled": False, "audio_listen_enabled": False,
                     "windows_tts_enabled": True, "vision_interval_seconds": 10,
-                    "audio_record_seconds": 5, "vrchat_osc_enabled": False,
-                    "vrchat_send_port": 9000, "vrchat_receive_port": 9001, "tesseract_path": ""}
+                    "audio_record_seconds": 30, "audio_silence_seconds": 10, "vrchat_osc_enabled": False,
+                    "vrchat_send_port": 9000, "vrchat_receive_port": 9001, "tesseract_path": "",
+                    "vrchat_friends_enabled": False, "vrchat_username": "", "vrchat_password": "",
+                    "vrchat_totp_secret": "", "vrchat_owner_username": ""}
         for key, value in defaults.items():
             cls = tk.BooleanVar if isinstance(value, bool) else tk.IntVar if isinstance(value, int) else tk.StringVar
             self.media_settings[key] = cls(value=self.config_data.get(key, value))
@@ -24,6 +26,7 @@ class MediaControls:
         self.tts_text_var = tk.StringVar(value="Hello from NekoSuneAI on the Pi.")
         self.media_status_var = tk.StringVar(value="Node stopped")
         self.osc_status_var = tk.StringVar(value="OSC disabled")
+        self.vrchat_friends_status_var = tk.StringVar(value="Not configured — fill in the bot account, enable, save, then restart the node.")
         self.chatbox_var = tk.StringVar()
         self.avatar_parameter_var = tk.StringVar(value="VRCEmote")
         self.avatar_value_var = tk.StringVar(value="1")
@@ -46,10 +49,13 @@ class MediaControls:
         ttk.Button(actions, text="Stop audio", command=self._stop_audio, style="Danger.TButton").pack(side="right")
         ttk.Checkbutton(audio, text="Continuous listening", variable=self.media_settings["audio_listen_enabled"], style="Modern.TCheckbutton").grid(row=3, column=0, columnspan=2, sticky="w", padx=22)
         ttk.Checkbutton(audio, text="Play game narration on Windows", variable=self.media_settings["windows_tts_enabled"], style="Modern.TCheckbutton").grid(row=4, column=0, columnspan=2, sticky="w", padx=22)
-        ttk.Label(audio, text="Recording seconds", style="Body.TLabel").grid(row=5, column=0, sticky="w", padx=22, pady=8)
-        ttk.Spinbox(audio, from_=1, to=15, width=5, textvariable=self.media_settings["audio_record_seconds"]).grid(row=5, column=1, sticky="w")
-        self._field(audio, "TTS text", self.tts_text_var, 6)
-        ttk.Button(audio, text="Speak through Pi", command=self._test_tts, style="Primary.TButton").grid(row=7, column=1, sticky="e", padx=22, pady=8)
+        ttk.Label(audio, text="Max recording seconds", style="Body.TLabel").grid(row=5, column=0, sticky="w", padx=22, pady=8)
+        ttk.Spinbox(audio, from_=5, to=120, width=5, textvariable=self.media_settings["audio_record_seconds"]).grid(row=5, column=1, sticky="w")
+        ttk.Label(audio, text="Finish after silence (seconds)", style="Body.TLabel").grid(row=6, column=0, sticky="w", padx=22, pady=8)
+        ttk.Spinbox(audio, from_=2, to=30, width=5, textvariable=self.media_settings["audio_silence_seconds"]).grid(row=6, column=1, sticky="w")
+        ttk.Label(audio, text="Recording starts when you speak and ends once you've been quiet for the silence duration above (capped by the max).", style="Muted.TLabel", wraplength=460).grid(row=7, column=0, columnspan=2, sticky="w", padx=22)
+        self._field(audio, "TTS text", self.tts_text_var, 8)
+        ttk.Button(audio, text="Speak through Pi", command=self._test_tts, style="Primary.TButton").grid(row=9, column=1, sticky="e", padx=22, pady=8)
         vision = self._card(page, "Gameplay capture")
         ttk.Checkbutton(vision, text="Send gameplay frames to Pi", variable=self.media_settings["game_vision_enabled"], style="Modern.TCheckbutton").pack(anchor="w", padx=22, pady=8)
         duration = ttk.Frame(vision, style="Card.TFrame")
@@ -98,9 +104,28 @@ class MediaControls:
         self.osc_parameters = self._text_output(osc)
         self.osc_parameters.grid(row=11, column=0, columnspan=2, sticky="ew", padx=22, pady=8)
 
+        friends = self._card(
+            page, "VRChat Friends (bot account)",
+            "Opt-in, unofficial VRChat web API — logs in as a separate bot account, auto-accepts "
+            "friend requests and watches friend online/offline over VRChat's own websocket. This is "
+            "against VRChat's ToS for automated accounts, so use a throwaway bot account, never your "
+            "own login. Enable, fill in the bot's credentials, save, then restart the node.",
+        )
+        friends.columnconfigure(1, weight=1)
+        ttk.Checkbutton(friends, text="Enable VRChat friends bot", variable=self.media_settings["vrchat_friends_enabled"], style="Modern.TCheckbutton").grid(row=0, column=0, columnspan=2, sticky="w", padx=22, pady=8)
+        self._field(friends, "Bot account username", self.media_settings["vrchat_username"], 1)
+        self._field(friends, "Bot account password", self.media_settings["vrchat_password"], 2, show="*")
+        self._field(friends, "Bot 2FA/TOTP secret (if enabled)", self.media_settings["vrchat_totp_secret"], 3, show="*")
+        self._field(friends, "Owner's VRChat username (optional)", self.media_settings["vrchat_owner_username"], 4)
+        ttk.Label(friends, text="Used only to call the owner out by name in online/offline and friend-request events; the bot still logs in as its own account above.", style="Muted.TLabel", wraplength=460).grid(row=5, column=0, columnspan=2, sticky="w", padx=22)
+        ttk.Button(friends, text="Save", command=self.save, style="Primary.TButton").grid(row=6, column=1, sticky="e", padx=22, pady=8)
+        ttk.Label(friends, textvariable=self.vrchat_friends_status_var, style="Muted.TLabel", wraplength=500).grid(row=7, column=0, columnspan=2, sticky="w", padx=22, pady=8)
+        self.vrchat_friends_log_widget = self._text_output(friends)
+        self.vrchat_friends_log_widget.grid(row=8, column=0, columnspan=2, sticky="ew", padx=22, pady=8)
+
     def _media_values(self):
         values = {key: variable.get() for key, variable in self.media_settings.items()}
-        for key, low, high in (("vision_interval_seconds", 5, 120), ("audio_record_seconds", 1, 15), ("vrchat_send_port", 1, 65535), ("vrchat_receive_port", 1, 65535)):
+        for key, low, high in (("vision_interval_seconds", 5, 120), ("audio_record_seconds", 5, 120), ("audio_silence_seconds", 2, 30), ("vrchat_send_port", 1, 65535), ("vrchat_receive_port", 1, 65535)):
             if not low <= int(values[key]) <= high:
                 raise ValueError(f"{key} must be between {low} and {high}")
         values["audio_input_device"] = self._audio_inputs.get(self.input_device_var.get(), self.config_data.get("audio_input_device"))
@@ -240,6 +265,12 @@ class MediaControls:
                 osc = self.agent.vrchat.status()
                 self.osc_status_var.set(("Armed" if osc["armed"] else "Disarmed") + (" / receiving OSC" if osc["receiving"] else " / no recent OSC data"))
                 self._set_readonly_text(self.osc_parameters, json.dumps(osc, indent=2))
+            if self.agent.vrchat_friends is not None:
+                running = self.agent.vrchat_friends.is_running()
+                self.vrchat_friends_status_var.set("Running — logged in and watching for friend activity." if running else "Enabled but not running (check the log below for a login error).")
+                self._set_readonly_text(self.vrchat_friends_log_widget, "\n".join(self.agent.vrchat_friends_log) or "No events yet.")
+            else:
+                self.vrchat_friends_status_var.set("Not configured — fill in the bot account, enable, save, then restart the node.")
         self.after(1000, self._refresh_media_status)
 
     def _close_app(self):

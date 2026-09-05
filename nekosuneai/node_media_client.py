@@ -63,7 +63,11 @@ class NodeMediaClient:
         device = self.config.get("audio_input_device")
         if device is None:
             raise RuntimeError("Select a microphone or game-audio loopback device")
-        raw = self.audio.capture(device, self.config.get("audio_record_seconds", 5))
+        raw = self.audio.capture(
+            device,
+            max_seconds=self.config.get("audio_record_seconds", 30),
+            silence_seconds=self.config.get("audio_silence_seconds", 10),
+        )
         if generation != self._audio_generation or self.closed.is_set():
             raise RuntimeError("Recording cancelled")
         result = self.request("stt", wav_base64=base64.b64encode(raw).decode("ascii"))

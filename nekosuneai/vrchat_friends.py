@@ -168,6 +168,10 @@ class VRChatFriendsService:
         except Exception as exc:
             self.on_event(f"[VRChat friends] Could not send chatbox message: {exc}")
 
+    def _is_owner(self, display_name: str) -> bool:
+        owner = str(self.config.get("vrchat_owner_username") or "").strip()
+        return bool(owner) and owner.casefold() == str(display_name or "").strip().casefold()
+
     def _friend_count(self) -> int | None:
         try:
             return len(self._friends_api.get_friends())
@@ -183,7 +187,8 @@ class VRChatFriendsService:
 
         count = self._friend_count()
         count_text = f", now over {count} friends" if count is not None else ""
-        self.on_event(f"Accepted a friend request from {sender_name}{count_text}.")
+        who = f"the owner, {sender_name}" if self._is_owner(sender_name) else sender_name
+        self.on_event(f"Accepted a friend request from {who}{count_text}.")
         self._send_chatbox(f"Thank you for the friend request, {sender_name}{count_text}!")
 
     def _accept_pending_friend_requests(self) -> None:
@@ -211,10 +216,12 @@ class VRChatFriendsService:
         message_type = envelope.get("type")
         if message_type == "friend-online":
             name = content.get("user", {}).get("displayName", "A friend")
-            self.on_event(f"{name} just came online in VRChat.")
+            label = f"The owner, {name}," if self._is_owner(name) else name
+            self.on_event(f"{label} just came online in VRChat.")
         elif message_type == "friend-offline":
             name = content.get("user", {}).get("displayName", "A friend")
-            self.on_event(f"{name} went offline.")
+            label = f"The owner, {name}," if self._is_owner(name) else name
+            self.on_event(f"{label} went offline.")
         elif message_type == "notification" and content.get("type") == "friendRequest":
             sender_name = content.get("senderUsername", "someone")
             self._accept_friend_request(content.get("id"), sender_name)

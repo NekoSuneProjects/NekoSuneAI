@@ -19,6 +19,7 @@ import urllib3
 from nekosuneai.game_skills import GameSkillLibrary
 from nekosuneai.windows_gaming_agent import GameProfile, WindowsGamingAgent
 from tools.node_media_gui import MediaControls
+from tools.world_map_gui import WorldMapControls
 
 APP_TITLE = "NekoSuneAI Windows Gaming Node"
 BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
@@ -249,7 +250,7 @@ def discover_candidates() -> list[str]:
     return results
 
 
-class App(MediaControls, tk.Tk):
+class App(MediaControls, WorldMapControls, tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
@@ -277,6 +278,7 @@ class App(MediaControls, tk.Tk):
         self.game_var = tk.StringVar()
         self.game_var.set(self.config_data.get("selected_game", ""))
         self._init_media_controls()
+        self._init_world_map_controls()
         self.verify_tls_var = tk.BooleanVar(value=bool(self.config_data.get("verify_tls", True)))
 
         self._configure_style()
@@ -284,6 +286,7 @@ class App(MediaControls, tk.Tk):
         self._load_games()
         self._refresh_pair_state()
         self.after(1000, self._refresh_media_status)
+        self.after(1000, self._refresh_world_map_status)
         self.protocol("WM_DELETE_WINDOW", self._close_app)
 
     def _configure_style(self) -> None:
@@ -348,7 +351,7 @@ class App(MediaControls, tk.Tk):
         tk.Label(brand, text="WINDOWS GAMING NODE", bg="#0d131a", fg=ACCENT, font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(2, 0))
 
         self.nav_buttons: dict[str, tk.Button] = {}
-        for key, label, glyph in (("media", "Audio & Vision", "AV"), ("vrchat", "VRChat OSC", "OSC"), ("setup", "Setup & Pair", "●"), ("gaming", "Gaming Node", "▶"), ("about", "Status", "◆")):
+        for key, label, glyph in (("media", "Audio & Vision", "AV"), ("vrchat", "VRChat OSC", "OSC"), ("worldmap", "World Map", "WM"), ("setup", "Setup & Pair", "●"), ("gaming", "Gaming Node", "▶"), ("about", "Status", "◆")):
             button = tk.Button(sidebar, text=f"  {glyph}   {label}", anchor="w", relief="flat", bd=0, bg="#0d131a", fg=MUTED, activebackground="#161f29", activeforeground=TEXT, font=("Segoe UI", 10, "bold"), padx=14, pady=12, cursor="hand2", command=lambda page=key: self._show_page(page))
             button.pack(fill="x", padx=12, pady=3)
             self.nav_buttons[key] = button
@@ -380,6 +383,7 @@ class App(MediaControls, tk.Tk):
         self._build_gaming_page()
         self._build_media_page()
         self._build_vrchat_page()
+        self._build_world_map_page()
         self._build_status_page()
 
         statusbar = ttk.Frame(content, style="Sidebar.TFrame")
@@ -402,9 +406,10 @@ class App(MediaControls, tk.Tk):
         body.pack(fill="x", expand=True, pady=(0, 6))
         return body
 
-    def _field(self, parent: tk.Widget, label: str, variable: tk.Variable, row: int) -> ttk.Entry:
+    def _field(self, parent: tk.Widget, label: str, variable: tk.Variable, row: int, show: str | None = None) -> ttk.Entry:
         ttk.Label(parent, text=label, style="Body.TLabel").grid(row=row, column=0, sticky="w", padx=(22, 18), pady=9)
-        entry = ttk.Entry(parent, textvariable=variable, style="Modern.TEntry")
+        kwargs = {"show": show} if show else {}
+        entry = ttk.Entry(parent, textvariable=variable, style="Modern.TEntry", **kwargs)
         entry.grid(row=row, column=1, sticky="ew", padx=(0, 22), pady=9)
         return entry
 
@@ -517,6 +522,7 @@ class App(MediaControls, tk.Tk):
             "name": self.name_var.get().strip() or "Windows Gaming Node",
             "selected_game": self.game_var.get(),
             **self._media_values(),
+            **self._world_map_values(),
         })
         return cfg
 
