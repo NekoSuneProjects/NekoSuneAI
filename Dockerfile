@@ -71,7 +71,9 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 COPY . .
 COPY docker-entrypoint.sh /usr/local/bin/nekosuneai-entrypoint
-RUN chmod +x /usr/local/bin/nekosuneai-entrypoint /app/tools/yt_search.js \
+RUN python -m py_compile /app/nekosuneai/media.py /app/nekosuneai/media_player.py /app/nekosuneai/media_devices.py \
+    && python -c "import nekosuneai.media, nekosuneai.media_player, nekosuneai.media_devices; print('Media integrations import OK')" \
+    && chmod +x /usr/local/bin/nekosuneai-entrypoint /app/tools/yt_search.js \
     && mkdir -p /app/data /app/audio /app/models \
     && chmod 0777 /app/models \
     && touch /app/.setup-complete
