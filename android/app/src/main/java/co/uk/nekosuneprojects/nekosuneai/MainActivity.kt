@@ -255,7 +255,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         card.addView(secondaryButton("Test Find My Phone") { ContextCompat.startForegroundService(this, Intent(this, FindPhoneService::class.java).apply { action = FindPhoneService.ACTION_START }) }, marginTop(8))
         card.addView(secondaryButton("Stop phone ringing") { startService(Intent(this, FindPhoneService::class.java).apply { action = FindPhoneService.ACTION_STOP }) }, marginTop(8))
         card.addView(primaryButton("🎤 Wake / voice command") { launchSpeech() }, marginTop(10))
-        card.addView(body("For use away from home, set the remembered server URL to your authenticated HTTPS/VPN/Tailscale address. The saved paired token is reused automatically when the app opens."), marginTop(10))
+        card.addView(body("For use away from home, set the remembered server URL to your authenticated HTTPS/VPN/Tailscale address. The saved paired token is reused automatically when the app opens. If your server is remote (for example a VPS) and not reachable by local search, type its URL on the Pair screen and tap \"Request pairing\" to pair with just an approval code — no need to hand-copy a token or be on the same network."), marginTop(10))
         contentHost.addView(card, marginTop(12))
     }
 
@@ -266,7 +266,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         discoveredBox = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; visibility = View.GONE; setPadding(0, dp(10), 0, 0) }; pairCard.addView(discoveredBox)
         serverInput = field("Server URL", api.serverUrl)
         tokenInput = field("Dashboard token (manual only)", prefs.getString("token", "").orEmpty()).apply { inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD }
-        pairCard.addView(serverInput, marginTop(12)); pairCard.addView(tokenInput, marginTop(8))
+        pairCard.addView(serverInput, marginTop(12))
+        pairCard.addView(primaryButton("Request pairing", "⚙") {
+            val url = serverInput.text.toString().trim()
+            if (url.isBlank() || !(url.startsWith("http://") || url.startsWith("https://"))) {
+                connectionStatus.text = "● Enter a server URL (http:// or https://) first"
+            } else {
+                requestPairing(url, "this server")
+            }
+        }, marginTop(8))
+        pairCard.addView(tokenInput, marginTop(8))
         pairCard.addView(secondaryButton("Save manual / remote URL") { api.save(serverInput.text.toString(), tokenInput.text.toString()); onConnected() }, marginTop(8))
         pairCard.addView(secondaryButton("Forget this device pairing") { api.clearConnection(); connectionStatus.text = "● Pairing forgotten" }, marginTop(8))
         contentHost.addView(pairCard, marginTop(12))
