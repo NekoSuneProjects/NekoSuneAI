@@ -22,6 +22,11 @@ Do not bulk-complete inherited tasks without checking this branch.
 
 ## P1 - Windows Integration Work
 
+- [x] [CONTEXT-01] Add selected microphone/loopback capture, Pi STT/TTS requests, Windows playback and audio cancellation controls.
+- [x] [STREAM-01] Add opt-in gameplay image analysis through Pi, preview and fresh visual observations.
+- [x] [NODE-01] Add locally armed VRChat OSC input/chatbox/avatar controls and telemetry; advertise new capabilities on heartbeat.
+- [ ] Verify these media paths against the deployed Pi and real Windows audio devices; verify VRChat OSC release, nameplate readings and clean-machine EXE packaging.
+
 - [ ] [NODE-01] Coordinate transport/capability changes with Docker's server contract; enforce permissions and connection-loss input release locally.
 - [ ] [CONTEXT-01] Implement the PC side of configured audio/intercom and conversation handoff without embedding the server backend.
 - [ ] [STREAM-01] Verify local game readiness, OBS/capture telemetry and owner stop/take-over behavior against server supervision.

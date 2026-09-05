@@ -9,7 +9,8 @@
     "subnautica.look_right": {"description": "Turn right.", "realtime": true, "steps": [{"mouse_move": {"x": 45, "y": 0}, "seconds": 0.02}]},
     "subnautica.ascend": {"description": "Ascend/jump briefly.", "realtime": true, "steps": [{"key": "space", "seconds": 0.2}]},
     "subnautica.interact": {"description": "Use highlighted target.", "realtime": false, "steps": [{"mouse_button": "left", "seconds": 0.08}]},
-    "subnautica.inventory": {"description": "Open inventory.", "realtime": false, "steps": [{"key": "tab", "seconds": 0.08}]},
+    "subnautica.inventory": {"description": "Open inventory/PDA.", "realtime": false, "steps": [{"key": "tab", "seconds": 0.08}]},
+    "subnautica.crouch": {"description": "Crouch/crouch-swim briefly.", "realtime": true, "steps": [{"key": "ctrl", "seconds": 0.3}]},
     "subnautica.pause": {"description": "Open pause menu.", "realtime": false, "steps": [{"key": "escape", "seconds": 0.08}]}
   }
 }

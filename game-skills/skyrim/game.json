@@ -13,6 +13,14 @@
     "skyrim.block": {"description": "Block/use left hand briefly.", "realtime": true, "steps": [{"mouse_button": "right", "seconds": 0.25}]},
     "skyrim.inventory": {"description": "Open character menu.", "realtime": false, "steps": [{"key": "tab", "seconds": 0.08}]},
     "skyrim.map": {"description": "Open map.", "realtime": false, "steps": [{"key": "m", "seconds": 0.08}]},
+    "skyrim.sneak": {"description": "Toggle sneak briefly.", "realtime": true, "steps": [{"key": "ctrl", "seconds": 0.3}]},
+    "skyrim.sprint": {"description": "Sprint briefly.", "realtime": true, "steps": [{"key": "shift", "seconds": 0.3}]},
+    "skyrim.shout": {"description": "Perform a dragon shout.", "realtime": false, "steps": [{"key": "z", "seconds": 0.2}]},
+    "skyrim.favorites": {"description": "Open the favorites menu.", "realtime": false, "steps": [{"key": "q", "seconds": 0.08}]},
+    "skyrim.journal": {"description": "Open the journal/quest log.", "realtime": false, "steps": [{"key": "j", "seconds": 0.08}]},
+    "skyrim.wait": {"description": "Open the wait menu.", "realtime": false, "steps": [{"key": "t", "seconds": 0.08}]},
+    "skyrim.quicksave": {"description": "Quicksave.", "realtime": false, "steps": [{"key": "f5", "seconds": 0.05}]},
+    "skyrim.quickload": {"description": "Quickload.", "realtime": false, "steps": [{"key": "f9", "seconds": 0.05}]},
     "skyrim.pause": {"description": "Open system menu.", "realtime": false, "steps": [{"key": "escape", "seconds": 0.08}]}
   }
 }

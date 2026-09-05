@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "game_id": "satisfactory",
+  "display_name": "Satisfactory",
+  "profile": {"platform": "windows", "executable_names": ["FactoryGame-Win64-Shipping.exe"], "window_title_pattern": "Satisfactory", "multiplayer_policy": "private_server", "automation_permitted": true, "competitive_or_anticheat": false, "allow_vision": true, "allow_input": false, "allow_keyboard": true, "allow_mouse": true, "allow_controller": false, "allow_obs": true, "allow_twitch": true, "capture_fps": 2.0, "capture_width": 960, "realtime_enabled": true},
+  "skills": {
+    "satisfactory.walk_forward": {"description": "Walk forward.", "realtime": true, "steps": [{"key": "w", "seconds": 0.25}]},
+    "satisfactory.walk_back": {"description": "Walk backward.", "realtime": true, "steps": [{"key": "s", "seconds": 0.2}]},
+    "satisfactory.strafe_left": {"description": "Strafe left.", "realtime": true, "steps": [{"key": "a", "seconds": 0.2}]},
+    "satisfactory.strafe_right": {"description": "Strafe right.", "realtime": true, "steps": [{"key": "d", "seconds": 0.2}]},
+    "satisfactory.turn_left": {"description": "Turn camera left.", "realtime": true, "steps": [{"mouse_move": {"x": -45, "y": 0}, "seconds": 0.02}]},
+    "satisfactory.turn_right": {"description": "Turn camera right.", "realtime": true, "steps": [{"mouse_move": {"x": 45, "y": 0}, "seconds": 0.02}]},
+    "satisfactory.jump": {"description": "Jump.", "realtime": false, "steps": [{"key": "space", "seconds": 0.08}]},
+    "satisfactory.sprint": {"description": "Sprint briefly.", "realtime": true, "steps": [{"key": "shift", "seconds": 0.3}]},
+    "satisfactory.crouch": {"description": "Crouch briefly.", "realtime": true, "steps": [{"key": "ctrl", "seconds": 0.3}]},
+    "satisfactory.use_build": {"description": "Fire/build/place with the equipped tool.", "realtime": true, "steps": [{"mouse_button": "left", "seconds": 0.2}]},
+    "satisfactory.dismantle": {"description": "Aim/dismantle with the equipped tool.", "realtime": true, "steps": [{"mouse_button": "right", "seconds": 0.2}]},
+    "satisfactory.rotate_build": {"description": "Rotate the held build piece.", "realtime": false, "steps": [{"key": "r", "seconds": 0.08}]},
+    "satisfactory.interact": {"description": "Use/interact with the highlighted object.", "realtime": false, "steps": [{"key": "e", "seconds": 0.08}]},
+    "satisfactory.inventory": {"description": "Open inventory.", "realtime": false, "steps": [{"key": "tab", "seconds": 0.08}]},
+    "satisfactory.map": {"description": "Open the map.", "realtime": false, "steps": [{"key": "m", "seconds": 0.08}]},
+    "satisfactory.hotbar_1": {"description": "Select equipment slot 1.", "realtime": false, "steps": [{"key": "1", "seconds": 0.05}]},
+    "satisfactory.hotbar_2": {"description": "Select equipment slot 2.", "realtime": false, "steps": [{"key": "2", "seconds": 0.05}]},
+    "satisfactory.hotbar_3": {"description": "Select equipment slot 3.", "realtime": false, "steps": [{"key": "3", "seconds": 0.05}]},
+    "satisfactory.hotbar_4": {"description": "Select equipment slot 4.", "realtime": false, "steps": [{"key": "4", "seconds": 0.05}]},
+    "satisfactory.hotbar_5": {"description": "Select equipment slot 5.", "realtime": false, "steps": [{"key": "5", "seconds": 0.05}]},
+    "satisfactory.hotbar_6": {"description": "Select equipment slot 6.", "realtime": false, "steps": [{"key": "6", "seconds": 0.05}]},
+    "satisfactory.hotbar_7": {"description": "Select equipment slot 7.", "realtime": false, "steps": [{"key": "7", "seconds": 0.05}]},
+    "satisfactory.hotbar_8": {"description": "Select equipment slot 8.", "realtime": false, "steps": [{"key": "8", "seconds": 0.05}]},
+    "satisfactory.hotbar_9": {"description": "Select equipment slot 9.", "realtime": false, "steps": [{"key": "9", "seconds": 0.05}]},
+    "satisfactory.pause": {"description": "Open the pause menu.", "realtime": false, "steps": [{"key": "escape", "seconds": 0.08}]}
+  }
+}

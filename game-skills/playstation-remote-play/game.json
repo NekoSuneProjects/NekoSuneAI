@@ -12,6 +12,17 @@
     "console.cancel": {"description": "Press Circle/cancel.", "realtime": false, "steps": [{"button": "b", "seconds": 0.08}]},
     "console.action_square": {"description": "Press Square.", "realtime": false, "steps": [{"button": "x", "seconds": 0.08}]},
     "console.action_triangle": {"description": "Press Triangle.", "realtime": false, "steps": [{"button": "y", "seconds": 0.08}]},
+    "console.shoulder_left": {"description": "Press L1.", "realtime": false, "steps": [{"button": "left_shoulder", "seconds": 0.08}]},
+    "console.shoulder_right": {"description": "Press R1.", "realtime": false, "steps": [{"button": "right_shoulder", "seconds": 0.08}]},
+    "console.select": {"description": "Press Share/Select.", "realtime": false, "steps": [{"button": "back", "seconds": 0.08}]},
+    "console.thumb_left": {"description": "Click L3 (left stick).", "realtime": false, "steps": [{"button": "left_thumb", "seconds": 0.08}]},
+    "console.thumb_right": {"description": "Click R3 (right stick).", "realtime": false, "steps": [{"button": "right_thumb", "seconds": 0.08}]},
+    "console.dpad_up": {"description": "Press D-pad up.", "realtime": false, "steps": [{"button": "dpad_up", "seconds": 0.08}]},
+    "console.dpad_down": {"description": "Press D-pad down.", "realtime": false, "steps": [{"button": "dpad_down", "seconds": 0.08}]},
+    "console.dpad_left": {"description": "Press D-pad left.", "realtime": false, "steps": [{"button": "dpad_left", "seconds": 0.08}]},
+    "console.dpad_right": {"description": "Press D-pad right.", "realtime": false, "steps": [{"button": "dpad_right", "seconds": 0.08}]},
+    "console.trigger_left": {"description": "Pull L2.", "realtime": true, "steps": [{"axis": "left_trigger", "value": 0.8, "seconds": 0.2}]},
+    "console.trigger_right": {"description": "Pull R2.", "realtime": true, "steps": [{"axis": "right_trigger", "value": 0.8, "seconds": 0.2}]},
     "console.pause": {"description": "Press Options.", "realtime": false, "steps": [{"button": "start", "seconds": 0.08}]}
   }
 }

@@ -12,6 +12,17 @@
     "cyberpunk.interact": {"description": "Interact with the highlighted object/person.", "realtime": false, "steps": [{"key": "f", "seconds": 0.08}]},
     "cyberpunk.jump": {"description": "Jump.", "realtime": false, "steps": [{"key": "space", "seconds": 0.08}]},
     "cyberpunk.scan": {"description": "Open scanner briefly.", "realtime": false, "steps": [{"key": "tab", "seconds": 0.25}]},
+    "cyberpunk.sprint": {"description": "Sprint briefly.", "realtime": true, "steps": [{"key": "shift", "seconds": 0.3}]},
+    "cyberpunk.crouch": {"description": "Toggle crouch briefly.", "realtime": true, "steps": [{"key": "ctrl", "seconds": 0.3}]},
+    "cyberpunk.dodge": {"description": "Dodge briefly.", "realtime": false, "steps": [{"key": "alt", "seconds": 0.1}]},
+    "cyberpunk.reload": {"description": "Reload the equipped weapon.", "realtime": false, "steps": [{"key": "r", "seconds": 0.08}]},
+    "cyberpunk.inventory": {"description": "Open inventory.", "realtime": false, "steps": [{"key": "i", "seconds": 0.08}]},
+    "cyberpunk.map": {"description": "Open map.", "realtime": false, "steps": [{"key": "j", "seconds": 0.08}]},
+    "cyberpunk.backpack": {"description": "Open the character/backpack menu.", "realtime": false, "steps": [{"key": "c", "seconds": 0.08}]},
+    "cyberpunk.hotbar_1": {"description": "Use quick-slot consumable/cyberware 1.", "realtime": false, "steps": [{"key": "1", "seconds": 0.05}]},
+    "cyberpunk.hotbar_2": {"description": "Use quick-slot consumable/cyberware 2.", "realtime": false, "steps": [{"key": "2", "seconds": 0.05}]},
+    "cyberpunk.quicksave": {"description": "Quicksave.", "realtime": false, "steps": [{"key": "f5", "seconds": 0.05}]},
+    "cyberpunk.quickload": {"description": "Quickload.", "realtime": false, "steps": [{"key": "f9", "seconds": 0.05}]},
     "cyberpunk.pause": {"description": "Open pause menu.", "realtime": false, "steps": [{"key": "escape", "seconds": 0.08}]}
   }
 }

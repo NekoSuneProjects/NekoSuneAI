@@ -18,6 +18,7 @@ import urllib3
 
 from nekosuneai.game_skills import GameSkillLibrary
 from nekosuneai.windows_gaming_agent import GameProfile, WindowsGamingAgent
+from tools.node_media_gui import MediaControls
 
 APP_TITLE = "NekoSuneAI Windows Gaming Node"
 BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
@@ -245,7 +246,7 @@ def discover_candidates() -> list[str]:
     return results
 
 
-class App(tk.Tk):
+class App(MediaControls, tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
@@ -266,12 +267,16 @@ class App(tk.Tk):
         self.name_var = tk.StringVar(value=self.config_data.get("name", "Windows Gaming Node"))
         self.node_var = tk.StringVar(value=self.config_data.get("node_id", socket.gethostname()))
         self.game_var = tk.StringVar()
+        self.game_var.set(self.config_data.get("selected_game", ""))
+        self._init_media_controls()
         self.verify_tls_var = tk.BooleanVar(value=bool(self.config_data.get("verify_tls", True)))
 
         self._configure_style()
         self._build()
         self._load_games()
         self._refresh_pair_state()
+        self.after(1000, self._refresh_media_status)
+        self.protocol("WM_DELETE_WINDOW", self._close_app)
 
     def _configure_style(self) -> None:
         style = ttk.Style(self)
@@ -312,7 +317,7 @@ class App(tk.Tk):
         tk.Label(brand, text="WINDOWS GAMING NODE", bg="#0d131a", fg=ACCENT, font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(2, 0))
 
         self.nav_buttons: dict[str, tk.Button] = {}
-        for key, label, glyph in (("setup", "Setup & Pair", "●"), ("gaming", "Gaming Node", "▶"), ("about", "Status", "◆")):
+        for key, label, glyph in (("media", "Audio & Vision", "AV"), ("vrchat", "VRChat OSC", "OSC"), ("setup", "Setup & Pair", "●"), ("gaming", "Gaming Node", "▶"), ("about", "Status", "◆")):
             button = tk.Button(sidebar, text=f"  {glyph}   {label}", anchor="w", relief="flat", bd=0, bg="#0d131a", fg=MUTED, activebackground="#161f29", activeforeground=TEXT, font=("Segoe UI", 10, "bold"), padx=14, pady=12, cursor="hand2", command=lambda page=key: self._show_page(page))
             button.pack(fill="x", padx=12, pady=3)
             self.nav_buttons[key] = button
@@ -342,6 +347,8 @@ class App(tk.Tk):
         self.pages: dict[str, ttk.Frame] = {}
         self._build_setup_page()
         self._build_gaming_page()
+        self._build_media_page()
+        self._build_vrchat_page()
         self._build_status_page()
 
         statusbar = ttk.Frame(content, style="Sidebar.TFrame")
@@ -477,11 +484,17 @@ class App(tk.Tk):
             "verify_tls": self.verify_tls_var.get(),
             "node_id": self.node_var.get().strip() or socket.gethostname(),
             "name": self.name_var.get().strip() or "Windows Gaming Node",
+            "selected_game": self.game_var.get(),
+            **self._media_values(),
         })
         return cfg
 
     def save(self) -> bool:
-        cfg = self.current_config()
+        try:
+            cfg = self.current_config()
+        except (ValueError, tk.TclError) as exc:
+            messagebox.showerror(APP_TITLE, str(exc))
+            return False
         if not cfg["server_url"]:
             messagebox.showerror(APP_TITLE, "Enter or discover your NekoSuneAI server URL first.")
             return False
@@ -649,7 +662,7 @@ class App(tk.Tk):
                 self.agent.run()
                 self.after(0, self._node_stopped)
             except Exception as exc:
-                self.after(0, lambda: self._node_error(str(exc)))
+                self.after(0, lambda error=str(exc): self._node_error(error))
 
         self.agent_thread = threading.Thread(target=worker, daemon=True)
         self.agent_thread.start()
@@ -669,7 +682,7 @@ class App(tk.Tk):
             self.status_var.set("Gaming Node is not running")
             return
         try:
-            self.agent._stop.set()
+            self.agent.stop()
             self.status_var.set("Stopping Gaming Node…")
         except Exception as exc:
             self.status_var.set(f"Could not stop node • {exc}")

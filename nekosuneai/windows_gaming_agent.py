@@ -14,6 +14,7 @@ import io
 import json
 import os
 import platform
+import queue
 import re
 import subprocess
 import socket
@@ -30,15 +31,35 @@ import requests
 from ctypes import wintypes
 
 from .game_skills import GameSkillLibrary, SkillLearningStore, validate_skill_step
+from .node_media_client import NodeMediaClient
 
 
 SAFE_KEYS = {
-    "w": 0x57, "a": 0x41, "s": 0x53, "d": 0x44, "e": 0x45, "f": 0x46,
-    "c": 0x43, "i": 0x49, "m": 0x4D, "q": 0x51, "r": 0x52, "t": 0x54, "x": 0x58,
+    # Full letter row so every game's real single-key bindings (sprint, crouch,
+    # reload, flashlight, journal, quicksave, hotbar, etc.) can be named
+    # directly instead of games improvising unrelated substitute keys.
+    "a": 0x41, "b": 0x42, "c": 0x43, "d": 0x44, "e": 0x45, "f": 0x46,
+    "g": 0x47, "h": 0x48, "i": 0x49, "j": 0x4A, "k": 0x4B, "l": 0x4C,
+    "m": 0x4D, "n": 0x4E, "o": 0x4F, "p": 0x50, "q": 0x51, "r": 0x52,
+    "s": 0x53, "t": 0x54, "u": 0x55, "v": 0x56, "w": 0x57, "x": 0x58,
+    "y": 0x59, "z": 0x5A,
     "shift": 0x10, "ctrl": 0x11, "alt": 0x12,
-    "1": 0x31, "2": 0x32, "3": 0x33, "4": 0x34, "5": 0x35,
-    "space": 0x20, "escape": 0x1B, "enter": 0x0D, "tab": 0x09,
+    "0": 0x30, "1": 0x31, "2": 0x32, "3": 0x33, "4": 0x34,
+    "5": 0x35, "6": 0x36, "7": 0x37, "8": 0x38, "9": 0x39,
+    "space": 0x20, "escape": 0x1B, "enter": 0x0D, "tab": 0x09, "backspace": 0x08,
     "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
+    # Individually-pressable extras. There is no modifier+key combo support
+    # (steps press and release one key at a time), so OS-level shortcuts such
+    # as Alt+F4 or Alt+Tab cannot be formed even though the base keys exist.
+    "capslock": 0x14, "home": 0x24, "end": 0x23, "pageup": 0x21, "pagedown": 0x22,
+    "insert": 0x2D, "delete": 0x2E,
+    # f12 is deliberately excluded: it is reserved for the local
+    # Ctrl+Alt+F12 emergency stop hotkey and must never be an assignable skill.
+    "f1": 0x70, "f2": 0x71, "f3": 0x72, "f4": 0x73, "f5": 0x74, "f6": 0x75,
+    "f7": 0x76, "f8": 0x77, "f9": 0x78, "f10": 0x79, "f11": 0x7A,
+    "grave": 0xC0, "minus": 0xBD, "equals": 0xBB,
+    "leftbracket": 0xDB, "rightbracket": 0xDD, "backslash": 0xDC,
+    "semicolon": 0xBA, "quote": 0xDE, "comma": 0xBC, "period": 0xBE, "slash": 0xBF,
 }
 SAFE_MOUSE_BUTTONS = {"left", "right", "middle"}
 SAFE_CONTROLLER_BUTTONS = {
@@ -461,19 +482,20 @@ class EmergencyHotkey:
 
 
 class WindowVision:
-    def __init__(self, profile: GameProfile, foreground: Callable[[], tuple[int, str]] = WindowsWindow.foreground) -> None:
+    def __init__(self, profile: GameProfile, foreground: Callable[[], tuple[int, str]] = WindowsWindow.foreground, config=None) -> None:
         self.profile = profile
+        self.config = config or {}
         self.foreground = foreground
         self.last_capture = 0.0
         self.last_hash = ""
         self.memory: deque[dict[str, Any]] = deque(maxlen=20)
         self._lock = threading.RLock()
 
-    def capture(self, detailed: bool = False) -> dict[str, Any]:
+    def capture(self, detailed: bool = False, image_limit: int = 48_000) -> dict[str, Any]:
         with self._lock:
-            return self._capture_unlocked(detailed)
+            return self._capture_unlocked(detailed, image_limit)
 
-    def _capture_unlocked(self, detailed: bool = False) -> dict[str, Any]:
+    def _capture_unlocked(self, detailed: bool = False, image_limit: int = 48_000) -> dict[str, Any]:
         if not self.profile.allow_vision:
             return {"ok": False, "reason": "vision disabled in profile"}
         handle, title = self.foreground()
@@ -496,25 +518,32 @@ class WindowVision:
             scene_changed = bool(self.last_hash and digest != self.last_hash)
             self.last_hash, self.last_capture = digest, time.monotonic()
             text = ""
+            ocr_error = ""
             try:
                 import pytesseract
-                text = " ".join(pytesseract.image_to_string(image).split())[:800]
-            except Exception:
-                pass
+                if self.config.get("tesseract_path"):
+                    pytesseract.pytesseract.tesseract_cmd = str(self.config["tesseract_path"])
+                text = pytesseract.image_to_string(image, timeout=2).strip()[:1600]
+            except Exception as exc:
+                ocr_error = str(exc)[:200]
             transition = next((word for word in TRANSITION_WORDS if word in text.lower()), "")
             result: dict[str, Any] = {
                 "ok": True, "window_title": title[:120], "width": image.width, "height": image.height,
                 "scene_hash": digest, "scene_changed": scene_changed, "ocr": text,
+                "ocr_error": ocr_error,
                 "transition": transition, "input_safe": not bool(transition), "epoch": time.time(),
             }
             if detailed:
-                buf = io.BytesIO()
-                image.save(buf, "JPEG", quality=55, optimize=True)
-                encoded = base64.b64encode(buf.getvalue()).decode("ascii")
-                if len(encoded) <= 48_000:
-                    result["screenshot_jpeg_base64"] = encoded
-                else:
-                    result["screenshot_omitted"] = "compressed screenshot exceeded heartbeat limit"
+                for _ in range(6):
+                    buf = io.BytesIO()
+                    image.save(buf, "JPEG", quality=65, optimize=True)
+                    encoded = base64.b64encode(buf.getvalue()).decode("ascii")
+                    if len(encoded) <= image_limit:
+                        result["screenshot_jpeg_base64"] = encoded
+                        break
+                    image = image.resize((max(1, image.width * 3 // 4), max(1, image.height * 3 // 4)))
+                if "screenshot_jpeg_base64" not in result:
+                    result["screenshot_omitted"] = "compressed screenshot exceeded request limit"
             self.memory.append({key: value for key, value in result.items() if key != "screenshot_jpeg_base64"})
             return result
         except Exception as exc:
@@ -650,7 +679,15 @@ class WindowsGamingAgent:
         gamepad = VirtualGamepad(profile.input_backend) if profile.allow_controller else None
         self.input = InputSafetyController(profile, gamepad=gamepad)
         self.emergency_hotkey = EmergencyHotkey(self.input)
-        self.vision = WindowVision(profile)
+        self.vision = WindowVision(profile, config=config)
+        self.media = NodeMediaClient(config)
+        self.vrchat = None
+        self._media_thread = None
+        self._speech_queue = queue.Queue(maxsize=3)
+        if config.get("vrchat_osc_enabled") and profile.platform == "vrchat":
+            from .vrchat_osc import VrchatOsc
+            self.vrchat = VrchatOsc(config.get("vrchat_send_port", 9000), config.get("vrchat_receive_port", 9001),
+                                   gate=lambda: not self.input.disabled.is_set() and self.profile.allow_input)
         learning_template = str(config.get("game_learning_file") or "data/game-learning/{game_id}.json")
         learning_path = Path(learning_template.format(game_id=profile.game_id))
         self.learning = SkillLearningStore(learning_path, profile.game_id)
@@ -670,6 +707,12 @@ class WindowsGamingAgent:
             self.twitch = TwitchIrcClient(
                 str(config["twitch_login"]), str(config["twitch_oauth_token"]), str(config["twitch_channel"]),
             )
+        self.vrchat_friends = None
+        if config.get("vrchat_friends_enabled") and config.get("vrchat_username") and config.get("vrchat_password"):
+            from .vrchat_friends import VRChatFriendsService
+            self.vrchat_friends = VRChatFriendsService(
+                config, self._on_vrchat_friends_event, osc=self.vrchat,
+            )
 
     def capabilities(self) -> dict[str, dict[str, str]]:
         caps = {
@@ -683,6 +726,12 @@ class WindowsGamingAgent:
                 for name in self.profile.skills
             ):
                 caps["game.plan"] = {"kind": "write"}
+        if self.config.get("windows_tts_enabled", True):
+            caps["audio.speak"] = {"kind": "write"}
+        if self.vrchat is not None:
+            caps["vrchat.status"] = {"kind": "read"}
+            for capability in ("vrchat.input", "vrchat.avatar.set", "vrchat.chatbox"):
+                caps[capability] = {"kind": "write"}
         if self.profile.platform in {"xbox_remote_play", "playstation_remote_play"}:
             caps["console.status"] = {"kind": "read"}
         if self.profile.allow_obs:
@@ -702,6 +751,13 @@ class WindowsGamingAgent:
         if not self.profile.learning_enabled:
             return {}
         return self.learning.record(skill, ok, duration_ms, reason)
+
+    def _on_vrchat_friends_event(self, text: str) -> None:
+        try:
+            if self.config.get("windows_tts_enabled", True):
+                self._speech_queue.put_nowait((time.monotonic(), text))
+        except queue.Full:
+            pass
 
     def pair(self, pairing_id: str, pairing_code: str) -> str:
         response = self.session.post(
@@ -738,7 +794,22 @@ class WindowsGamingAgent:
             "realtime": self.realtime.status(), "platform": self.profile.platform,
             "multiplayer_policy": self.profile.multiplayer_policy,
             "game_guide": self.profile.guide_summary[:1_500],
+            "media": self.media.snapshot(),
+            "windows_tts_enabled": bool(self.config.get("windows_tts_enabled", True)),
+            "vrchat_friends": {
+                "enabled": bool(self.vrchat_friends is not None),
+                "running": bool(self.vrchat_friends is not None and self.vrchat_friends.is_running()),
+            },
         }
+        if self.vrchat is not None:
+            state["vrchat"] = self.vrchat.status()
+            try:
+                from . import vrchat_logs
+                log_dir = self.config.get("vrchat_log_dir") or None
+                state["vrchat"]["world"] = vrchat_logs.current_world(log_dir)
+                state["vrchat"]["players"] = vrchat_logs.nearby_players(log_dir)
+            except Exception as exc:
+                state["vrchat"]["log_error"] = str(exc)[:200]
         if self.profile.platform in {"xbox_remote_play", "playstation_remote_play"}:
             state["console"] = {
                 "platform": self.profile.platform.removesuffix("_remote_play"),
@@ -779,8 +850,32 @@ class WindowsGamingAgent:
         args = dict(command.get("arguments") or {})
         confirmed = bool(command.get("confirmed"))
         if capability == "game.input.stop":
+            if self.vrchat is not None:
+                self.vrchat.stop_input()
             self.realtime.cancel(disable=True); return {"ok": True, "input_disabled": True}
+        if capability == "audio.speak":
+            if not self.config.get("windows_tts_enabled", True):
+                raise PermissionError("Windows speech output is disabled")
+            self._speech_queue.put_nowait((time.monotonic(), str(args.get("text", ""))))
+            return {"ok": True, "speech_queued": True}
+        if capability.startswith("vrchat."):
+            if self.vrchat is None:
+                raise PermissionError("VRChat OSC is disabled")
+            if capability == "vrchat.status":
+                return self.vrchat.status()
+            if capability == "vrchat.input":
+                return self.vrchat.pulse(str(args.get("name", "")), args.get("value", 1), args.get("seconds", 0.25))
+            if capability == "vrchat.avatar.set":
+                return self.vrchat.avatar_parameter(str(args.get("name", "")), args.get("value"))
+            if capability == "vrchat.chatbox":
+                return self.vrchat.chatbox(str(args.get("text", "")))
         if capability == "game.skill":
+            if self.profile.platform == "vrchat":
+                from .vrchat_osc import SKILLS
+                if self.vrchat is None or str(args.get("name", "")) not in SKILLS:
+                    raise PermissionError("VRChat OSC skill unavailable")
+                name, value = SKILLS[str(args["name"])]
+                return self.vrchat.pulse(name, value, 0.25)
             self.realtime.cancel()
             skill, started = str(args.get("name", "")), time.monotonic()
             try:
@@ -810,7 +905,7 @@ class WindowsGamingAgent:
     def heartbeat_once(self) -> dict[str, Any]:
         response = self.session.post(
             self.server + "/api/nodes/heartbeat", headers=self._headers(), verify=self.verify_tls, timeout=10,
-            json={"node_id": self.node_id, "state": self._telemetry(), "ack_command_id": self._last_command or None},
+            json={"node_id": self.node_id, "state": self._telemetry(), "capabilities": self.capabilities(), "ack_command_id": self._last_command or None},
         )
         response.raise_for_status()
         # A requested screenshot is delivered in one heartbeat only. Compact
@@ -818,7 +913,7 @@ class WindowsGamingAgent:
         self._last_result.pop("screenshot_jpeg_base64", None)
         poll = self.session.post(
             self.server + "/api/nodes/poll", headers=self._headers(), verify=self.verify_tls, timeout=30,
-            json={"node_id": self.node_id, "after": self._last_command, "wait_seconds": 10},
+            json={"node_id": self.node_id, "after": self._last_command, "wait_seconds": 2},
         )
         poll.raise_for_status()
         for command in poll.json().get("commands", []):
@@ -827,22 +922,67 @@ class WindowsGamingAgent:
             self._last_command = max(self._last_command, int(command.get("id", 0)))
         return response.json()
 
+    def _media_loop(self):
+        last_vision = 0.0
+        while not self._stop.is_set():
+            try:
+                if self.config.get("game_vision_enabled") and time.monotonic() - last_vision >= max(5, float(self.config.get("vision_interval_seconds", 10))):
+                    last_vision = time.monotonic()
+                    self.media.vision(self.vision.capture(detailed=True, image_limit=500_000))
+                if self.config.get("audio_listen_enabled") and not self.media.speech_pending.is_set():
+                    self.media.listen()
+            except Exception as exc:
+                self.media.update(error=str(exc)[:300])
+            if self._stop.wait(1):
+                break
+
+    def _speech_loop(self):
+        while not self._stop.is_set():
+            try:
+                created, text = self._speech_queue.get(timeout=0.5)
+            except queue.Empty:
+                continue
+            try:
+                if time.monotonic() - created < 30 and self.config.get("windows_tts_enabled", True):
+                    self.media.speak(text)
+            except Exception as exc:
+                self.media.update(error=str(exc)[:300])
+
+    def stop(self):
+        self._stop.set()
+        self.media.close()
+        self.realtime.cancel(disable=True)
+        if self.vrchat is not None:
+            self.vrchat.stop_input()
+
     def run(self) -> None:
         if not self.token:
             raise RuntimeError("pair the agent first and store device_token in its config")
         try:
+            if self.vrchat is not None:
+                self.vrchat.start()
             self.emergency_hotkey.start()
             self.realtime.start()
+            self._media_thread = threading.Thread(target=self._media_loop, daemon=True, name="windows-node-media")
+            self._media_thread.start()
+            threading.Thread(target=self._speech_loop, daemon=True, name="windows-node-speech").start()
             if self.twitch is not None: self.twitch.start()
+            if self.vrchat_friends is not None: self.vrchat_friends.start()
             while not self._stop.is_set():
                 try: self.heartbeat_once()
                 except Exception:
                     self.realtime.cancel()
+                    if self.vrchat is not None:
+                        self.vrchat.stop_input()
                     if self._stop.wait(3): break
         finally:
+            self.stop()
+            if self.vrchat is not None:
+                self.vrchat.close()
             self.emergency_hotkey.stop()
             self.realtime.stop()
             if self.twitch is not None: self.twitch.stop()
+            if self.vrchat_friends is not None: self.vrchat_friends.stop()
             self.input.stop_all(disable=True)
 
 
@@ -878,11 +1018,36 @@ def main() -> None:
         profile = GameProfile.from_mapping(GameSkillLibrary(skills_root).load(args.game).profile_mapping())
     if args.install_startup:
         print(install_startup(config_path, profile_path, args.game or "", skills_root)); return
+    needs_interactive_pairing = (
+        not config.get("device_token") and not (args.pairing_id and args.pairing_code)
+    )
+    if needs_interactive_pairing and not config.get("server_url"):
+        print("No device token found; let's pair this node.")
+        server_url = input(
+            "Server address (e.g. https://your-server.example.com or https://1.2.3.4:8788): "
+        ).strip()
+        if not server_url:
+            print("A server address is required to pair.", file=sys.stderr)
+            sys.exit(1)
+        config["server_url"] = server_url
     agent = WindowsGamingAgent(config, profile)
     if args.pairing_id and args.pairing_code:
         config["device_token"] = agent.pair(args.pairing_id, args.pairing_code)
         config_path.write_text(json.dumps(config, indent=2), "utf-8")
         print("Paired successfully; the device token was saved locally.")
+    elif needs_interactive_pairing:
+        pairing_id = input("Pairing ID: ").strip()
+        pairing_code = input("Pairing code: ").strip()
+        if not pairing_id or not pairing_code:
+            print("Pairing ID and pairing code are both required.", file=sys.stderr)
+            sys.exit(1)
+        try:
+            config["device_token"] = agent.pair(pairing_id, pairing_code)
+        except Exception as exc:
+            print(f"Pairing failed: {exc}", file=sys.stderr)
+            sys.exit(1)
+        config_path.write_text(json.dumps(config, indent=2), "utf-8")
+        print("Paired successfully; the server address and device token were saved locally.")
     agent.run()
 
 

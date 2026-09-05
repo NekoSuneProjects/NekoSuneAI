@@ -12,6 +12,17 @@
     "console.cancel": {"description": "Press B/cancel.", "realtime": false, "steps": [{"button": "b", "seconds": 0.08}]},
     "console.action_x": {"description": "Press X.", "realtime": false, "steps": [{"button": "x", "seconds": 0.08}]},
     "console.action_y": {"description": "Press Y.", "realtime": false, "steps": [{"button": "y", "seconds": 0.08}]},
+    "console.shoulder_left": {"description": "Press LB.", "realtime": false, "steps": [{"button": "left_shoulder", "seconds": 0.08}]},
+    "console.shoulder_right": {"description": "Press RB.", "realtime": false, "steps": [{"button": "right_shoulder", "seconds": 0.08}]},
+    "console.select": {"description": "Press View.", "realtime": false, "steps": [{"button": "back", "seconds": 0.08}]},
+    "console.thumb_left": {"description": "Click LS (left stick).", "realtime": false, "steps": [{"button": "left_thumb", "seconds": 0.08}]},
+    "console.thumb_right": {"description": "Click RS (right stick).", "realtime": false, "steps": [{"button": "right_thumb", "seconds": 0.08}]},
+    "console.dpad_up": {"description": "Press D-pad up.", "realtime": false, "steps": [{"button": "dpad_up", "seconds": 0.08}]},
+    "console.dpad_down": {"description": "Press D-pad down.", "realtime": false, "steps": [{"button": "dpad_down", "seconds": 0.08}]},
+    "console.dpad_left": {"description": "Press D-pad left.", "realtime": false, "steps": [{"button": "dpad_left", "seconds": 0.08}]},
+    "console.dpad_right": {"description": "Press D-pad right.", "realtime": false, "steps": [{"button": "dpad_right", "seconds": 0.08}]},
+    "console.trigger_left": {"description": "Pull LT.", "realtime": true, "steps": [{"axis": "left_trigger", "value": 0.8, "seconds": 0.2}]},
+    "console.trigger_right": {"description": "Pull RT.", "realtime": true, "steps": [{"axis": "right_trigger", "value": 0.8, "seconds": 0.2}]},
     "console.pause": {"description": "Press menu/start.", "realtime": false, "steps": [{"button": "start", "seconds": 0.08}]}
   }
 }

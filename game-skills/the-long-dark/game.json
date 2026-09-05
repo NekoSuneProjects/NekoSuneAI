@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "game_id": "the-long-dark",
+  "display_name": "The Long Dark",
+  "profile": {"platform": "windows", "executable_names": ["TheLongDark.exe"], "window_title_pattern": "The Long Dark", "multiplayer_policy": "single_player", "automation_permitted": true, "competitive_or_anticheat": false, "allow_vision": true, "allow_input": false, "allow_keyboard": true, "allow_mouse": true, "allow_controller": false, "allow_obs": true, "allow_twitch": true, "capture_fps": 2.0, "capture_width": 960, "realtime_enabled": true},
+  "skills": {
+    "tld.walk_forward": {"description": "Walk forward.", "realtime": true, "steps": [{"key": "w", "seconds": 0.25}]},
+    "tld.walk_back": {"description": "Walk backward.", "realtime": true, "steps": [{"key": "s", "seconds": 0.2}]},
+    "tld.strafe_left": {"description": "Strafe left.", "realtime": true, "steps": [{"key": "a", "seconds": 0.2}]},
+    "tld.strafe_right": {"description": "Strafe right.", "realtime": true, "steps": [{"key": "d", "seconds": 0.2}]},
+    "tld.turn_left": {"description": "Turn camera left.", "realtime": true, "steps": [{"mouse_move": {"x": -45, "y": 0}, "seconds": 0.02}]},
+    "tld.turn_right": {"description": "Turn camera right.", "realtime": true, "steps": [{"mouse_move": {"x": 45, "y": 0}, "seconds": 0.02}]},
+    "tld.sprint": {"description": "Sprint briefly.", "realtime": true, "steps": [{"key": "shift", "seconds": 0.3}]},
+    "tld.crouch": {"description": "Crouch briefly.", "realtime": true, "steps": [{"key": "ctrl", "seconds": 0.3}]},
+    "tld.interact": {"description": "Use/interact with the highlighted object.", "realtime": false, "steps": [{"key": "e", "seconds": 0.08}]},
+    "tld.inventory": {"description": "Open inventory.", "realtime": false, "steps": [{"key": "i", "seconds": 0.08}]},
+    "tld.pause": {"description": "Open the pause menu.", "realtime": false, "steps": [{"key": "escape", "seconds": 0.08}]}
+  }
+}
