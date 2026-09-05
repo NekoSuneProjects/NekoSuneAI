@@ -42,6 +42,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var web: WebView
     private lateinit var serverInput: EditText
     private lateinit var tokenInput: EditText
+    private lateinit var pairingIdInput: EditText
+    private lateinit var pairingCodeInput: EditText
     private lateinit var discoveredBox: LinearLayout
     private var callProtectionStatus: TextView? = null
     private var tts: TextToSpeech? = null
@@ -255,7 +257,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         card.addView(secondaryButton("Test Find My Phone") { ContextCompat.startForegroundService(this, Intent(this, FindPhoneService::class.java).apply { action = FindPhoneService.ACTION_START }) }, marginTop(8))
         card.addView(secondaryButton("Stop phone ringing") { startService(Intent(this, FindPhoneService::class.java).apply { action = FindPhoneService.ACTION_STOP }) }, marginTop(8))
         card.addView(primaryButton("🎤 Wake / voice command") { launchSpeech() }, marginTop(10))
-        card.addView(body("For use away from home, set the remembered server URL to your authenticated HTTPS/VPN/Tailscale address. The saved paired token is reused automatically when the app opens. If your server is remote (for example a VPS) and not reachable by local search, type its URL on the Pair screen and tap \"Request pairing\" to pair with just an approval code — no need to hand-copy a token or be on the same network."), marginTop(10))
+        card.addView(body("For use away from home, set the remembered server URL to your authenticated HTTPS/VPN/Tailscale address. The saved paired token is reused automatically when the app opens. \"Request pairing\" on the Pair screen only works while this phone is on the same network as the server — for a remote server (for example a VPS), use \"Pair with a code\" instead: generate a one-use code on the server's dashboard (Nodes & Routines → \"Pair Android with a code\"), then enter it with the server URL, no need to hand-copy a raw token."), marginTop(10))
         contentHost.addView(card, marginTop(12))
     }
 
@@ -279,6 +281,34 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         pairCard.addView(secondaryButton("Save manual / remote URL") { api.save(serverInput.text.toString(), tokenInput.text.toString()); onConnected() }, marginTop(8))
         pairCard.addView(secondaryButton("Forget this device pairing") { api.clearConnection(); connectionStatus.text = "● Pairing forgotten" }, marginTop(8))
         contentHost.addView(pairCard, marginTop(12))
+
+        val codeCard = card(); codeCard.addView(kicker("REMOTE SERVER")); codeCard.addView(title("Pair with a code")); codeCard.addView(body("For a server that isn't on this phone's local network (e.g. hosted on a VPS) — the button above needs the same network. Generate a one-use code instead on the server's dashboard under Nodes & Routines → \"Pair Android with a code\", then enter it below with the same server URL."))
+        pairingIdInput = field("Pairing ID", ""); codeCard.addView(pairingIdInput, marginTop(10))
+        pairingCodeInput = field("One-use code", ""); codeCard.addView(pairingCodeInput, marginTop(8))
+        codeCard.addView(primaryButton("Pair with code", "⌁") { pairWithCodeAction() }, marginTop(10))
+        contentHost.addView(codeCard, marginTop(12))
+    }
+
+    private fun pairWithCodeAction() {
+        if (pairingBusy) return
+        val url = serverInput.text.toString().trim()
+        val pairingId = pairingIdInput.text.toString().trim()
+        val pairingCode = pairingCodeInput.text.toString().trim()
+        if (url.isBlank() || !(url.startsWith("http://") || url.startsWith("https://"))) {
+            connectionStatus.text = "● Enter a server URL (http:// or https://) first"; return
+        }
+        if (pairingId.isBlank() || pairingCode.isBlank()) {
+            connectionStatus.text = "● Enter both the pairing ID and one-use code"; return
+        }
+        pairingBusy = true; connectionStatus.text = "● Pairing with code…"
+        thread(name = "NekoCodePairing") {
+            try {
+                api.pairWithCode(url, pairingId, pairingCode)
+                runOnUiThread { pairingBusy = false; onConnected() }
+            } catch (e: Exception) {
+                runOnUiThread { pairingBusy = false; connectionStatus.text = "● Pairing failed: ${e.message}" }
+            }
+        }
     }
 
     private fun launchSpeech() {

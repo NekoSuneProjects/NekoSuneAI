@@ -101,6 +101,33 @@ class ApiClient(private val context: Context) {
         }
     }
 
+    /** Pairs immediately with a dashboard-generated one-use code -- no LAN
+     * check, no waiting for an owner approval click, unlike requestPairing()/
+     * pollPairing() above. For a server reachable only remotely (e.g. a VPS),
+     * where the unauthenticated request/approve flow is intentionally
+     * LAN-only by default; generate the code from the server's dashboard
+     * (Nodes & Routines -> "Pair Android with a code") and enter it here. */
+    fun pairWithCode(candidateUrl: String, pairingId: String, pairingCode: String): Boolean {
+        val base = candidateUrl.trim().trimEnd('/')
+        val payload = JSONObject().apply {
+            put("pairing_id", pairingId.trim())
+            put("pairing_code", pairingCode.trim())
+            put("device_id", deviceId)
+            put("name", "${Build.MANUFACTURER} ${Build.MODEL}")
+            put("device_type", "android")
+        }
+        val req = Request.Builder().url("$base/api/pairing/code/register")
+            .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
+        client.newCall(req).execute().use { response ->
+            val root = JSONObject(response.body?.string().orEmpty().ifBlank { "{}" })
+            if (!response.isSuccessful) throw IllegalStateException(root.optString("error", "Pairing failed"))
+            val approvedToken = root.optString("device_token", "")
+            if (approvedToken.isBlank()) throw IllegalStateException("Server did not return a device token")
+            prefs.edit().putString("server_url", base).putString("device_token", approvedToken).remove("token").apply()
+            return true
+        }
+    }
+
     fun chat(message: String): ChatReply {
         if (!configured()) return ChatReply("Pair this phone with your NekoSuneAI server first.")
         val payload = JSONObject().put("message", message)
