@@ -22,6 +22,7 @@ from nekosuneai.kinect_vision_patch import install_kinect_vision_patch
 from nekosuneai.dashboard_tts_config_patch import install_dashboard_tts_config_patch
 from nekosuneai.media_youtube_provider_patch import install_media_youtube_provider_patch
 from nekosuneai.vosk_model_auto_patch import install_vosk_model_auto_patch
+from nekosuneai.console_integration_patch import install_console_integration_patch
 
 # Vosk profile selection runs before launcher/config import so Raspberry Pi 5
 # systems with enough RAM can use the more accurate lgraph model automatically.
@@ -63,6 +64,7 @@ install_bridge_edge_voice_patch()
 install_kinect_vision_patch()
 install_dashboard_tts_config_patch()
 install_media_youtube_provider_patch()
+install_console_integration_patch()
 # Apply this last so any dashboard decorators installed above are preserved,
 # while the browser API/pairing bridge is converted from ?token= to the
 # authenticated same-origin admin session used by the HTTPS domain.
