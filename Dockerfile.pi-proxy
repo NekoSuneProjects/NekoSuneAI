@@ -1,0 +1,22 @@
+FROM python:3.11-slim-bookworm
+
+ARG APP_VERSION=1.2.1
+LABEL org.opencontainers.image.title="NekoSuneAI Pi Proxy" \
+      org.opencontainers.image.version="${APP_VERSION}"
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates ffmpeg alsa-utils pulseaudio-utils bluez espeak-ng libportaudio2 libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY requirements-pi-proxy.txt ./
+# openWakeWord's TFLite wheels use the NumPy 1.x ABI.
+RUN pip install --no-cache-dir "numpy<2" -r requirements-pi-proxy.txt
+COPY nekosuneai/ ./nekosuneai/
+COPY VERSION ./VERSION
+COPY config/pi-proxy-agent.example.json /app/pi-proxy-agent.example.json
+RUN mkdir -p /data
+WORKDIR /data
+EXPOSE 8799
+ENTRYPOINT ["python", "-m", "nekosuneai.pi_proxy_agent"]
+CMD ["--config", "/data/pi-proxy-agent.json"]

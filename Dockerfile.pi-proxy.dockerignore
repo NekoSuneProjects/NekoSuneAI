@@ -1,0 +1,11 @@
+**
+!Dockerfile.pi-proxy
+!requirements-pi-proxy.txt
+!VERSION
+!nekosuneai/
+!nekosuneai/**
+!config/
+!config/pi-proxy-agent.example.json
+**/__pycache__/
+**/*.pyc
+**/.env

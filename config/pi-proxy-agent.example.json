@@ -1,0 +1,33 @@
+{
+  "server_url": "https://your-nekosuneai-host.example",
+  "verify_tls": true,
+  "node_id": "pi-proxy-living-room",
+  "name": "Living Room Pi Proxy",
+  "device_token": "",
+
+  "bluetooth_reconnect_enabled": true,
+  "bluetooth_speaker_address": "",
+  "bluetooth_reconnect_interval_seconds": 10,
+
+  "audio_listen_seconds": 5,
+
+  "wake_word_enabled": false,
+  "wake_word_model": "hey_jarvis",
+  "wake_word_framework": "onnx",
+  "wake_word_threshold": 0.55,
+  "wake_word_confirmation_frames": 3,
+  "wake_word_cooldown_seconds": 5,
+  "wake_word_listen_seconds": 5,
+  "mic_device_index": null,
+
+  "web_status_enabled": true,
+  "web_status_port": 8799,
+
+  "alert_sounds_dir": "sounds",
+
+  "kinect_vision_enabled": false,
+  "kinect_device_index": 0,
+  "kinect_vision_interval_seconds": 4,
+  "kinect_face_emotion": true,
+  "kinect_vision_describe": true
+}

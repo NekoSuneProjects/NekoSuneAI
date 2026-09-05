@@ -49,6 +49,8 @@ data/home_timeline.json
 data/game-learning/
 config/windows-gaming-agent.json
 config/game-profiles/*.local.json
+config/pi-proxy-agent.json
+sounds/
 data/music/
 audio/
 

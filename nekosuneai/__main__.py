@@ -1,4 +1,4 @@
-from .launcher import main
+from .pi_proxy_agent import main
 
 
 if __name__ == "__main__":

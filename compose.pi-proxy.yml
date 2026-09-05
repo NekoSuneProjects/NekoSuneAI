@@ -1,0 +1,32 @@
+services:
+  pi-proxy:
+    image: ghcr.io/nekosuneprojects/nekosuneai:piproxy-1.2.1
+    build:
+      context: .
+      dockerfile: Dockerfile.pi-proxy
+      args:
+        APP_VERSION: "1.2.1"
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PULSE_SERVER: unix:/run/pulse/native
+      PULSE_COOKIE: /run/pulse-cookie
+      DBUS_SYSTEM_BUS_ADDRESS: unix:path=/run/dbus/system_bus_socket
+    devices:
+      - /dev/snd:/dev/snd
+    # Only needed if kinect_vision_enabled is turned on (off by default) --
+    # libfreenect talks to the Kinect over raw USB. Harmless to leave mounted
+    # otherwise; comment out both if you have no Kinect and prefer not to
+    # grant USB access at all.
+    device_cgroup_rules:
+      - 'c 189:* rwm'
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+      - ./data:/data
+      - /run/dbus:/run/dbus:ro
+      - ${PULSE_RUNTIME_DIR:-/run/user/1000/pulse}:/run/pulse:ro
+      - ${PULSE_COOKIE_FILE:-/home/pi/.config/pulse/cookie}:/run/pulse-cookie:ro

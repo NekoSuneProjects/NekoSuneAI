@@ -1,0 +1,37 @@
+# Pi Proxy node runtime dependencies only. Deliberately does NOT reuse the
+# full Docker backend requirements.txt (LLM/vision/RAG/audio-ML deps) --
+# this node never runs local model inference.
+#
+# - requests: pairing/heartbeat/poll/media HTTP calls to the Docker backend.
+# - psutil: local CPU/RAM telemetry reported in heartbeats.
+# - python-dotenv: nekosuneai/config.py (Config.from_env(), reused as-is for
+#   BluetoothSpeakerWatchdog) unconditionally imports this.
+# - yt-dlp: local resolution of a search query/YouTube URL handed to
+#   music.play into a playable stream URL. Runs here (not on the Docker
+#   backend) because YouTube's bot/cookie verification blocks datacenter/VPS
+#   IPs but not a Pi's residential IP.
+#
+# Local playback/capture (paplay/aplay/ffplay/arecord) and Bluetooth control
+# (bluetoothctl/pactl, used by bluetooth_watchdog.py) are system tools
+# invoked via subprocess, not Python packages -- install them through the OS
+# package manager (e.g. `apt install pulseaudio-utils ffmpeg alsa-utils
+# bluez`) rather than pip.
+#
+# - espeak-ng (also a system tool, `apt install espeak-ng`, not pip): local
+#   offline TTS fallback used only when the Docker backend's own
+#   `/api/nodes/media/tts` is unreachable (connection-lost/error
+#   announcements, and as a last resort inside audio.speak itself) -- this
+#   node still never runs a real TTS model, espeak-ng is a tiny formant
+#   synthesizer, not a neural voice.
+#
+# Xbox 360 Kinect camera support (camera.status/camera.snapshot) needs
+# `opencv-python-headless`/`numpy` -- kept in the separate, already-present
+# `requirements-vision-lite.txt` (install only if you actually have a Kinect;
+# also needs libfreenect installed via the OS package manager, not pip).
+requests
+psutil
+python-dotenv
+yt-dlp
+numpy                      # wakeword.py: PCM frame math for openWakeWord inference
+sounddevice>=0.5,<0.6      # wakeword.py/audio_input.py: PortAudio mic capture for wake-word listening
+openwakeword>=0.6,<0.7     # wakeword.py: the wake-word detection model itself

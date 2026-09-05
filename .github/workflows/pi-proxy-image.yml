@@ -1,0 +1,100 @@
+name: Pi Proxy Image
+
+on:
+  push:
+    branches: [build/pi-proxy-release]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: piproxy-image-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  smoke:
+    if: github.ref == 'refs/heads/build/pi-proxy-release'
+    runs-on: [self-hosted, Linux, X64]
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Build architecture smoke image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.pi-proxy
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          tags: nekosuneai-piproxy-smoke:${{ github.run_id }}-${{ matrix.arch }}
+          build-args: APP_VERSION=${{ steps.version.outputs.version }}
+          cache-from: type=gha,scope=piproxy-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=piproxy-${{ matrix.arch }}
+      - name: Smoke test imports and command line
+        shell: bash
+        run: |
+          set -euo pipefail
+          image="nekosuneai-piproxy-smoke:${{ github.run_id }}-${{ matrix.arch }}"
+          test "$(docker image inspect "$image" --format '{{.Architecture}}')" = "${{ matrix.arch }}"
+          docker run --rm --platform linux/${{ matrix.arch }} "$image" --help
+          docker run --rm --platform linux/${{ matrix.arch }} --entrypoint python "$image" \
+            -c "import sounddevice, openwakeword; import nekosuneai.pi_proxy_agent; print('Pi Proxy imports OK')"
+      - name: Clean smoke image
+        if: always()
+        run: docker image rm -f nekosuneai-piproxy-smoke:${{ github.run_id }}-${{ matrix.arch }} || true
+
+  publish:
+    needs: smoke
+    if: github.ref == 'refs/heads/build/pi-proxy-release'
+    runs-on: [self-hosted, Linux, X64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(tr -d '\r\n' < VERSION)"
+          [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
+          tags: type=raw,value=piproxy-${{ steps.version.outputs.version }}
+      - name: Publish Pi Proxy image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.pi-proxy
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: APP_VERSION=${{ steps.version.outputs.version }}
+          cache-from: |
+            type=gha,scope=piproxy-amd64
+            type=gha,scope=piproxy-arm64
+          provenance: true
+          sbom: true
