@@ -67,11 +67,11 @@ def agent(backend, tmp_path):
         "web_status_enabled": False, "alert_sounds_dir": str(tmp_path / "sounds"),
     })
     # Stand in for the hardware: a real mic, speaker and yt-dlp resolve.
-    node.spoken, node.music = [], []
+    node.spoken, node.played = [], []
     node._record_wav = lambda seconds: b"FAKEWAV"
     node.player.play_wav_bytes = lambda raw: node.spoken.append(raw)
-    node.music_player.play_url = lambda url: node.music.append(url)
-    node._resolve_stream_url = lambda query: "http://stream.invalid/" + query.replace(" ", "+")
+    node.music._resolve = lambda query: ("http://stream.invalid/" + query.replace(" ", "+"), query)
+    node.music._start_locked = lambda url: node.played.append(url)
     return node
 
 
@@ -89,9 +89,10 @@ def test_wake_word_sends_transcript_and_speaks_the_reply(agent, backend):
 
 
 def test_music_command_from_the_reply_plays_on_this_node(agent):
-    """The point of routing music here: yt-dlp resolves from a residential IP."""
+    """The point of routing music here: yt-dlp resolves from a residential IP,
+    and the speaker is in the owner's room rather than a datacenter."""
     agent._on_wake_word_detected()
-    assert agent.music == ["http://stream.invalid/lofi+hip+hop"]
+    assert agent.played == ["http://stream.invalid/lofi+hip+hop"]
 
 
 def test_turn_is_recorded_for_the_dashboard(agent):

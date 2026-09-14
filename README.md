@@ -46,6 +46,9 @@ section for exactly what was kept and why.
 - `nekosuneai/alsa_devices.py` -- resolves which ALSA capture device
   `arecord` should open, so command capture uses the same microphone the
   wake word was heard on rather than whatever holds the ALSA default.
+- `nekosuneai/music.py` -- local music: yt-dlp resolution, a playback queue,
+  and transport controls (pause/resume/skip/previous/volume). See
+  [Music](#music) below.
 - `config/pi-proxy-agent.example.json` -- example config; copy it to
   `config/pi-proxy-agent.json` (gitignored) and fill in your server address.
 
@@ -84,6 +87,38 @@ An Xbox 360 Kinect's microphone array is a 4-channel device and *must* go
 through `plughw`; asking it directly for the mono 16 kHz the backend's STT
 endpoint requires just fails to open. The dashboard's microphone picker lists
 the same devices and switches between them for the current run.
+
+## Music
+
+Music plays **here**, not on the Docker backend. Two reasons, both about where
+the machine is:
+
+- YouTube's bot/cookie verification blocks datacenter IPs. A VPS-hosted backend
+  gets "confirm you're not a robot" and age-verification walls where this Pi's
+  residential IP resolves the same video fine.
+- The speaker is in your house. The backend's own player would put the audio
+  out of a sound card in a datacenter.
+
+So when this node is paired and online, the backend routes music requests here
+as `music.*` commands and this node does the resolving and the playing. Ask the
+backend (dashboard chat, or out loud to this node) for any of:
+
+    play lofi hip hop        pause the music        skip this song
+    stop the music           resume the music       previous track
+    set volume to 40         turn the music up      what's playing
+
+The dashboard has the same controls as buttons. A backend with no Pi Proxy
+online falls back to its own player exactly as before.
+
+Playback uses tools already in the image -- `yt-dlp` to resolve, `ffplay` to
+play, `SIGSTOP`/`SIGCONT` to pause the stream reader, `pactl` for volume -- so
+there is no extra dependency to install. The queue lives on this node so the
+gap between tracks is a local resolve rather than a round trip to the backend;
+the backend can hand over a whole playlist in one command.
+
+See [docs/NODE_MUSIC.md](docs/NODE_MUSIC.md) for the capability list, how the
+node is chosen when you have more than one Pi (`MUSIC_NODE_ID`), and the
+protocol details.
 
 ## Kinect camera (lite vision)
 

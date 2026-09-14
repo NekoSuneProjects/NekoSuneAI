@@ -35,6 +35,23 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
 - [x] Capability manifest: `bluetooth.status`, `bluetooth.reconnect`,
       `audio.speak`, `audio.listen`, `music.play` / `music.stop` (search
       query or YouTube URL/id in, local yt-dlp resolution, local playback).
+- [x] Full local music control (`nekosuneai/music.py`, `MusicController`),
+      because the backend's own player resolves and plays on the *backend
+      host* — a VPS that YouTube's bot/cookie check blocks, with its sound
+      card in a datacenter rather than the owner's room. Adds `music.pause`,
+      `music.resume`, `music.skip` (with `previous`), `music.volume` and
+      `music.status` alongside play/stop, and a local playback queue so the
+      gap between tracks is a local resolve rather than a backend round trip
+      (`music.play` accepts `queries` for a whole playlist, and `queue: true`
+      to append). A track that fails to resolve is skipped with a note instead
+      of stranding the rest of the queue. Uses only what the image already
+      installs: yt-dlp to resolve, ffplay to play, SIGSTOP/SIGCONT to pause the
+      stream reader, `pactl` for volume. Pause reports itself unsupported on a
+      host without those signals rather than silently doing nothing, and
+      stopping a paused track sends SIGCONT first so `terminate()` is acted on.
+      Music state is reported in the heartbeat so the backend can answer
+      "what's playing" without queuing a command. Backend routing side is
+      `main`'s `node_music.py`; see [docs/NODE_MUSIC.md](docs/NODE_MUSIC.md).
 - [x] `audio.speak`/`audio.listen` call the Docker backend's existing
       `/api/nodes/media/tts`/`/api/nodes/media/stt` endpoints, same
       request/response shape `Windows/nekosuneai/node_media_client.py` uses.
@@ -131,9 +148,11 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
 - [x] Owner controls on that page, no longer read-only: a conversation
       transcript with a text box and a Listen (push-to-talk) button, music
       search/play/stop, Bluetooth reconnect, an ALSA microphone picker, and
-      stop/re-enable audio. Every action maps to a capability this node
-      already implements and the backend already policy-gates, so this adds
-      a local way to reach them rather than new powers. Off with
+      stop/re-enable audio, plus full music transport (pause/resume, skip,
+      previous, a volume slider and a now-playing readout). Every action maps
+      to a capability this node already implements and the backend already
+      policy-gates, so this adds a local way to reach them rather than new
+      powers. Off with
       `web_control_enabled: false` (restores the previous read-only page),
       and `web_control_pin` adds a shared PIN for a less-trusted LAN. Still
       LAN-only — never forward the port to the internet. The page also now
@@ -166,6 +185,12 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
       `LocalAudioPlayer` so the chime and the spoken reply stop cutting each
       other off, and generation/playback errors surface on the status page
       instead of being swallowed.
+- [x] The dashboard no longer stalls on startup: `http.server`'s own
+      `server_bind()` calls `socket.getfqdn()` just to populate a
+      `server_name` nothing here reads, which is a blocking reverse-DNS
+      lookup. On a headless Pi with a slow or unreachable resolver that
+      delayed the page answering anything by seconds (measured at ~9s per
+      bind on one host). `_ThreadingHTTPServer` skips it.
 - [x] Bluetooth watchdog no longer thrashes: `_loop` runs a cheap
       still-connected/still-default check and only falls back to the full
       `reconnect_now()` when that fails, and `_set_default_sink` returns early
@@ -242,8 +267,14 @@ covers this exact Pi + Kinect 360 + Alexa Bluetooth hardware combination),
 the Kinect item above), `LICENSE`, `TRADEMARKS.md`, `VERSION`,
 `.python-version`.
 
-- [ ] Write Pi Proxy's own tests for `pi_proxy_agent.py`/`pi_proxy_web.py`
-      (none exist yet — the inherited suite was removed as not applicable).
+- [x] Pi Proxy's own tests now exist (the inherited suite had been removed as
+      not applicable): `test_alsa_devices.py`, `test_music.py`,
+      `test_pi_proxy_converse.py` and `test_pi_proxy_web.py` — 49 passing, plus
+      2 skipped on non-POSIX hosts where SIGSTOP/SIGCONT do not exist.
+      `test_piproxy_image_tags.py` fails on this branch and on
+      `build/pi-proxy-release` alike: the workflow's `smoke` job has no
+      `strategy` key. Pre-existing and unrelated, but it means the image
+      workflow is not what that test expects — worth a separate look.
 - [ ] No CI workflow was inherited onto this branch (`.github`/`.gitea` were
       removed as Docker-image-build-specific) — a Pi-Proxy-specific
       packaging/CI workflow is still needed, not written yet.

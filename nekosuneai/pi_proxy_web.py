@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import secrets
 import socket
+import socketserver
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -126,6 +127,12 @@ _PAGE = r"""<!doctype html>
   .turn.u { align-items: flex-end; } .turn.a { align-items: flex-start; }
   .empty { color: var(--muted); font-size: 12px; text-align: center; padding: 18px 0; }
 
+  /* Now playing */
+  .now { background: #0d0f24; border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; margin-bottom: 10px; }
+  .now-title { font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+  .now-meta { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); background: transparent; margin: 2px 0 0; }
+
   #toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(120%);
            background: var(--surface2); border: 1px solid var(--accent); color: var(--text);
            padding: 11px 18px; border-radius: 12px; font-size: 13px; font-weight: 600;
@@ -175,7 +182,18 @@ _PAGE = r"""<!doctype html>
         <input type="text" id="music-q" placeholder="Song, artist, or YouTube URL" autocomplete="off">
         <button class="btn primary" id="btn-play">Play</button>
       </div>
-      <div class="btns"><button class="btn" id="btn-music-stop">Stop music</button></div>
+      <div class="now" id="now" hidden>
+        <div class="now-title" id="now-title"></div>
+        <div class="now-meta" id="now-meta"></div>
+      </div>
+      <div class="btns">
+        <button class="btn" id="btn-music-pause" title="Pause">&#9208;</button>
+        <button class="btn" id="btn-music-prev" title="Previous">&#9198;</button>
+        <button class="btn" id="btn-music-skip" title="Next">&#9197;</button>
+        <button class="btn" id="btn-music-stop">Stop</button>
+      </div>
+      <label class="lbl" for="vol" style="margin-top:12px">Volume <span id="vol-label">100%</span></label>
+      <input type="range" id="vol" min="0" max="100" step="5" value="100">
       <div class="row" style="margin-top:8px"><span>Speaking (TTS)</span><span id="speaking"></span></div>
       <div class="row"><span>Resolved locally</span><span style="color:var(--muted);font-size:12px">yt-dlp on this Pi</span></div>
     </div>
@@ -249,6 +267,14 @@ function dot(id, state) { var el = $(id); if (el) el.className = 'dot ' + state;
 function errRow(rowId, textId, message) {
   var row = $(rowId); if (!row) return;
   if (message) { text(textId, message); row.hidden = false; } else { row.hidden = true; }
+}
+// A status field that keeps reporting the same error would otherwise re-toast
+// on every 2s poll.
+var toastSeen = '';
+function toastOnce(key, message, isBad) {
+  if (toastSeen === key) return;
+  toastSeen = key;
+  toast(message, isBad);
 }
 var toastTimer = null;
 function toast(message, isBad) {
@@ -380,7 +406,25 @@ async function refresh() {
     errRow('snd-err-row', 'snd-err', sounds.error || '');
 
     html('speaking', pill(!!s.audio_speaking, 'speaking', 'idle', 'ok'));
-    html('music-pill', s.music_playing ? '<span class="pill ok">playing</span>' : '<span class="pill warn">idle</span>');
+
+    var mus = s.music || {};
+    var musState = mus.playing ? 'playing' : (mus.paused ? 'paused' : 'idle');
+    html('music-pill', '<span class="pill ' + (mus.playing ? 'ok' : (mus.paused ? 'warn' : 'warn')) + '">' + musState + '</span>');
+    $('now').hidden = !mus.title;
+    if (mus.title) {
+      text('now-title', mus.title);
+      var meta = mus.paused ? 'Paused' : 'Playing';
+      if (mus.queued) meta += ' · ' + mus.queued + ' queued';
+      text('now-meta', meta);
+    }
+    $('btn-music-pause').innerHTML = mus.paused ? '&#9654;' : '&#9208;';
+    $('btn-music-pause').title = mus.paused ? 'Resume' : 'Pause';
+    // Don't fight the owner while they are dragging the slider.
+    if (mus.volume != null && document.activeElement !== $('vol')) {
+      $('vol').value = mus.volume;
+      text('vol-label', mus.volume + '%');
+    }
+    if (mus.error) toastOnce('music-' + mus.error, mus.error, true);
     html('talk-state', s.input_disabled ? '<span class="pill bad">audio disabled</span>' : '');
     $('btn-enable').hidden = !s.input_disabled;
 
@@ -429,6 +473,15 @@ wire('btn-play', function () {
 });
 $('music-q').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('btn-play').click(); });
 wire('btn-music-stop', function () { control('music_stop'); });
+wire('btn-music-pause', function () { control('music_pause'); });
+wire('btn-music-skip', function () { control('music_skip'); });
+wire('btn-music-prev', function () { control('music_skip', { previous: true }); });
+$('vol').addEventListener('change', function () {
+  var level = Number($('vol').value);
+  text('vol-label', level + '%');
+  control('music_volume', { percent: level }, true);
+});
+$('vol').addEventListener('input', function () { text('vol-label', $('vol').value + '%'); });
 wire('btn-bt', function () { toast('Reconnecting…'); control('bluetooth_reconnect'); });
 wire('btn-mic', function () { control('set_microphone', { alsa_device: $('mic-sel').value }); });
 wire('btn-stop-all', function () { control('stop_all'); });
@@ -458,8 +511,26 @@ def _local_ip() -> str:
         sock.close()
 
 
+class _ThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer without the startup DNS lookup.
+
+    http.server's own server_bind() calls socket.getfqdn() purely to populate
+    server_name, which nothing here reads. That is a blocking reverse-DNS
+    lookup, and on a headless Pi with a slow or unreachable resolver it stalls
+    startup for seconds before the dashboard answers anything.
+    """
+
+    daemon_threads = True
+
+    def server_bind(self) -> None:
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = str(host)
+        self.server_port = int(port)
+
+
 class _Handler(BaseHTTPRequestHandler):
-    server: "PiProxyWebStatusServer"  # type: ignore[assignment]
+    server: "_ThreadingHTTPServer"  # type: ignore[assignment]
 
     def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
         pass
@@ -582,6 +653,25 @@ class PiProxyWebStatusServer:
             agent._dispatch("music.stop", {})
             return {"ok": True, "message": "Music stopped."}
 
+        if action == "music_pause":
+            # One button for both, driven by what the node is actually doing,
+            # so the page cannot get out of step with the player.
+            paused = bool(agent.music.status().get("paused"))
+            result = agent._dispatch("music.resume" if paused else "music.pause", {})
+            if not result.get("ok"):
+                return {"ok": False, "message": str(result.get("message", "nothing is playing"))}
+            return {"ok": True, "message": "Resumed." if paused else "Paused."}
+
+        if action == "music_skip":
+            result = agent._dispatch("music.skip", {"previous": bool(payload.get("previous"))})
+            return {"ok": True, "message": str(result.get("message") or result.get("title") or "Skipped.")}
+
+        if action == "music_volume":
+            result = agent._dispatch("music.volume", {"percent": int(payload.get("percent", 100))})
+            if not result.get("ok"):
+                return {"ok": False, "message": str(result.get("message", "could not set the volume"))}
+            return {"ok": True, "message": f"Volume {result.get('volume')}%."}
+
         if action == "bluetooth_reconnect":
             ok, message = agent.bt.reconnect_now()
             return {"ok": bool(ok), "message": message}
@@ -603,7 +693,7 @@ class PiProxyWebStatusServer:
     def start(self) -> None:
         if self._thread is not None and self._thread.is_alive():
             return
-        self._httpd = ThreadingHTTPServer((self.host, self.port), _Handler)
+        self._httpd = _ThreadingHTTPServer((self.host, self.port), _Handler)
         self._httpd.owner = self.agent  # type: ignore[attr-defined]
         self._httpd.control_enabled = self.control_enabled  # type: ignore[attr-defined]
         self._httpd.control_pin = self.control_pin  # type: ignore[attr-defined]
