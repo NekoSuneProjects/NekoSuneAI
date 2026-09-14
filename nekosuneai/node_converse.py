@@ -33,7 +33,7 @@ import time
 from collections import deque
 from typing import Any
 
-from .media import PLAY_VERB_PATTERN, STOP_PATTERN, PAUSE_PATTERN, _strip_play_prefix
+from .node_music import NodeMusicRouter
 
 # A node turn is a person speaking out loud, so the ceiling only has to be
 # above human conversational pace. These bounds exist to stop a wedged or
@@ -45,10 +45,13 @@ MAX_TEXT_CHARS = 800
 
 
 class NodeConverseService:
-    def __init__(self, api: Any, nodes: Any, node_media: Any) -> None:
+    def __init__(self, api: Any, nodes: Any, node_media: Any, node_music: Any = None) -> None:
         self.api = api
         self.nodes = nodes
         self.node_media = node_media
+        # Shared with the dashboard/chat path so a spoken "skip this song" and
+        # a typed one mean the same thing rather than drifting apart.
+        self.node_music = node_music or NodeMusicRouter(nodes.list_nodes)
         self._turns: dict[str, deque[float]] = {}
 
     def _check_rate(self, node_id: str) -> None:
@@ -67,28 +70,31 @@ class NodeConverseService:
             return False
 
     def _music_commands(self, node_id: str, text: str) -> tuple[str, list[dict[str, Any]]] | None:
-        """Route a play/stop request to the node's own speaker.
+        """Route a music request to this node's own speaker.
 
         Returns (spoken reply, commands) or None when this is not a music
         request and the turn should go to the normal reply pipeline.
-        """
-        stripped = text.strip()
-        if STOP_PATTERN.match(stripped) or PAUSE_PATTERN.match(stripped):
-            if not self._allowed(node_id, "music.stop"):
-                return "I'm not allowed to control music on this device yet.", []
-            return "Stopping the music.", [{"capability": "music.stop", "arguments": {}}]
 
-        if not PLAY_VERB_PATTERN.match(stripped):
+        The owner is talking *to this node*, so the commands go back to it
+        rather than to whichever node the router would pick for a dashboard
+        request -- speaking to the kitchen Pi should not start music in the
+        living room.
+        """
+        planned = self.node_music.plan(text)
+        if planned is None:
             return None
-        query = _strip_play_prefix(stripped)
-        if not query:
-            return None
-        if not self._allowed(node_id, "music.play"):
-            return "I'm not allowed to play music on this device yet. Enable music.play for this node on the dashboard.", []
-        return (
-            f"Playing {query}.",
-            [{"capability": "music.play", "arguments": {"query": query[:300]}}],
-        )
+        reply, commands = planned
+        blocked = [
+            command["capability"] for command in commands
+            if not self._allowed(node_id, command["capability"])
+        ]
+        if blocked:
+            return (
+                "I'm not allowed to control music on this device yet. Enable "
+                f"{blocked[0]} for this node on the dashboard.",
+                [],
+            )
+        return reply, commands
 
     def _generate_reply(self, text: str) -> str:
         """Run the shared reply pipeline with backend-host output suppressed.

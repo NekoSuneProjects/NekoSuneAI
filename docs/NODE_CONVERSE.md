@@ -2,7 +2,8 @@
 
 Backend owner: `main` (`nekosuneai/node_converse.py`). Pi Proxy client owner:
 `build/pi-proxy-release` (`PiProxyAgent.converse`).
-Contract: `NODE-CONVERSE-01`. Related: [Paired Node Media](NODE_MEDIA.md).
+Contract: `NODE-CONVERSE-01`. Related: [Paired Node Media](NODE_MEDIA.md),
+[Music on the Node](NODE_MUSIC.md).
 
 `/api/nodes/heartbeat` and `/api/nodes/poll` only let a node report telemetry
 and execute commands the backend already decided to send. Neither lets a node
@@ -51,7 +52,10 @@ is written to the node audit log (`record_event`) since it bypasses `enqueue()`.
 
 ## Music goes to the node, not the backend host
 
-A play/stop request becomes `music.play`/`music.stop` for the *node*. The
+See [NODE_MUSIC.md](NODE_MUSIC.md) for the full capability set and the routing
+rules; the short version follows.
+
+A music request becomes a `music.*` command for the *node*. The
 backend's own `handle_media_request` plays on the backend host, which is the
 wrong room: the owner is talking to the Pi in their living room, possibly
 against a backend on a VPS. Pi Proxy resolves the stream locally with `yt-dlp`

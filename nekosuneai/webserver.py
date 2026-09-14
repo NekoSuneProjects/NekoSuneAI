@@ -170,8 +170,10 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     peripheral_nodes = PeripheralNodeRegistry()
     from .node_media import NodeMediaService
     node_media = NodeMediaService(api)
+    from .node_music import NodeMusicRouter
+    node_music = NodeMusicRouter(peripheral_nodes.list_nodes)
     from .node_converse import NodeConverseService
-    node_converse = NodeConverseService(api, peripheral_nodes, node_media)
+    node_converse = NodeConverseService(api, peripheral_nodes, node_media, node_music)
 
     original_build_game_driver = api._build_game_driver
 
@@ -406,6 +408,16 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                     )
                     reply = "Your latest phone notifications are: " + summary
 
+        if reply is None:
+            # A paired Pi Proxy plays music from the owner's home, on the
+            # speaker they are actually next to, and resolves streams from a
+            # residential IP that YouTube's bot check does not block -- unlike
+            # this backend, which may be a VPS. Falls through to the backend's
+            # own player when no such node is online.
+            try:
+                reply = node_music.handle(user_text, peripheral_nodes.enqueue)
+            except Exception as exc:
+                reply = f"I couldn't send that to the music node: {exc}"
         if reply is None:
             try:
                 reply = handle_music_request(user_text, music)

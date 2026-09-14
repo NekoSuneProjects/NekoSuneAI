@@ -36,7 +36,11 @@ _APPROVED_DEVICE_PAIRING_ID = "approved-device"
 # (drives real hardware on the LAN), camera.snapshot (captures the room) --
 # deliberately stays at "confirm".
 _NODE_TYPE_AUTO_ALLOW: dict[str, frozenset[str]] = {
-    "pi-proxy": frozenset({"audio.speak", "music.play", "music.stop"}),
+    "pi-proxy": frozenset({
+        "audio.speak",
+        "music.play", "music.stop", "music.pause", "music.resume",
+        "music.skip", "music.volume",
+    }),
 }
 
 

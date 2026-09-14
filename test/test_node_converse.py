@@ -12,13 +12,24 @@ import pytest
 from nekosuneai.node_converse import NodeConverseService
 from nekosuneai.peripheral_nodes import PeripheralNodeRegistry
 
-ALL_ALLOWED = {"music.play": "allow", "music.stop": "allow", "audio.speak": "allow"}
+ALL_ALLOWED = {
+    "music.play": "allow", "music.stop": "allow", "music.pause": "allow",
+    "music.resume": "allow", "music.skip": "allow", "music.volume": "allow",
+    "audio.speak": "allow",
+}
 
 
 class FakeNodes:
     def __init__(self, policies=None):
         self.policies = dict(policies if policies is not None else ALL_ALLOWED)
         self.events = []
+        self.nodes = [{
+            "node_id": "pi-1", "node_type": "pi-proxy", "online": True,
+            "capabilities": {"music.play": {"kind": "write"}}, "state": {},
+        }]
+
+    def list_nodes(self):
+        return list(self.nodes)
 
     def action_policy(self, node_id, capability):
         return self.policies.get(capability, "confirm")
@@ -80,10 +91,18 @@ def test_play_request_becomes_a_node_command_not_a_backend_playback(service):
     assert result["reply"] == "Playing lofi hip hop."
 
 
-@pytest.mark.parametrize("phrase", ["stop", "pause"])
-def test_stop_and_pause_reach_the_node(service, phrase):
+@pytest.mark.parametrize(
+    ("phrase", "capability"),
+    [
+        ("stop the music", "music.stop"),
+        ("pause the music", "music.pause"),
+        ("resume the music", "music.resume"),
+        ("skip this song", "music.skip"),
+    ],
+)
+def test_transport_controls_reach_the_node(service, phrase, capability):
     result = service.handle("pi-1", {"text": phrase})
-    assert result["commands"] == [{"capability": "music.stop", "arguments": {}}]
+    assert result["commands"][0]["capability"] == capability
 
 
 def test_ordinary_question_goes_to_the_reply_pipeline(service):
