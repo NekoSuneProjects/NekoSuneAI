@@ -19,9 +19,12 @@
   "wake_word_cooldown_seconds": 5,
   "wake_word_listen_seconds": 5,
   "mic_device_index": null,
+  "mic_alsa_device": "",
 
   "web_status_enabled": true,
   "web_status_port": 8799,
+  "web_control_enabled": true,
+  "web_control_pin": "",
 
   "alert_sounds_dir": "sounds",
 

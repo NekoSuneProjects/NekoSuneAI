@@ -35,6 +35,23 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
 - [x] Capability manifest: `bluetooth.status`, `bluetooth.reconnect`,
       `audio.speak`, `audio.listen`, `music.play` / `music.stop` (search
       query or YouTube URL/id in, local yt-dlp resolution, local playback).
+- [x] Full local music control (`nekosuneai/music.py`, `MusicController`),
+      because the backend's own player resolves and plays on the *backend
+      host* — a VPS that YouTube's bot/cookie check blocks, with its sound
+      card in a datacenter rather than the owner's room. Adds `music.pause`,
+      `music.resume`, `music.skip` (with `previous`), `music.volume` and
+      `music.status` alongside play/stop, and a local playback queue so the
+      gap between tracks is a local resolve rather than a backend round trip
+      (`music.play` accepts `queries` for a whole playlist, and `queue: true`
+      to append). A track that fails to resolve is skipped with a note instead
+      of stranding the rest of the queue. Uses only what the image already
+      installs: yt-dlp to resolve, ffplay to play, SIGSTOP/SIGCONT to pause the
+      stream reader, `pactl` for volume. Pause reports itself unsupported on a
+      host without those signals rather than silently doing nothing, and
+      stopping a paused track sends SIGCONT first so `terminate()` is acted on.
+      Music state is reported in the heartbeat so the backend can answer
+      "what's playing" without queuing a command. Backend routing side is
+      `main`'s `node_music.py`; see [docs/NODE_MUSIC.md](docs/NODE_MUSIC.md).
 - [x] `audio.speak`/`audio.listen` call the Docker backend's existing
       `/api/nodes/media/tts`/`/api/nodes/media/stt` endpoints, same
       request/response shape `Windows/nekosuneai/node_media_client.py` uses.
@@ -59,14 +76,15 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
       default (`wake_word_enabled: false`); needs a real microphone + wake-word
       model file. `numpy`/`sounddevice`/`openwakeword` added to
       `requirements-pi-proxy.txt`.
-      **Known gap** (also listed under Docker's own TODO, contract
-      NODE-CONVERSE-01): there is still no `/api/nodes/*` endpoint for a node
-      to submit a transcript and get back an actual assistant reply
-      (text/TTS/commands) — peripheral nodes today only report telemetry and
-      execute commands the backend already decided to send. Wake word
-      captures-and-transcribes today (and the transcript is visible on the
-      status page/command log); "get an intelligent spoken answer back" still
-      needs that new backend endpoint.
+      **Gap now closed** (contract NODE-CONVERSE-01, backend side on `main`):
+      detection no longer dead-ends at a logged transcript. `converse()` POSTs
+      the transcript to the backend's new `/api/nodes/converse`, plays the
+      returned TTS audio (falling back to local espeak-ng when the backend
+      returns no audio, rather than answering with silence), and dispatches
+      the commands that come back — so "play some music" now actually starts
+      music on this node's own speaker. `listen_and_converse()` is shared by
+      wake-word detection and the dashboard's Listen button so both take the
+      same path. Verified against a stub backend, not yet on real hardware.
 - [x] Kinect lite vision: `nekosuneai/kinect_vision_patch.py`
       (`KinectVisionService`) and `nekosuneai/local_affect.py`
       (`LocalAffectDetector`) kept, adapted to take this node's own config
@@ -118,7 +136,7 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
 
 ## P0 — Local dashboard
 
-- [x] A minimal, same-network, mobile-friendly, READ-ONLY status page
+- [x] A minimal, same-network, mobile-friendly status page
       (`nekosuneai/pi_proxy_web.py`, modeled on
       `Windows/nekosuneai/web_status_server.py`) showing pairing state,
       Bluetooth link status, audio/music activity, recent command log,
@@ -127,6 +145,60 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
       "GUI mode" — deliberately kept to this lightweight page rather than
       also running the full backend's `webgui.py` locally, which would
       defeat the point of staying low CPU/RAM.
+- [x] Owner controls on that page, no longer read-only: a conversation
+      transcript with a text box and a Listen (push-to-talk) button, music
+      search/play/stop, Bluetooth reconnect, an ALSA microphone picker, and
+      stop/re-enable audio, plus full music transport (pause/resume, skip,
+      previous, a volume slider and a now-playing readout). Every action maps
+      to a capability this node already implements and the backend already
+      policy-gates, so this adds a local way to reach them rather than new
+      powers. Off with
+      `web_control_enabled: false` (restores the previous read-only page),
+      and `web_control_pin` adds a shared PIN for a less-trusted LAN. Still
+      LAN-only — never forward the port to the internet. The page also now
+      surfaces the failures that used to be invisible: alert-sound
+      generation errors, microphone capture errors, and the resolved ALSA
+      capture device.
+
+## P0 — Audio device and reliability fixes
+
+- [x] Command capture now targets a resolved ALSA device
+      (`nekosuneai/alsa_devices.py`, used by `_record_wav` via
+      `capture_device()`). `_record_wav` previously ran a bare `arecord` with
+      no `-D`, so it always opened the ALSA *default* device while
+      `wakeword.py` carefully resolved a specific PortAudio microphone — the
+      wake word was heard on the USB/Xbox 360 mic and the command that
+      followed was recorded from whatever held the default (onboard audio, or
+      a Bluetooth speaker that had taken it over). Resolution order: explicit
+      `mic_alsa_device` config, then the `hw:X,Y` embedded in the wake-word
+      listener's own resolved PortAudio device name, then a name match against
+      `arecord -l`, then a Kinect preference, then a single unambiguous card;
+      it returns empty (and omits `-D`) rather than guessing between several.
+      Addresses resolve to `plughw:` not `hw:` so ALSA downmixes/resamples the
+      Kinect's 4-channel array into the mono 16 kHz the backend's STT endpoint
+      requires — asking that device for `-c 1 -r 16000` directly just fails to
+      open. `arecord` failures are now reported instead of silently swallowed.
+- [x] Wake chime reliability: `alert_sounds_dir` resolves against the package
+      rather than the process working directory (under a systemd unit a
+      relative `sounds` wrote the generated chimes where the agent then could
+      not find them, so the beep silently never played), chimes get their own
+      `LocalAudioPlayer` so the chime and the spoken reply stop cutting each
+      other off, and generation/playback errors surface on the status page
+      instead of being swallowed.
+- [x] The dashboard no longer stalls on startup: `http.server`'s own
+      `server_bind()` calls `socket.getfqdn()` just to populate a
+      `server_name` nothing here reads, which is a blocking reverse-DNS
+      lookup. On a headless Pi with a slow or unreachable resolver that
+      delayed the page answering anything by seconds (measured at ~9s per
+      bind on one host). `_ThreadingHTTPServer` skips it.
+- [x] Bluetooth watchdog no longer thrashes: `_loop` runs a cheap
+      still-connected/still-default check and only falls back to the full
+      `reconnect_now()` when that fails, and `_set_default_sink` returns early
+      when its sink is already the default. Previously every poll interval
+      re-enumerated every paired device, re-set the default sink and
+      re-attached every open stream with `move-sink-input` — audible as
+      periodic dropouts on the speaker and a steady CPU cost on a Pi. The
+      watchdog thread is also now actually stopped on shutdown.
 
 ## P0 — Packaging
 
@@ -195,8 +267,14 @@ covers this exact Pi + Kinect 360 + Alexa Bluetooth hardware combination),
 the Kinect item above), `LICENSE`, `TRADEMARKS.md`, `VERSION`,
 `.python-version`.
 
-- [ ] Write Pi Proxy's own tests for `pi_proxy_agent.py`/`pi_proxy_web.py`
-      (none exist yet — the inherited suite was removed as not applicable).
+- [x] Pi Proxy's own tests now exist (the inherited suite had been removed as
+      not applicable): `test_alsa_devices.py`, `test_music.py`,
+      `test_pi_proxy_converse.py` and `test_pi_proxy_web.py` — 49 passing, plus
+      2 skipped on non-POSIX hosts where SIGSTOP/SIGCONT do not exist.
+      `test_piproxy_image_tags.py` fails on this branch and on
+      `build/pi-proxy-release` alike: the workflow's `smoke` job has no
+      `strategy` key. Pre-existing and unrelated, but it means the image
+      workflow is not what that test expects — worth a separate look.
 - [ ] No CI workflow was inherited onto this branch (`.github`/`.gitea` were
       removed as Docker-image-build-specific) — a Pi-Proxy-specific
       packaging/CI workflow is still needed, not written yet.
