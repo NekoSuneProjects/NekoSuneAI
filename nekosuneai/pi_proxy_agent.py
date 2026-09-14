@@ -63,6 +63,28 @@ STT_SAMPLE_RATE = 16000
 CONSOLE_STATUS_CACHE_SECONDS = 5.0
 
 
+class NodeUnauthorizedError(RuntimeError):
+    """The backend rejected this node's device token.
+
+    Distinct from a network failure because the remedy is different and
+    retrying never helps: the node is talking to a backend that has no record
+    of this pairing. That happens when the node was re-paired elsewhere, when
+    the backend's peripheral_nodes.json was reset or restored, when the node
+    was revoked from the dashboard, or when node_id changed (a PI_PROXY_NODE_ID
+    override set after pairing) so the stored token no longer matches.
+    """
+
+    def __init__(self, node_id: str, server: str) -> None:
+        super().__init__(
+            f"the backend at {server} rejected this node's device token for "
+            f"node_id '{node_id}'. Re-pair the node: generate a new pairing "
+            f"code on the dashboard, then run the agent with --pairing-id and "
+            f"--pairing-code. Check node_id matches the one registered there."
+        )
+        self.node_id = node_id
+        self.server = server
+
+
 class LocalAudioPlayer:
     """Subprocess playback of a finished WAV; no new audio library dependency.
 
@@ -242,6 +264,10 @@ class PiProxyAgent:
         # backend's real TTS in normal operation.
         self._heartbeat_failures = 0
         self._backend_down_announced = False
+        # A rejected device token is its own state, not an outage: the backend
+        # is answering fine, it just does not accept this pairing.
+        self.auth_error = ""
+        self._auth_announced = False
 
         self.web_status = None
         if config.get("web_status_enabled"):
@@ -699,6 +725,7 @@ class PiProxyAgent:
             "console": self._console_status_cached(),
             "camera": self.kinect.status(),
             "backend_reachable": not self._backend_down_announced,
+            "auth_error": self.auth_error,
             "conversation": list(self.conversation),
             "last_reply": self.last_reply,
             "last_reply_at": self.last_reply_at,
@@ -746,6 +773,13 @@ class PiProxyAgent:
                 "ack_command_id": self._last_command or None,
             },
         )
+        # 401 is not an outage and retrying cannot fix it: the backend is
+        # answering, it just does not accept this device token for this
+        # node_id. Treated as a generic failure it became "Connection to the
+        # main server has been lost. Running in offline mode." -- which sends
+        # the owner looking at their network instead of their pairing.
+        if response.status_code in (401, 403):
+            raise NodeUnauthorizedError(self.node_id, self.server)
         response.raise_for_status()
         poll = self.session.post(
             self.server + "/api/nodes/poll", headers=self._headers(), verify=self.verify_tls, timeout=30,
@@ -795,6 +829,25 @@ class PiProxyAgent:
             while not self._stop.is_set():
                 try:
                     self.heartbeat_once()
+                    self.auth_error = ""
+                except NodeUnauthorizedError as exc:
+                    # Announce once, then back off hard. Hammering an endpoint
+                    # that is refusing this token neither fixes the pairing nor
+                    # tells the owner anything new, and the dashboard now
+                    # carries the actual remedy.
+                    self.auth_error = str(exc)
+                    if not self._auth_announced:
+                        self._auth_announced = True
+                        self.command_log.append(
+                            f"{time.strftime('%H:%M:%S')}  backend rejected this node's token"
+                        )
+                        self._play_alert("warning")
+                        self._speak_local_fallback(
+                            "This device is no longer paired with the main server. "
+                            "Re-pair it from the dashboard."
+                        )
+                    if self._stop.wait(30):
+                        break
                 except Exception:
                     self._heartbeat_failures += 1
                     # A few consecutive misses before announcing -- a single

@@ -29,8 +29,9 @@ class _Backend(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length", "0"))
         payload = json.loads(self.rfile.read(length) or b"{}")
         self.server.calls.append((self.path, payload, self.headers.get("X-Neko-Device-Token")))
-        body = json.dumps(self.server.responses[self.path]).encode()
-        self.send_response(200)
+        status = getattr(self.server, "status_code", 200)
+        body = json.dumps(self.server.responses.get(self.path, {"error": "nope"})).encode()
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -41,8 +42,11 @@ class _Backend(BaseHTTPRequestHandler):
 def backend():
     httpd = ThreadingHTTPServer(("127.0.0.1", 0), _Backend)
     httpd.calls = []
+    httpd.status_code = 200
     httpd.responses = {
         "/api/nodes/media/stt": {"ok": True, "text": "play lofi hip hop"},
+        "/api/nodes/heartbeat": {"ok": True},
+        "/api/nodes/poll": {"commands": []},
         "/api/nodes/converse": {
             "ok": True,
             "reply": "Playing lofi hip hop.",
@@ -148,3 +152,59 @@ def test_status_exposes_the_new_diagnostics(agent):
     assert set(status["microphone"]) == {"alsa_device", "portaudio_name", "error"}
     assert set(status["alert_sounds"]) == {"dir", "error"}
     assert status["control_enabled"] is True
+
+
+class TestRejectedPairing:
+    """A 401 is not an outage.
+
+    It used to fall into the generic heartbeat-failure counter, so a node with
+    a stale device token announced "Connection to the main server has been
+    lost. Running in offline mode." -- sending the owner to look at their
+    network when the backend was up and the pairing was the problem.
+    """
+
+    def _agent(self, backend, tmp_path, status):
+        from nekosuneai.pi_proxy_agent import PiProxyAgent
+
+        node = PiProxyAgent({
+            "server_url": f"http://127.0.0.1:{backend.server_address[1]}",
+            "node_id": "pi-test", "device_token": "stale-token",
+            "bluetooth_reconnect_enabled": False, "wake_word_enabled": False,
+            "web_status_enabled": False, "alert_sounds_dir": str(tmp_path / "sounds"),
+        })
+        backend.status_code = status
+        return node
+
+    def test_rejected_token_raises_a_distinct_error(self, backend, tmp_path):
+        from nekosuneai.pi_proxy_agent import NodeUnauthorizedError
+
+        node = self._agent(backend, tmp_path, 401)
+
+        with pytest.raises(NodeUnauthorizedError) as caught:
+            node.heartbeat_once()
+        # The message has to carry the actual remedy.
+        assert "Re-pair the node" in str(caught.value)
+        assert "pi-test" in str(caught.value)
+
+    def test_forbidden_is_treated_the_same_way(self, backend, tmp_path):
+        from nekosuneai.pi_proxy_agent import NodeUnauthorizedError
+
+        node = self._agent(backend, tmp_path, 403)
+        with pytest.raises(NodeUnauthorizedError):
+            node.heartbeat_once()
+
+    def test_a_server_error_is_still_an_ordinary_failure(self, backend, tmp_path):
+        """500 really is "try again", and must keep the outage path."""
+        from nekosuneai.pi_proxy_agent import NodeUnauthorizedError
+
+        node = self._agent(backend, tmp_path, 500)
+        with pytest.raises(Exception) as caught:
+            node.heartbeat_once()
+        assert not isinstance(caught.value, NodeUnauthorizedError)
+
+    def test_the_dashboard_reports_a_rejected_pairing(self, backend, tmp_path):
+        node = self._agent(backend, tmp_path, 401)
+        assert node.status()["auth_error"] == ""
+
+        node.auth_error = "rejected"
+        assert node.status()["auth_error"] == "rejected"

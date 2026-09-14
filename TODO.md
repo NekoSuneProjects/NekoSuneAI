@@ -191,6 +191,42 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
       lookup. On a headless Pi with a slow or unreachable resolver that
       delayed the page answering anything by seconds (measured at ~9s per
       bind on one host). `_ThreadingHTTPServer` skips it.
+- [x] Wake word could never start. `wakeword.py` resolves its microphone
+      through `audio_input.resolve_input_device_info`, and the inherited
+      `audio_input.py` was the full Docker backend's STT stack whose
+      `_require_audio()` demanded **SpeechRecognition** before it would resolve
+      anything. `requirements-pi-proxy.txt` deliberately does not install
+      SpeechRecognition (this node relays STT to the backend and never runs it
+      locally), so every start raised "Voice support is not installed. Install
+      the optional extras with: pip install -r requirements-voice.txt" — naming
+      a requirements file this branch does not even have — the wake-word thread
+      died, and the status page reported that as the reason. `audio_input.py`
+      is now just device enumeration/resolution and needs only sounddevice, so
+      nothing extra has to be installed. `models.py` and `utils.py` existed
+      solely to serve the removed STT code and are gone with it (`nekosuneai/`
+      is down to 15 modules).
+- [x] Echo Dot / Alexa A2DP: `_activate_a2dp_profile` guessed three hardcoded
+      profile names (`a2dp-sink`, `a2dp-sink-sbc`, `a2dp_sink`). A card only
+      accepts a name from its own codec-specific list — an Echo Dot can offer
+      `a2dp-sink-sbc_xq` and `a2dp-sink-aac` and no plain `a2dp-sink` — so
+      every guess was rejected, the card stayed on HFP/off, no sink was ever
+      created, and the owner got "connected over Bluetooth, but its A2DP audio
+      sink is not ready yet" indefinitely. It now reads the card's real
+      profiles from `pactl list cards`, skips ones marked unavailable, and
+      picks the highest-priority A2DP sink. The switch is also retried as the
+      sink is awaited, because the card frequently does not exist yet on the
+      first look. When it still fails, the reason is specific (on a headset
+      profile / offers no A2DP at all / no card yet) and shows on the
+      dashboard instead of the old unactionable message.
+- [x] A rejected device token is no longer reported as an outage. A 401/403
+      from `/api/nodes/heartbeat` fell into the generic failure counter, so a
+      node with a stale token announced "Connection to the main server has
+      been lost. Running in offline mode." and the dashboard still said
+      "paired" — sending the owner to look at their network when the backend
+      was up and the pairing was the problem. `NodeUnauthorizedError` is now
+      distinct: the dashboard shows "pairing rejected" with the actual remedy,
+      it is announced once rather than every cycle, and the retry backs off to
+      30s since retrying cannot fix it.
 - [x] Bluetooth watchdog no longer thrashes: `_loop` runs a cheap
       still-connected/still-default check and only falls back to the full
       `reconnect_now()` when that fails, and `_set_default_sink` returns early

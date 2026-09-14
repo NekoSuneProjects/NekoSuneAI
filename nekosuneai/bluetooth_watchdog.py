@@ -13,7 +13,7 @@ import shutil
 import subprocess
 import threading
 import time
-from typing import Callable
+from typing import Any, Callable
 
 from .config import Config
 
@@ -34,6 +34,12 @@ _AUDIO_UUID_MARKERS = (
     "0000110d-0000-1000-8000-00805f9b34fb",  # A2DP profile
 )
 _PREFERRED_SPEAKER_NAMES = ("alexa", "echo", "amazon")
+# A `pactl list cards` profile line, e.g.
+#   a2dp-sink-aac: High Fidelity Playback (A2DP Sink, AAC) (sinks: 1, sources: 0, priority: 516, available: yes)
+_PROFILE_RE = re.compile(
+    r"^\s{2,}([A-Za-z0-9_+-]+):\s+.*?priority:\s*(\d+).*?available:\s*(\w+)\s*\)?\s*$",
+    re.M,
+)
 
 
 class BluetoothSpeakerWatchdog:
@@ -47,6 +53,9 @@ class BluetoothSpeakerWatchdog:
         self._detected_address = ""
         self._detected_name = ""
         self._detected_sink = ""
+        # Why A2DP could not be selected, surfaced on the status page: the
+        # old code failed silently and only ever said "sink is not ready yet".
+        self._detected_profile_error = ""
 
     @staticmethod
     def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -81,6 +90,7 @@ class BluetoothSpeakerWatchdog:
             "address": self._detected_address or configured,
             "name": self._detected_name,
             "sink": self._detected_sink,
+            "profile_error": self._detected_profile_error,
             "auto_detected": bool(
                 self._detected_address
                 and self._detected_address.lower() != configured.lower()
@@ -259,30 +269,66 @@ class BluetoothSpeakerWatchdog:
             return discovered
         return self._discover_from_existing_sink()
 
-    def _activate_a2dp_profile(self, address: str) -> None:
-        """Best-effort A2DP activation for PipeWire/PulseAudio BlueZ cards."""
+    def _bluez_card(self, address: str) -> dict[str, Any] | None:
+        """This speaker's BlueZ card, with the profiles it actually offers.
+
+        Guessing profile names blind does not work. A speaker's card exposes a
+        codec-specific set -- an Echo Dot may offer `a2dp-sink-sbc_xq` or
+        `a2dp-sink-aac` and no plain `a2dp-sink` at all -- and a name that is
+        not on the card's own list is simply rejected, so nothing switches to
+        A2DP, no sink is ever created, and the watchdog reports "connected,
+        but its A2DP audio sink is not ready yet" forever. Read the real list
+        instead.
+        """
         if not shutil.which("pactl"):
-            return
-        result = self._run(["pactl", "list", "short", "cards"])
+            return None
+        result = self._run(["pactl", "list", "cards"])
         if result.returncode != 0:
-            return
+            return None
         address_key = address.replace(":", "_").lower()
-        card = ""
-        for line in result.stdout.splitlines():
-            columns = line.split()
-            if (
-                len(columns) >= 2
-                and "bluez" in columns[1].lower()
-                and address_key in columns[1].lower()
-            ):
-                card = columns[1]
-                break
+        for block in re.split(r"\n(?=Card #)", result.stdout):
+            name = self._info_value(block, "Name")
+            if "bluez" not in name.lower() or address_key not in name.lower():
+                continue
+            profiles: list[tuple[int, str]] = []
+            for profile, priority, available in _PROFILE_RE.findall(block):
+                if available.strip().lower() == "no":
+                    continue
+                profiles.append((int(priority), profile))
+            return {
+                "card": name,
+                "active": self._info_value(block, "Active Profile"),
+                # Highest priority first: the audio server's own ranking of
+                # its codecs is a better answer than any list hardcoded here.
+                "profiles": [item[1] for item in sorted(profiles, reverse=True)],
+            }
+        return None
+
+    def _activate_a2dp_profile(self, address: str) -> bool:
+        """Switch this speaker's card to the best A2DP sink profile it has."""
+        card = self._bluez_card(address)
         if not card:
-            return
-        for profile in ("a2dp-sink", "a2dp-sink-sbc", "a2dp_sink"):
-            changed = self._run(["pactl", "set-card-profile", card, profile])
-            if changed.returncode == 0:
-                return
+            return False
+        a2dp = [name for name in card["profiles"] if name.lower().startswith("a2dp-sink")]
+        if not a2dp:
+            self._detected_profile_error = (
+                f"{card['card']} offers no A2DP sink profile "
+                f"(active: {card['active'] or 'unknown'}). Available: "
+                f"{', '.join(card['profiles'][:6]) or 'none'}."
+            )
+            return False
+        if card["active"] in a2dp:
+            return True
+        for profile in a2dp:
+            if self._run(["pactl", "set-card-profile", card["card"], profile]).returncode == 0:
+                self._detected_profile_error = ""
+                self.notify(f"Switched {card['card']} to {profile}.")
+                return True
+        self._detected_profile_error = (
+            f"{card['card']} rejected every A2DP profile it advertises "
+            f"({', '.join(a2dp[:4])})."
+        )
+        return False
 
     def _find_sink_for_address(self, address: str) -> str | None:
         sinks = self._bluez_sinks()
@@ -314,17 +360,35 @@ class BluetoothSpeakerWatchdog:
         # BlueZ can report Connected=yes before PipeWire has finished creating
         # the A2DP sink. Give it a few seconds instead of declaring success too
         # early and sending TTS to the previous default output.
+        #
+        # The profile switch is retried rather than attempted once: the card
+        # frequently does not exist yet on the first look (BlueZ has connected,
+        # the audio server has not caught up), and a single early attempt that
+        # found no card left the speaker parked on HFP/off with no sink for as
+        # long as it stayed connected.
         selected: str | None = None
         for attempt in range(20):
             selected = self._find_sink_for_address(address)
             if selected:
                 break
-            if attempt == 3:
+            if attempt in (2, 6, 12):
                 self._activate_a2dp_profile(address)
             time.sleep(0.5)
 
         if not selected:
+            # Say what actually went wrong. "The A2DP sink is not ready yet"
+            # on its own is unactionable when the real cause is a card sitting
+            # on a headset profile, or offering no A2DP profile at all.
+            if not self._detected_profile_error:
+                card = self._bluez_card(address)
+                self._detected_profile_error = (
+                    f"No audio-server card for {address} yet; is the audio session "
+                    "socket reachable (PULSE_SERVER) and PipeWire/PulseAudio running?"
+                    if card is None
+                    else f"{card['card']} is on profile '{card['active'] or 'unknown'}' and no sink appeared."
+                )
             return None
+        self._detected_profile_error = ""
 
         # Nothing to do when this sink is already the default. The watchdog
         # re-ran this every poll interval, and the stream-moving below with
@@ -391,10 +455,11 @@ class BluetoothSpeakerWatchdog:
             sink = self._set_default_sink(address)
             if not sink:
                 self._last_ready = False
+                detail = self._detected_profile_error or "The audio server has not created its sink."
                 return (
                     False,
-                    f"{name} is connected over Bluetooth, but its A2DP audio sink is not ready yet. "
-                    "NekoSuneAI will keep retrying automatically.",
+                    f"{name} is connected over Bluetooth, but its A2DP audio sink is not ready. "
+                    f"{detail} NekoSuneAI will keep retrying automatically.",
                 )
 
             self._detected_sink = sink

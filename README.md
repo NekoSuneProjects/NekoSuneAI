@@ -55,7 +55,12 @@ section for exactly what was kept and why.
 ## Wake word
 
 Off by default (`wake_word_enabled: false` in config) — needs a real
-microphone and a wake-word model file. When enabled, detection plays a short
+microphone and a wake-word model file. Nothing extra has to be installed:
+`requirements-pi-proxy.txt` already covers it. (It did not use to — resolving
+the microphone went through the inherited Docker STT stack, which demanded
+SpeechRecognition that this node never installs and never needs, so wake word
+failed at startup with a pointer to a `requirements-voice.txt` that does not
+exist on this branch.) When enabled, detection plays a short
 acknowledgement chime (Alexa/Echo-style "I heard you"), captures and
 transcribes a short utterance through the backend's STT endpoint, then sends
 that transcript to the backend's `/api/nodes/converse` and acts on the answer:

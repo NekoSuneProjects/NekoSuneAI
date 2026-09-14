@@ -141,6 +141,7 @@ _PAGE = r"""<!doctype html>
   #toast.bad { border-color: var(--bad-border); color: var(--bad-fg); }
   .ro { background: var(--warn-bg); border: 1px solid var(--warn-border); color: var(--warn-fg);
         padding: 10px 14px; border-radius: 12px; font-size: 12px; margin-bottom: 14px; }
+  .ro.bad-note { background: var(--bad-bg); border-color: var(--bad-border); color: var(--bad-fg); font-weight: 600; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -155,6 +156,8 @@ _PAGE = r"""<!doctype html>
     <span class="chip"><span class="dot idle" id="d-bt"></span><span id="t-bt">bluetooth</span></span>
     <span class="chip"><span class="dot idle" id="d-wake"></span><span id="t-wake">wake word</span></span>
   </div>
+
+  <div class="ro bad-note" id="auth-note" hidden></div>
 
   <div class="ro" id="readonly-note" hidden>
     View-only mode &mdash; controls are disabled by <code>web_control_enabled: false</code> in this node's config.
@@ -214,6 +217,7 @@ _PAGE = r"""<!doctype html>
       <div class="row"><span>Link</span><span id="bt-link"></span></div>
       <div class="row"><span>Device</span><span id="bt-name"></span></div>
       <div class="row"><span>Sink</span><span id="bt-sink"></span></div>
+      <div class="row err" id="bt-err-row" hidden><span>A2DP</span><span id="bt-err"></span></div>
       <div class="btns" style="margin-top:10px"><button class="btn" id="btn-bt">Reconnect now</button></div>
       <div class="log" id="bt-log">&mdash;</div>
     </div>
@@ -372,8 +376,13 @@ async function refresh() {
     text('node-name', s.name ? '· ' + s.name : '');
     text('node-id', s.node_id || '');
 
-    dot('d-paired', s.paired ? 'on' : 'off');
-    text('t-paired', s.paired ? 'paired' : 'not paired');
+    // A stored token is not the same as an accepted one: the node used to
+    // show "paired" while the backend refused every request.
+    var authBroken = !!s.auth_error;
+    dot('d-paired', authBroken ? 'off' : (s.paired ? 'on' : 'off'));
+    text('t-paired', authBroken ? 'pairing rejected' : (s.paired ? 'paired' : 'not paired'));
+    $('auth-note').hidden = !authBroken;
+    if (authBroken) text('auth-note', s.auth_error);
     dot('d-backend', s.backend_reachable !== false ? 'on' : 'off');
     text('t-backend', s.backend_reachable !== false ? 'backend online' : 'backend unreachable');
 
@@ -383,6 +392,9 @@ async function refresh() {
     html('bt-link', pill(!!bt.connected, 'connected', 'disconnected'));
     text('bt-name', bt.name || bt.address || 'not detected');
     text('bt-sink', bt.sink || 'not ready');
+    // "sink is not ready" alone is unactionable; the watchdog now says whether
+    // the card is on a headset profile, offers no A2DP at all, or is missing.
+    errRow('bt-err-row', 'bt-err', bt.connected && !bt.sink ? bt.profile_error : '');
     text('bt-log', (s.bluetooth_events || []).slice(-8).join('\n') || 'No events yet.');
 
     var ww = s.wake_word || {};
