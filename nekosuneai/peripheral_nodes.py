@@ -23,6 +23,22 @@ _VALID_KINDS = {"read", "write"}
 _VALID_POLICIES = {"allow", "confirm", "deny"}
 _APPROVED_DEVICE_PAIRING_ID = "approved-device"
 
+# A write capability normally cannot register itself as "allow" -- the owner
+# has to relax it from the dashboard. That blanket rule makes a voice node
+# useless on arrival: a paired Pi Proxy could not speak a reply or start the
+# music it was just asked for, because every one of those is a write, so its
+# first command raised PermissionError and the node looked dead.
+#
+# These three are the narrow exception. They only produce sound on a speaker
+# the owner already paired, are bounded by the node's own local stop/disable
+# switch, and are exactly the surface the owner is asking for when they talk
+# to the node at all. Anything that reaches past the speaker -- console.command
+# (drives real hardware on the LAN), camera.snapshot (captures the room) --
+# deliberately stays at "confirm".
+_NODE_TYPE_AUTO_ALLOW: dict[str, frozenset[str]] = {
+    "pi-proxy": frozenset({"audio.speak", "music.play", "music.stop"}),
+}
+
 
 class PeripheralNodeRegistry:
     """Persistent pairing, status and command queue for lightweight nodes."""
@@ -43,9 +59,10 @@ class PeripheralNodeRegistry:
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _normalise_manifest(raw: Any) -> dict[str, dict[str, str]]:
+    def _normalise_manifest(raw: Any, node_type: str = "") -> dict[str, dict[str, str]]:
         if not isinstance(raw, (dict, list)):
             raise ValueError("capabilities must be an object or list")
+        auto_allow = _NODE_TYPE_AUTO_ALLOW.get(str(node_type).strip().lower(), frozenset())
         entries = raw.items() if isinstance(raw, dict) else ((str(item), {}) for item in raw)
         result: dict[str, dict[str, str]] = {}
         for name, details in entries:
@@ -56,11 +73,11 @@ class PeripheralNodeRegistry:
             kind = str(settings.get("kind", "read")).strip().lower()
             if kind not in _VALID_KINDS:
                 raise ValueError(f"invalid capability kind for {capability}")
-            default_policy = "allow" if kind == "read" else "confirm"
+            default_policy = "allow" if kind == "read" or capability in auto_allow else "confirm"
             policy = str(settings.get("policy", default_policy)).strip().lower()
             if policy not in _VALID_POLICIES:
                 raise ValueError(f"invalid capability policy for {capability}")
-            if kind == "write" and policy == "allow":
+            if kind == "write" and policy == "allow" and capability not in auto_allow:
                 policy = "confirm"
             result[capability] = {"kind": kind, "policy": policy}
         if not result:
@@ -129,7 +146,8 @@ class PeripheralNodeRegistry:
         node_id = str(node_id).strip()[:128]
         if not node_id or not re.fullmatch(r"[A-Za-z0-9._:-]+", node_id):
             raise ValueError("node_id must contain only letters, numbers, dot, colon, underscore or hyphen")
-        manifest = self._normalise_manifest(capabilities)
+        normalised_type = str(node_type).strip().lower()[:40] or "generic"
+        manifest = self._normalise_manifest(capabilities, normalised_type)
 
         approved_device = str(pairing_id).strip() == _APPROVED_DEVICE_PAIRING_ID
         approved_device_token = str(pairing_code).strip()
@@ -158,7 +176,7 @@ class PeripheralNodeRegistry:
             self._nodes[node_id] = {
                 "node_id": node_id,
                 "name": str(name).strip()[:80] or str((pairing or {}).get("name") or "Peripheral node"),
-                "node_type": str(node_type).strip().lower()[:40] or "generic",
+                "node_type": normalised_type,
                 "token_sha256": self._hash(token),
                 "capabilities": manifest,
                 "registered_epoch": now,
@@ -276,11 +294,14 @@ class PeripheralNodeRegistry:
             return str(spec.get("policy", "deny")) if spec else "deny"
 
     def update_capabilities(self, node_id: str, capabilities: Any) -> None:
-        manifest = self._normalise_manifest(capabilities)
         with self._changed:
             node = self._nodes.get(str(node_id))
             if not node:
                 raise ValueError("node is not registered")
+            # Normalise against the node's *registered* type so a heartbeat
+            # re-declaring the same manifest keeps the auto-allowed audio
+            # policies instead of silently dropping them back to "confirm".
+            manifest = self._normalise_manifest(capabilities, str(node.get("node_type", "")))
             previous = node.get("capabilities") or {}
             history = node.setdefault("capability_history", {})
             history.update(previous)
@@ -334,6 +355,20 @@ class PeripheralNodeRegistry:
     def audit(self, limit: int = 100) -> list[dict[str, Any]]:
         with self._lock:
             return list(self._audit[-max(1, min(int(limit), 500)):])
+
+    def record_event(self, event: str, node_id: str, **details: Any) -> None:
+        """Audit a node action that was answered inline rather than queued.
+
+        A conversation turn returns its commands in the HTTP response instead
+        of going through enqueue()/poll(), so without this the owner's audit
+        trail would show a node speaking and playing music with no record of
+        what asked it to.
+        """
+        with self._lock:
+            if str(node_id) not in self._nodes:
+                raise ValueError("node is not registered")
+            self._log(str(event)[:40], str(node_id), **details)
+            self._save()
 
     def revoke(self, node_id: str) -> bool:
         with self._lock:
