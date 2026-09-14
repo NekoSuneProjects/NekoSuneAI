@@ -299,6 +299,14 @@ class BluetoothSpeakerWatchdog:
         # backend whose sink name does not embed the MAC address.
         return sinks[0] if len(sinks) == 1 else None
 
+    def _current_default_sink(self) -> str:
+        if not shutil.which("pactl"):
+            return ""
+        result = self._run(["pactl", "get-default-sink"])
+        if result.returncode != 0:
+            return ""
+        return result.stdout.strip()
+
     def _set_default_sink(self, address: str) -> str | None:
         if not shutil.which("pactl"):
             return None
@@ -317,6 +325,14 @@ class BluetoothSpeakerWatchdog:
 
         if not selected:
             return None
+
+        # Nothing to do when this sink is already the default. The watchdog
+        # re-ran this every poll interval, and the stream-moving below with
+        # it, which meant an active music stream was torn off its sink and
+        # reattached every few seconds -- audible as periodic dropouts, and a
+        # steady CPU cost on a Pi for no change.
+        if self._current_default_sink() == selected:
+            return selected
 
         changed = self._run(["pactl", "set-default-sink", selected])
         if changed.returncode != 0:
@@ -392,13 +408,35 @@ class BluetoothSpeakerWatchdog:
             self._last_ready = False
             return False, f"Alexa Bluetooth auto-detection/reconnect failed: {exc}"
 
+    def _still_healthy(self) -> bool:
+        """Cheap "nothing has changed" check for an already-working link.
+
+        Two short subprocess calls, against the full reconnect path's
+        enumerate-every-paired-device plus a sink wait that can block for ten
+        seconds. Only worth running when the speaker was ready last time.
+        """
+        if not (self._last_ready and self._detected_address and self._detected_sink):
+            return False
+        try:
+            if not self._is_connected(self._detected_address):
+                return False
+        except RuntimeError:
+            return False
+        return self._current_default_sink() == self._detected_sink
+
     def _loop(self) -> None:
         interval = max(3.0, self.config.bluetooth_reconnect_interval_seconds)
         while not self._stop.is_set():
             was_ready = self._last_ready
+            if self._still_healthy():
+                self._stop.wait(interval)
+                continue
             ok, message = self.reconnect_now()
             if ok and was_ready is not True:
                 self.notify(message)
             elif not ok and was_ready is not False:
                 self.notify(message + " The watchdog will keep trying.")
             self._stop.wait(interval)
+
+    def stop(self) -> None:
+        self._stop.set()

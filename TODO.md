@@ -59,14 +59,15 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
       default (`wake_word_enabled: false`); needs a real microphone + wake-word
       model file. `numpy`/`sounddevice`/`openwakeword` added to
       `requirements-pi-proxy.txt`.
-      **Known gap** (also listed under Docker's own TODO, contract
-      NODE-CONVERSE-01): there is still no `/api/nodes/*` endpoint for a node
-      to submit a transcript and get back an actual assistant reply
-      (text/TTS/commands) — peripheral nodes today only report telemetry and
-      execute commands the backend already decided to send. Wake word
-      captures-and-transcribes today (and the transcript is visible on the
-      status page/command log); "get an intelligent spoken answer back" still
-      needs that new backend endpoint.
+      **Gap now closed** (contract NODE-CONVERSE-01, backend side on `main`):
+      detection no longer dead-ends at a logged transcript. `converse()` POSTs
+      the transcript to the backend's new `/api/nodes/converse`, plays the
+      returned TTS audio (falling back to local espeak-ng when the backend
+      returns no audio, rather than answering with silence), and dispatches
+      the commands that come back — so "play some music" now actually starts
+      music on this node's own speaker. `listen_and_converse()` is shared by
+      wake-word detection and the dashboard's Listen button so both take the
+      same path. Verified against a stub backend, not yet on real hardware.
 - [x] Kinect lite vision: `nekosuneai/kinect_vision_patch.py`
       (`KinectVisionService`) and `nekosuneai/local_affect.py`
       (`LocalAffectDetector`) kept, adapted to take this node's own config
@@ -118,7 +119,7 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
 
 ## P0 — Local dashboard
 
-- [x] A minimal, same-network, mobile-friendly, READ-ONLY status page
+- [x] A minimal, same-network, mobile-friendly status page
       (`nekosuneai/pi_proxy_web.py`, modeled on
       `Windows/nekosuneai/web_status_server.py`) showing pairing state,
       Bluetooth link status, audio/music activity, recent command log,
@@ -127,6 +128,52 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
       "GUI mode" — deliberately kept to this lightweight page rather than
       also running the full backend's `webgui.py` locally, which would
       defeat the point of staying low CPU/RAM.
+- [x] Owner controls on that page, no longer read-only: a conversation
+      transcript with a text box and a Listen (push-to-talk) button, music
+      search/play/stop, Bluetooth reconnect, an ALSA microphone picker, and
+      stop/re-enable audio. Every action maps to a capability this node
+      already implements and the backend already policy-gates, so this adds
+      a local way to reach them rather than new powers. Off with
+      `web_control_enabled: false` (restores the previous read-only page),
+      and `web_control_pin` adds a shared PIN for a less-trusted LAN. Still
+      LAN-only — never forward the port to the internet. The page also now
+      surfaces the failures that used to be invisible: alert-sound
+      generation errors, microphone capture errors, and the resolved ALSA
+      capture device.
+
+## P0 — Audio device and reliability fixes
+
+- [x] Command capture now targets a resolved ALSA device
+      (`nekosuneai/alsa_devices.py`, used by `_record_wav` via
+      `capture_device()`). `_record_wav` previously ran a bare `arecord` with
+      no `-D`, so it always opened the ALSA *default* device while
+      `wakeword.py` carefully resolved a specific PortAudio microphone — the
+      wake word was heard on the USB/Xbox 360 mic and the command that
+      followed was recorded from whatever held the default (onboard audio, or
+      a Bluetooth speaker that had taken it over). Resolution order: explicit
+      `mic_alsa_device` config, then the `hw:X,Y` embedded in the wake-word
+      listener's own resolved PortAudio device name, then a name match against
+      `arecord -l`, then a Kinect preference, then a single unambiguous card;
+      it returns empty (and omits `-D`) rather than guessing between several.
+      Addresses resolve to `plughw:` not `hw:` so ALSA downmixes/resamples the
+      Kinect's 4-channel array into the mono 16 kHz the backend's STT endpoint
+      requires — asking that device for `-c 1 -r 16000` directly just fails to
+      open. `arecord` failures are now reported instead of silently swallowed.
+- [x] Wake chime reliability: `alert_sounds_dir` resolves against the package
+      rather than the process working directory (under a systemd unit a
+      relative `sounds` wrote the generated chimes where the agent then could
+      not find them, so the beep silently never played), chimes get their own
+      `LocalAudioPlayer` so the chime and the spoken reply stop cutting each
+      other off, and generation/playback errors surface on the status page
+      instead of being swallowed.
+- [x] Bluetooth watchdog no longer thrashes: `_loop` runs a cheap
+      still-connected/still-default check and only falls back to the full
+      `reconnect_now()` when that fails, and `_set_default_sink` returns early
+      when its sink is already the default. Previously every poll interval
+      re-enumerated every paired device, re-set the default sink and
+      re-attached every open stream with `move-sink-input` — audible as
+      periodic dropouts on the speaker and a steady CPU cost on a Pi. The
+      watchdog thread is also now actually stopped on shutdown.
 
 ## P0 — Packaging
 

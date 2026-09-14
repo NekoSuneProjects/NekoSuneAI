@@ -39,9 +39,13 @@ section for exactly what was kept and why.
   `console.command` (PS5/Xbox on the local network), `camera.status`/
   `camera.snapshot` (Xbox 360 Kinect). Also runs an optional wake-word
   listener and plays local alert sounds/offline TTS (see below).
-- `nekosuneai/pi_proxy_web.py` -- a minimal, read-only, mobile-friendly local
-  status page (pairing, Bluetooth, audio/music, wake word, console, camera,
-  backend-reachable state, recent command log).
+- `nekosuneai/pi_proxy_web.py` -- a minimal, mobile-friendly local dashboard
+  (pairing, Bluetooth, audio/music, wake word, console, camera,
+  backend-reachable state, recent command log) plus owner controls: talk to
+  Neko, push-to-talk, music, Bluetooth reconnect and a microphone picker.
+- `nekosuneai/alsa_devices.py` -- resolves which ALSA capture device
+  `arecord` should open, so command capture uses the same microphone the
+  wake word was heard on rather than whatever holds the ALSA default.
 - `config/pi-proxy-agent.example.json` -- example config; copy it to
   `config/pi-proxy-agent.json` (gitignored) and fill in your server address.
 
@@ -49,11 +53,37 @@ section for exactly what was kept and why.
 
 Off by default (`wake_word_enabled: false` in config) — needs a real
 microphone and a wake-word model file. When enabled, detection plays a short
-acknowledgement chime (Alexa/Echo-style "I heard you"), then captures and
-transcribes a short utterance through the backend's STT endpoint. Getting an
-actual spoken *reply* back needs a backend endpoint that doesn't exist yet
-(see `TODO.md`'s NODE-CONVERSE-01) — today this only detects, captures,
-transcribes, and shows the transcript on the status page/command log.
+acknowledgement chime (Alexa/Echo-style "I heard you"), captures and
+transcribes a short utterance through the backend's STT endpoint, then sends
+that transcript to the backend's `/api/nodes/converse` and acts on the answer:
+it speaks the reply (falling back to local espeak-ng if the backend returns no
+audio) and runs any commands that came back — so "play some music" starts
+music on this node's own speaker. See [docs/NODE_CONVERSE.md](docs/NODE_CONVERSE.md).
+
+The dashboard's **Listen** button takes exactly the same path, so you can test
+the whole loop without saying the wake word.
+
+### Choosing the microphone
+
+Command capture uses `arecord`. Which device it opens is resolved in this
+order: an explicit `mic_alsa_device` in the config, the `hw:X,Y` embedded in
+the wake-word listener's own resolved device name, a name match against
+`arecord -l`, a Kinect preference, then a single unambiguous capture card. If
+none of those settle it, the ALSA default is used.
+
+Run `arecord -l` to see what the Pi has. If the wrong one is being picked —
+common on a Pi with onboard audio, a USB mic and a Bluetooth speaker all
+competing for the default — set it explicitly, using `plughw` (not `hw`) so
+ALSA downmixes and resamples for you:
+
+```json
+"mic_alsa_device": "plughw:2,0"
+```
+
+An Xbox 360 Kinect's microphone array is a 4-channel device and *must* go
+through `plughw`; asking it directly for the mono 16 kHz the backend's STT
+endpoint requires just fails to open. The dashboard's microphone picker lists
+the same devices and switches between them for the current run.
 
 ## Kinect camera (lite vision)
 
@@ -175,16 +205,26 @@ with `Restart=on-failure`.
 
 ## Local status page
 
-If `web_status_enabled` is true in the config, a read-only status page is
-served on `web_status_port` (default `8799`). It shows pairing state,
-Bluetooth link status, whether audio/music is currently playing, and a
-recent command log -- there is no control path on this page, only status, by
-design (the same reasoning as the Windows agent's status page: don't create
-a second, less-guarded way to trigger actions).
+If `web_status_enabled` is true in the config, a dashboard is served on
+`web_status_port` (default `8799`). It shows pairing state, Bluetooth link
+status, wake-word state and last transcript, the conversation so far, whether
+audio/music is playing, the resolved microphone, console/camera status and a
+recent command log. It also surfaces the failures that used to be invisible:
+alert-sound generation errors, microphone capture errors and a wake-word
+thread that died.
 
-**Never forward this port to the public internet.** It is unauthenticated
-and meant to be reached only from your own LAN (e.g. checking it from your
-phone while on the same Wi-Fi).
+The controls (talk/listen, music, Bluetooth reconnect, microphone picker,
+stop/re-enable audio) each map to a capability this node already implements
+and the backend already policy-gates, so the page offers a local way to reach
+them rather than new abilities. Two knobs bound it:
+
+- `web_control_enabled: false` returns the page to being strictly read-only.
+- `web_control_pin: "1234"` requires that PIN on every control request, for a
+  LAN you don't fully trust. Unset by default.
+
+**Never forward this port to the public internet**, with or without a PIN. It
+is meant to be reached only from your own LAN (e.g. from your phone on the
+same Wi-Fi).
 
 ## Emergency stop
 

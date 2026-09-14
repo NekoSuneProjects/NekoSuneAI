@@ -40,6 +40,7 @@ from typing import Any
 import requests
 
 from .alert_sounds import ensure_default_alert_sounds
+from .alsa_devices import alsa_capture_devices, resolve_capture_device
 from .bluetooth_watchdog import BluetoothSpeakerWatchdog
 from .config import Config
 from .console_control import console_capabilities, console_command, console_status
@@ -164,6 +165,11 @@ class PiProxyAgent:
 
         self.player = LocalAudioPlayer()
         self.music_player = LocalAudioPlayer()
+        # Chimes get their own player: LocalAudioPlayer.play_wav_bytes stops
+        # whatever that player is already doing, so sharing one with TTS made
+        # the wake chime and the spoken reply cut each other off depending on
+        # which won the race.
+        self.alerts_player = LocalAudioPlayer()
         self._disabled = threading.Event()
         self._stop = threading.Event()
         self._last_command = 0
@@ -199,15 +205,34 @@ class PiProxyAgent:
         self._console_status_cache: dict[str, Any] = {}
         self._console_status_cached_at = 0.0
 
+        self._capture_device: str | None = None
+        self.mic_error = ""
+        self.last_reply = ""
+        self.last_reply_at = 0.0
+        self.conversation: deque[dict[str, Any]] = deque(maxlen=30)
+
         # Wake-word ack chime + warning/danger alert tones (Alexa-style "I
         # heard you" feedback, and audible+spoken errors) -- generated once,
         # dependency-free (pure math/wave), never overwritten if the owner
         # supplies their own sounds under the same names.
-        self.sounds_dir = Path(config.get("alert_sounds_dir") or "sounds")
+        #
+        # Resolved against this file's package, not the process working
+        # directory: under a systemd unit (the documented way to run this) the
+        # working directory is whatever WorkingDirectory says, so a relative
+        # "sounds" wrote the generated chimes somewhere the agent then could
+        # not find -- the wake beep silently never played.
+        configured_sounds = Path(config.get("alert_sounds_dir") or "sounds").expanduser()
+        if not configured_sounds.is_absolute():
+            configured_sounds = (Path(__file__).resolve().parent.parent / configured_sounds).resolve()
+        self.sounds_dir = configured_sounds
+        self.alert_error = ""
         try:
             ensure_default_alert_sounds(self.sounds_dir)
-        except Exception:
-            pass  # best-effort; missing sounds just means no chime, not a crash
+        except Exception as exc:
+            # Still best-effort -- a missing chime must not stop the node
+            # booting -- but no longer silent: the status page surfaces this
+            # so "there is no beep" is diagnosable instead of a mystery.
+            self.alert_error = f"alert sounds unavailable: {exc}"[:200]
 
         # Kinect camera vision is off by default (needs real libfreenect
         # hardware/drivers); "describe" frames relay through this node's own
@@ -227,6 +252,12 @@ class PiProxyAgent:
             from .pi_proxy_web import PiProxyWebStatusServer
             self.web_status = PiProxyWebStatusServer(
                 self, port=int(config.get("web_status_port", 8799)),
+                # Controls are on by default on what is already a trusted-LAN
+                # page; `web_control_enabled: false` restores the older
+                # strictly read-only dashboard, and `web_control_pin` adds a
+                # shared secret for a network the owner trusts less.
+                control_enabled=bool(config.get("web_control_enabled", True)),
+                control_pin=str(config.get("web_control_pin") or ""),
             )
 
     def capabilities(self) -> dict[str, dict[str, str]]:
@@ -287,13 +318,20 @@ class PiProxyAgent:
         return result
 
     def _play_alert(self, name: str) -> None:
-        """Play wake/warning/danger.wav (see alert_sounds.py). Best-effort --
-        a missing/unreadable sound file should never break the caller."""
+        """Play wake/warning/danger.wav (see alert_sounds.py).
+
+        Still best-effort for the caller -- a missing chime must not break a
+        wake-word turn -- but the failure is recorded rather than dropped.
+        Swallowing it entirely is why a missing `paplay`/`aplay`, or a sounds
+        directory that never got written, presented as "the beep just doesn't
+        work" with nothing anywhere to explain it.
+        """
         path = self.sounds_dir / f"{name}.wav"
         try:
-            self.player.play_wav_bytes(path.read_bytes())
-        except Exception:
-            pass
+            self.alerts_player.play_wav_bytes(path.read_bytes())
+            self.alert_error = ""
+        except Exception as exc:
+            self.alert_error = f"{name}.wav: {exc}"[:200]
 
     def _speak_local_fallback(self, text: str) -> None:
         """Offline TTS via espeak-ng -- used only when the Docker backend's
@@ -324,6 +362,24 @@ class PiProxyAgent:
         result = self._media_request("vision", image_base64=base64.b64encode(jpeg).decode("ascii"))
         return result.get("description")
 
+    def capture_device(self) -> str:
+        """The ALSA address `arecord` should open, cached after first resolve.
+
+        Empty string means "no better answer than the ALSA default", in which
+        case -D is omitted entirely rather than passing a guessed device.
+        """
+        if self._capture_device is None:
+            # The wake-word listener resolves a real PortAudio device and
+            # records the name it settled on; reuse that so command capture
+            # opens the same physical microphone the wake word was heard on.
+            portaudio_name = getattr(self.wakeword, "device_name", "") or ""
+            self._capture_device = resolve_capture_device(
+                alsa_device=str(self.config.get("mic_alsa_device") or ""),
+                portaudio_name=portaudio_name,
+                prefer_kinect=bool(self.config.get("kinect_vision_enabled")),
+            )
+        return self._capture_device
+
     def _record_wav(self, seconds: float) -> bytes:
         # Bounded local mic capture via ALSA's `arecord` (alsa-utils), which
         # ships on virtually every Raspberry Pi OS image -- avoids adding a
@@ -332,14 +388,41 @@ class PiProxyAgent:
             raise RuntimeError("arecord (alsa-utils) is required for audio.listen and was not found on PATH")
         fd, path = tempfile.mkstemp(suffix=".wav")
         os.close(fd)
+        # -D targets the resolved capture device instead of the ALSA default,
+        # which is what made an Xbox 360 / USB microphone go unused whenever
+        # something else (onboard audio, a Bluetooth speaker) held the default.
+        # resolve_capture_device returns a plughw address, so ALSA downmixes
+        # and resamples the Kinect's 4-channel array into the mono 16 kHz the
+        # backend's STT endpoint requires -- asking a 4-channel device for
+        # "-c 1 -r 16000" directly just fails to open.
+        device = self.capture_device()
+        command = ["arecord", "-q"]
+        if device:
+            command += ["-D", device]
+        command += [
+            "-f", "S16_LE", "-c", "1", "-r", str(STT_SAMPLE_RATE),
+            "-d", str(max(1, int(round(seconds)))), path,
+        ]
         try:
-            subprocess.run(
-                ["arecord", "-q", "-f", "S16_LE", "-c", "1", "-r", str(STT_SAMPLE_RATE),
-                 "-d", str(max(1, int(round(seconds)))), path],
-                check=True, timeout=seconds + 10,
-                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            result = subprocess.run(
+                command, check=False, timeout=seconds + 10,
+                stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True,
             )
-            return Path(path).read_bytes()
+            if result.returncode != 0:
+                detail = (result.stderr or "").strip().splitlines()
+                raise RuntimeError(
+                    f"arecord failed on {device or 'the ALSA default device'}: "
+                    f"{detail[-1] if detail else 'no error output'}"
+                )
+            raw = Path(path).read_bytes()
+            self.mic_error = ""
+            return raw
+        except Exception as exc:
+            # Surfaced on the status page: a silent capture failure here is
+            # exactly what "it hears the wake word and then does nothing"
+            # looks like from the outside.
+            self.mic_error = str(exc)[:200]
+            raise
         finally:
             try:
                 os.unlink(path)
@@ -449,37 +532,116 @@ class PiProxyAgent:
             return {"ok": True, "description": description}
         raise ValueError("command capability is not handled locally")
 
-    def _on_wake_word_detected(self) -> None:
-        """WakeWordListener's own worker thread calls this synchronously once
-        the wake word is confirmed. Capture a short utterance and relay it
-        through the same /api/nodes/media/stt path audio.listen already uses
-        -- there is no backend endpoint yet for turning a transcript into an
-        actual spoken reply (see TODO.md's NODE-CONVERSE-01), so this only
-        detects, captures, transcribes and logs/exposes the transcript."""
+    def converse(self, text: str, speak: bool = True) -> dict[str, Any]:
+        """Submit a transcript to the backend and act on the reply.
+
+        This is the NODE-CONVERSE-01 contract in `/api/nodes/converse` (see
+        Docker's node_converse.py). Before it existed, a node could transcribe
+        an utterance and had nowhere to send it -- the wake word captured
+        speech, logged the text, and the owner heard nothing back. The backend
+        runs its normal reply pipeline and returns the reply text, TTS audio
+        for this node to play, and any commands the reply implies (notably
+        music.play, which resolves and plays here rather than on the backend
+        host, since only this node has a residential IP for yt-dlp).
+        """
+        text = str(text or "").strip()
+        if not text:
+            raise ValueError("converse requires non-empty text")
+        if not self.token:
+            raise RuntimeError("pair this node first")
+        response = self.session.post(
+            f"{self.server}/api/nodes/converse",
+            json={"node_id": self.node_id, "text": text[:800], "speak": bool(speak)},
+            headers=self._headers(), timeout=(10, 120), verify=self.verify_tls,
+        )
+        try:
+            result = response.json()
+        except ValueError as exc:
+            raise RuntimeError(f"backend returned HTTP {response.status_code} without a JSON response") from exc
+        if not response.ok:
+            raise RuntimeError(str(result.get("error") or f"HTTP {response.status_code}"))
+
+        reply = str(result.get("reply") or "")
+        self.last_reply = reply
+        self.last_reply_at = time.time()
+        self.conversation.append({"epoch": time.time(), "text": text[:300], "reply": reply[:600]})
+
+        if speak and not self._disabled.is_set():
+            encoded = result.get("audio_base64")
+            spoken = False
+            if isinstance(encoded, str) and encoded:
+                try:
+                    self.player.play_wav_bytes(base64.b64decode(encoded, validate=True))
+                    spoken = True
+                except Exception as exc:
+                    self.command_log.append(f"{time.strftime('%H:%M:%S')}  reply playback failed: {exc}"[:200])
+            if not spoken and reply:
+                # The backend answered but its TTS did not reach us. Speaking
+                # in the fallback voice beats answering with silence.
+                self._speak_local_fallback(reply)
+
+        # Commands arrive inline rather than through /api/nodes/poll so the
+        # music starts with the reply instead of a poll cycle later. The
+        # backend has already checked each one against this node's capability
+        # policy; dispatching still goes through the same _dispatch path a
+        # polled command would.
+        for command in result.get("commands") or []:
+            capability = str(command.get("capability", ""))
+            try:
+                self._last_result = self._dispatch(capability, dict(command.get("arguments") or {}))
+                self.command_log.append(f"{time.strftime('%H:%M:%S')}  {capability} (spoken) -> ok")
+            except Exception as exc:
+                self._last_result = {"ok": False, "error": str(exc)[:300]}
+                self.command_log.append(f"{time.strftime('%H:%M:%S')}  {capability} (spoken) -> error: {exc}"[:200])
+        return result
+
+    def listen_and_converse(self, seconds: float | None = None, chime: bool = True) -> dict[str, Any]:
+        """Chime, capture an utterance, transcribe it, and answer it.
+
+        Shared by wake-word detection and the dashboard's push-to-talk button
+        so both take exactly the same path.
+        """
         if self._disabled.is_set():
-            return
-        # Audible "I heard you" acknowledgement, Alexa/Echo-style, so there's
-        # feedback before the (up to several seconds) capture-and-transcribe
-        # round trip completes.
-        self._play_alert("wake")
-        time.sleep(0.35)  # let the short chime finish before recording
+            raise PermissionError("audio is locally disabled")
+        if chime:
+            # Audible "I heard you" acknowledgement, Alexa/Echo-style, so
+            # there's feedback before the capture-and-transcribe round trip.
+            self._play_alert("wake")
+            time.sleep(0.35)  # let the short chime finish before recording
         # Kinect/ALSA input devices are commonly exclusive; pause() (already
         # provided by WakeWordListener for exactly this reason) lets arecord
         # open the microphone without fighting the wake-word stream for it.
         self.wakeword.pause()
         try:
-            requested = self.config.get("wake_word_listen_seconds", DEFAULT_LISTEN_SECONDS)
-            seconds = max(1.0, min(float(requested), MAX_LISTEN_SECONDS))
-            wav_bytes = self._record_wav(seconds)
+            requested = seconds if seconds is not None else self.config.get(
+                "wake_word_listen_seconds", DEFAULT_LISTEN_SECONDS
+            )
+            bounded = max(1.0, min(float(requested), MAX_LISTEN_SECONDS))
+            wav_bytes = self._record_wav(bounded)
             result = self._media_request("stt", wav_base64=base64.b64encode(wav_bytes).decode("ascii"))
-            text = str(result.get("text", ""))
+            text = str(result.get("text", "")).strip()
             self.wake_last_transcript = text
             self.wake_last_transcript_at = time.time()
-            self.command_log.append(f"{time.strftime('%H:%M:%S')}  wake-word -> {text}"[:200])
-        except Exception as exc:
-            self.command_log.append(f"{time.strftime('%H:%M:%S')}  wake-word error: {exc}"[:200])
+            if not text:
+                self.command_log.append(f"{time.strftime('%H:%M:%S')}  heard nothing intelligible")
+                return {"ok": False, "text": "", "error": "nothing was transcribed"}
+            self.command_log.append(f"{time.strftime('%H:%M:%S')}  heard -> {text}"[:200])
         finally:
             self.wakeword.resume()
+        # Deliberately outside the pause/resume block: the reply is played on
+        # the speaker, and holding the wake-word stream paused through a long
+        # spoken answer leaves the node deaf to a follow-up.
+        return {"ok": True, "text": text, **self.converse(text)}
+
+    def _on_wake_word_detected(self) -> None:
+        """WakeWordListener's own worker thread calls this synchronously once
+        the wake word is confirmed."""
+        if self._disabled.is_set():
+            return
+        try:
+            self.listen_and_converse()
+        except Exception as exc:
+            self.command_log.append(f"{time.strftime('%H:%M:%S')}  wake-word error: {exc}"[:200])
 
     def _console_status_cached(self) -> dict[str, Any]:
         now = time.time()
@@ -528,6 +690,8 @@ class PiProxyAgent:
         return {
             "epoch": time.time(),
             "node_id": self.node_id,
+            "name": str(self.config.get("name", "Pi Proxy Node")),
+            "server_url": self.server,
             "paired": bool(self.token),
             "input_disabled": self._disabled.is_set(),
             "bluetooth": self.bt.status(),
@@ -539,7 +703,42 @@ class PiProxyAgent:
             "console": self._console_status_cached(),
             "camera": self.kinect.status(),
             "backend_reachable": not self._backend_down_announced,
+            "conversation": list(self.conversation),
+            "last_reply": self.last_reply,
+            "last_reply_at": self.last_reply_at,
+            "microphone": {
+                "alsa_device": self.capture_device() or "(ALSA default)",
+                "portaudio_name": getattr(self.wakeword, "device_name", "") or "",
+                "error": self.mic_error,
+            },
+            "alert_sounds": {"dir": str(self.sounds_dir), "error": self.alert_error},
+            "control_enabled": bool(self.config.get("web_control_enabled", True)),
         }
+
+    def microphones(self) -> list[dict[str, Any]]:
+        """ALSA capture devices, for the dashboard's microphone picker."""
+        selected = self.capture_device()
+        devices = alsa_capture_devices()
+        for item in devices:
+            item["selected"] = item["alsa_device"] == selected
+        return devices
+
+    def set_capture_device(self, alsa_device: str) -> str:
+        """Point command capture at a different microphone for this run.
+
+        In-memory only, exactly like the .env overrides: the JSON config file
+        stays the owner's source of truth, so a device chosen here to test a
+        newly plugged-in microphone does not silently become permanent.
+        """
+        chosen = str(alsa_device or "").strip()
+        if chosen and chosen not in {item["alsa_device"] for item in alsa_capture_devices()}:
+            raise ValueError("that is not one of this node's ALSA capture devices")
+        self._capture_device = chosen
+        self.mic_error = ""
+        self.command_log.append(
+            f"{time.strftime('%H:%M:%S')}  microphone -> {chosen or '(ALSA default)'}"
+        )
+        return chosen
 
     def heartbeat_once(self) -> dict[str, Any]:
         if not self.token:
@@ -577,6 +776,9 @@ class PiProxyAgent:
         self.stop_all(disable=True)
         self.wakeword.stop_event.set()
         self.kinect._stop.set()
+        # The watchdog thread was previously left running on shutdown, so its
+        # poll kept re-selecting the Bluetooth sink after the agent had stopped.
+        self.bt.stop()
         if self.web_status is not None:
             self.web_status.stop()
 
@@ -658,7 +860,10 @@ _ENV_OVERRIDE_KEYS: dict[str, tuple[str, Any]] = {
     "MIC_DEVICE_INDEX": ("mic_device_index", int),
     "WEB_STATUS_ENABLED": ("web_status_enabled", _env_bool),
     "WEB_STATUS_PORT": ("web_status_port", int),
+    "WEB_CONTROL_ENABLED": ("web_control_enabled", _env_bool),
+    "WEB_CONTROL_PIN": ("web_control_pin", str),
     "ALERT_SOUNDS_DIR": ("alert_sounds_dir", str),
+    "MIC_ALSA_DEVICE": ("mic_alsa_device", str),
     "KINECT_VISION_ENABLED": ("kinect_vision_enabled", _env_bool),
     "KINECT_DEVICE_INDEX": ("kinect_device_index", int),
     "KINECT_VISION_INTERVAL_SECONDS": ("kinect_vision_interval_seconds", float),
