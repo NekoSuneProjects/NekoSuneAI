@@ -75,6 +75,11 @@ def normalize_gtts_language(language: str) -> str:
 
 
 def should_play_audio_after_synthesis(config: Config) -> bool:
+    # Audio synthesised for a peripheral node belongs on that node's speaker.
+    # Playing it here means a VPS talking to an empty room -- and on a
+    # container with no audio device, a stream of ALSA/PulseAudio failures.
+    if getattr(config, "node_tts_no_playback", False):
+        return False
     if config.tts_provider == "bridge":
         try:
             from .bridge_voice import stream_was_played

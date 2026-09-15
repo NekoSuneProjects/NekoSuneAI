@@ -61,6 +61,13 @@ def run_turn(
     Returns "" when the pipeline produced no assistant line and only a UI
     status, which the caller should turn into its own fallback wording.
     """
+    # Same reason as node_media: _pipeline needs a real config and session,
+    # and a device turn may be the first thing this backend is ever asked to
+    # do. Idempotent, so calling it per turn costs nothing after the first.
+    # Optional for the same duck-typing reason node_media documents.
+    initialize = getattr(api, "initialize", None)
+    if callable(initialize):
+        initialize()
     state = getattr(api, "state", None)
     spoken: list[str] = []
     original_push_chat = api._push_chat

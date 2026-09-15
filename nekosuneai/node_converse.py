@@ -30,6 +30,7 @@ residential IP; the backend may not) and plays it on its own speaker.
 from __future__ import annotations
 
 import secrets
+import threading
 import time
 from collections import deque
 from typing import Any
@@ -37,10 +38,6 @@ from typing import Any
 from .device_turn import run_turn
 from .node_music import NodeMusicRouter
 
-# A node turn is a person speaking out loud, so the ceiling only has to be
-# above human conversational pace. These bounds exist to stop a wedged or
-# compromised node from driving the LLM/TTS stack in a loop, not to ration a
-# real conversation.
 # Delivered through the ordinary command queue as a second copy of the reply,
 # so a turn survives losing its HTTP response. A converse request runs the
 # whole pipeline -- web search, the LLM, TTS -- and on a VPS behind a reverse
@@ -48,9 +45,51 @@ from .node_music import NodeMusicRouter
 # node 504 and throws away a reply the backend had already produced.
 REPLY_CAPABILITY = "conversation.reply"
 
+# How long a finished turn stays remembered, so a retry that arrives after the
+# original completed still gets that answer instead of running again. Longer
+# than the slowest plausible turn plus a client's own retry delay.
+TURN_MEMORY_SECONDS = 300.0
+
+# A node turn is a person speaking out loud, so the ceiling only has to be
+# above human conversational pace. These bounds exist to stop a wedged or
+# compromised node from driving the LLM/TTS stack in a loop, not to ration a
+# real conversation -- a retry of the same utterance is not a new turn and is
+# handled by turn_key above, not counted here.
 MIN_SECONDS_BETWEEN_TURNS = 1.0
 MAX_TURNS_PER_MINUTE = 20
 MAX_TEXT_CHARS = 800
+
+
+class _InFlightTurn:
+    """One utterance, so a retry over another transport joins it.
+
+    A duplicate waits for the original rather than starting a second run: the
+    expensive part is the LLM, and answering the same question twice is both
+    wasteful and a way for the node to speak twice.
+    """
+
+    def __init__(self) -> None:
+        self._done = threading.Event()
+        self._result: dict[str, Any] = {}
+        self._error: BaseException | None = None
+        self.finished_at = 0.0
+
+    @property
+    def done(self) -> bool:
+        return self._done.is_set()
+
+    def complete(self, result: dict[str, Any] | None = None, error: BaseException | None = None) -> None:
+        self._result = result or {}
+        self._error = error
+        self.finished_at = time.monotonic()
+        self._done.set()
+
+    def result(self) -> dict[str, Any]:
+        if not self._done.wait(TURN_MEMORY_SECONDS):
+            raise RuntimeError("the original attempt at this turn never finished")
+        if self._error is not None:
+            raise self._error
+        return dict(self._result)
 
 
 class NodeConverseService:
@@ -62,6 +101,8 @@ class NodeConverseService:
         # a typed one mean the same thing rather than drifting apart.
         self.node_music = node_music or NodeMusicRouter(nodes.list_nodes)
         self._turns: dict[str, deque[float]] = {}
+        self._in_flight: dict[str, _InFlightTurn] = {}
+        self._turn_lock = threading.Lock()
 
     def _check_rate(self, node_id: str) -> None:
         now = time.monotonic()
@@ -162,6 +203,55 @@ class NodeConverseService:
             raise ValueError("converse requires non-empty text")
         if len(text) > MAX_TEXT_CHARS:
             raise ValueError(f"converse text must be at most {MAX_TEXT_CHARS} characters")
+
+        # A node that loses its connection mid-turn retries over its other
+        # transport, carrying the same turn_key. Without this that second
+        # attempt was a whole new turn: the LLM ran twice for one utterance,
+        # and the rate limiter rejected the retry with "that was too fast" --
+        # so the owner was told off for the node's own failover.
+        turn_key = str(payload.get("turn_key") or "")
+        if turn_key:
+            existing = self._claim_turn(turn_key)
+            if existing is not None:
+                return existing.result()
+
+        try:
+            result = self._run_turn(node_id, text, payload, turn_key)
+        except BaseException as exc:
+            # A duplicate waiting on this turn must see the same failure rather
+            # than hanging or silently getting an empty answer.
+            self._finish_turn(turn_key, error=exc)
+            raise
+        self._finish_turn(turn_key, result=result)
+        return result
+
+    def _claim_turn(self, turn_key: str) -> "_InFlightTurn | None":
+        """Claim this turn, or return the one already running or just finished."""
+        now = time.monotonic()
+        with self._turn_lock:
+            for key, turn in list(self._in_flight.items()):
+                if turn.done and now - turn.finished_at > TURN_MEMORY_SECONDS:
+                    del self._in_flight[key]
+            existing = self._in_flight.get(turn_key)
+            if existing is not None:
+                return existing
+            self._in_flight[turn_key] = _InFlightTurn()
+            return None
+
+    def _finish_turn(
+        self, turn_key: str, result: dict[str, Any] | None = None,
+        error: BaseException | None = None,
+    ) -> None:
+        if not turn_key:
+            return
+        with self._turn_lock:
+            turn = self._in_flight.get(turn_key)
+        if turn is not None and not turn.done:
+            turn.complete(result, error)
+
+    def _run_turn(
+        self, node_id: str, text: str, payload: dict[str, Any], turn_key: str,
+    ) -> dict[str, Any]:
         self._check_rate(node_id)
 
         routed = self._music_commands(node_id, text)

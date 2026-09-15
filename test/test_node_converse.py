@@ -371,3 +371,89 @@ class TestReplyCapture:
         service.handle("pi-1", {"text": "what is the weather"})
 
         assert media.spoken == ["It is raining."]
+
+
+class TestRetryIsNotASecondTurn:
+    """A node that loses its connection mid-turn retries over its other
+    transport. Without a turn key that was a whole new turn: the LLM ran twice
+    for one utterance, and the rate limiter rejected the retry with "that was
+    too fast" -- so the owner was told off for the node's own failover.
+    """
+
+    def test_a_retry_returns_the_original_answer_without_running_again(self):
+        api = FakeApi(reply="Only once.")
+        service = NodeConverseService(api, FakeNodes(), FakeMedia())
+
+        first = service.handle("pi-1", {"text": "hello", "turn_key": "k1"})
+        second = service.handle("pi-1", {"text": "hello", "turn_key": "k1"})
+
+        assert first["reply"] == second["reply"] == "Only once."
+        assert api.seen == ["hello"], "the pipeline ran more than once"
+
+    def test_a_retry_is_not_rejected_by_the_rate_limiter(self):
+        """The exact symptom: an immediate failover answered "too fast"."""
+        service = NodeConverseService(FakeApi(), FakeNodes(), FakeMedia())
+        service.handle("pi-1", {"text": "hello", "turn_key": "k1"})
+
+        # No sleep: a real failover happens within milliseconds.
+        assert service.handle("pi-1", {"text": "hello", "turn_key": "k1"})["ok"]
+
+    def test_a_genuinely_new_utterance_is_still_rate_limited(self):
+        """The limiter still protects against a wedged node looping."""
+        service = NodeConverseService(FakeApi(), FakeNodes(), FakeMedia())
+        service.handle("pi-1", {"text": "hello", "turn_key": "k1"})
+
+        with pytest.raises(RuntimeError, match="too fast"):
+            service.handle("pi-1", {"text": "different", "turn_key": "k2"})
+
+    def test_a_retry_that_arrives_mid_turn_joins_it(self):
+        """The usual case: the socket timed out while the turn was still
+        running, so the retry overlaps rather than following it."""
+        import threading
+
+        started = threading.Event()
+        release = threading.Event()
+
+        class SlowApi(FakeApi):
+            def _pipeline(self, text, from_voice):
+                started.set()
+                release.wait(10)
+                return super()._pipeline(text, from_voice)
+
+        api = SlowApi(reply="Only once.")
+        service = NodeConverseService(api, FakeNodes(), FakeMedia())
+        results = {}
+
+        first = threading.Thread(
+            target=lambda: results.update(a=service.handle("pi-1", {"text": "hi", "turn_key": "k"})),
+            daemon=True,
+        )
+        first.start()
+        assert started.wait(5)
+
+        second = threading.Thread(
+            target=lambda: results.update(b=service.handle("pi-1", {"text": "hi", "turn_key": "k"})),
+            daemon=True,
+        )
+        second.start()
+        release.set()
+        first.join(timeout=10)
+        second.join(timeout=10)
+
+        assert results["a"]["reply"] == results["b"]["reply"] == "Only once."
+        assert api.seen == ["hi"], "the overlapping retry started a second run"
+
+    def test_a_retry_sees_the_same_failure(self):
+        """A duplicate must not hang or get a silently empty answer."""
+        service = NodeConverseService(FakeApi(), FakeNodes(), FakeMedia())
+        service.api._pipeline = lambda text, from_voice: (_ for _ in ()).throw(RuntimeError("ollama down"))
+
+        with pytest.raises(RuntimeError, match="ollama down"):
+            service.handle("pi-1", {"text": "hello", "turn_key": "k1"})
+        with pytest.raises(RuntimeError, match="ollama down"):
+            service.handle("pi-1", {"text": "hello", "turn_key": "k1"})
+
+    def test_a_turn_without_a_key_is_unaffected(self):
+        """Older nodes that do not send one still work as before."""
+        service = NodeConverseService(FakeApi(), FakeNodes(), FakeMedia())
+        assert service.handle("pi-1", {"text": "hello"})["ok"]
