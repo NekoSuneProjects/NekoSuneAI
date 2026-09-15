@@ -15,20 +15,29 @@ forward an upgrade -- keeps working exactly as before.
 Wire protocol, JSON text frames unless noted:
 
     client -> server
-      {"type": "auth",      "node_id", "token"}     first message, required
+      {"type": "auth", "node_id"|"device_id", "token"}  first message, required
+      {"type": "ping"}
+      -- peripheral nodes (Pi Proxy, Windows) only:
       {"type": "heartbeat", "state", "capabilities", "ack_command_id"}
       {"type": "converse",  "text", "speak", "id"}
-      {"type": "media",     "operation", "id", ...} stt / tts / vision
+      {"type": "media",     "operation", "id", ...}     stt / tts / vision
       {"type": "ack",       "command_id"}
-      {"type": "ping"}
+      -- paired devices (Android) only:
+      {"type": "chat",      "message", "id"}
 
     server -> client
-      {"type": "auth.ok",   "node_id", "server_epoch"}
+      {"type": "auth.ok",   "id", "kind", "server_epoch"}
       {"type": "auth.error","error"}                then close
       {"type": "command",   "command"}              pushed, not polled
-      {"type": "result",    "id", "ok", ...}        answers converse/media
+      {"type": "result",    "id", "ok", ...}        answers a request
       {"type": "error",     "id", "error"}
       {"type": "pong"}
+
+Two kinds of client authenticate here, because the system has two kinds of
+pairing. A peripheral node carries a token from the node registry and gets the
+node surface; the Android app pairs as a device through DevicePairingManager
+and gets `chat`, matching exactly what each can already do over HTTP. Neither
+gains anything by connecting here that it did not already have.
 
 An authenticated socket carries exactly the authority the device's token
 already had: every request is dispatched through the same services the HTTP
@@ -74,6 +83,8 @@ class WebSocketEndpoint:
         node_media: Any,
         node_converse: Any,
         on_heartbeat: Any = None,
+        authorize_device: Any = None,
+        run_device_turn: Any = None,
     ) -> None:
         self.hub = hub
         self.nodes = nodes
@@ -83,6 +94,13 @@ class WebSocketEndpoint:
         # routines, the timeline, Twitch chat ingest -- so that work is passed
         # in rather than duplicated here and allowed to drift.
         self.on_heartbeat = on_heartbeat
+        # The Android app pairs as a *device*, not a peripheral node, and
+        # carries a token from DevicePairingManager rather than the node
+        # registry. Without these it could not authenticate here at all, which
+        # would leave the one client whose chat request is long enough to be
+        # cut off by a proxy stuck on HTTP.
+        self.authorize_device = authorize_device
+        self.run_device_turn = run_device_turn
 
     # ── lifecycle ─────────────────────────────────────────────────────────
 
@@ -137,19 +155,28 @@ class WebSocketEndpoint:
             connection.close(CLOSE_UNAUTHORIZED, "auth required")
             return ""
 
-        node_id = str(message.get("node_id", ""))
         token = str(message.get("token", ""))
-        if not self.nodes.authorize(node_id, token):
-            # Same check and same answer as the HTTP routes: a socket is not a
-            # softer door than a request.
-            connection.send_json({"type": "auth.error", "error": "unauthorized node"})
+        node_id = str(message.get("node_id", ""))
+        device_id = str(message.get("device_id", ""))
+
+        # Same checks and same answers as the HTTP routes: a socket is not a
+        # softer door than a request.
+        if node_id and self.nodes.authorize(node_id, token):
+            connection.kind = "node"
+            identity = node_id
+        elif device_id and self.authorize_device is not None and self.authorize_device(token):
+            connection.kind = "device"
+            identity = device_id
+        else:
+            connection.send_json({"type": "auth.error", "error": "unauthorized"})
             connection.close(CLOSE_UNAUTHORIZED, "unauthorized")
             return ""
 
         connection.send_json({
-            "type": "auth.ok", "node_id": node_id, "server_epoch": time.time(),
+            "type": "auth.ok", "id": identity, "kind": connection.kind,
+            "node_id": identity, "server_epoch": time.time(),
         })
-        return node_id
+        return identity
 
     def _start_keepalive(self, connection: WebSocketConnection) -> threading.Event:
         """Ping periodically so a proxy never sees the connection as idle."""
@@ -220,6 +247,29 @@ class WebSocketEndpoint:
 
         if kind == "ping":
             connection.send_json({"type": "pong"})
+            return
+
+        # Before any node-only branch: a device must not reach the node
+        # surface just because it connected over the same endpoint.
+        if connection.kind == "device" and kind in {"heartbeat", "converse", "media", "ack"}:
+            connection.send_json({
+                "type": "error", "id": request_id,
+                "error": f"{kind} is a peripheral-node capability, not a device one",
+            })
+            return
+
+        if kind == "chat":
+            # What the Android app sends. It runs the same turn /api/android/chat
+            # does, through the same helper, so the transport changes nothing
+            # about the answer -- only that a long one is no longer cut off.
+            if connection.kind != "device" or self.run_device_turn is None:
+                connection.send_json({
+                    "type": "error", "id": request_id,
+                    "error": "chat is only available to a paired device",
+                })
+                return
+            reply = self.run_device_turn(str(message.get("message", "")), node_id)
+            connection.send_json({"type": "result", "id": request_id, "ok": True, **reply})
             return
 
         if kind == "ack":

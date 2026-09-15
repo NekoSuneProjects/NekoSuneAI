@@ -193,8 +193,20 @@ def serve(host: str, port: int, token: str | None = None) -> None:
             details={"battery_percent": node.get("battery_percent"), "latency_ms": node.get("latency_ms")},
         )
 
+    def _ws_device_turn(message, device_id):
+        """The Android app's turn, run exactly as /api/android/chat runs it."""
+        api.initialize()
+        text = str(message or "").strip()
+        if not text:
+            raise ValueError("message is required")
+        reply = run_turn(api, text, speaker=str(device_id or "")) or "Sorry, I didn't catch that."
+        mood = load_mood()
+        return {"reply": reply, "emotion": mood.expression(), "gesture": mood.gesture()}
+
     ws_endpoint = WebSocketEndpoint(
         ws_hub, peripheral_nodes, node_media, node_converse, on_heartbeat=_ws_heartbeat,
+        authorize_device=pairing.authorize_device_token,
+        run_device_turn=_ws_device_turn,
     )
 
     # Deliver a queued command straight down the socket when the device has

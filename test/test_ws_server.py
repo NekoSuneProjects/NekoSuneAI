@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import socket
 import threading
+import time
 
 import pytest
 
@@ -20,6 +21,17 @@ from nekosuneai.ws_protocol import (
     read_message,
 )
 from nekosuneai.ws_server import WS_PATHS, WebSocketEndpoint, wants_websocket
+
+
+def wait_until(predicate, timeout=5.0):
+    """auth.ok is sent before the hub registration, so give the server thread
+    its moment rather than racing it."""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if predicate():
+            return True
+        time.sleep(0.02)
+    return False
 
 
 class FakeNodes:
@@ -144,7 +156,7 @@ def test_a_bad_token_is_refused_and_closed(endpoint):
 
     peer.send({"type": "auth", "node_id": "pi-1", "token": "wrong"})
 
-    assert peer.recv() == {"type": "auth.error", "error": "unauthorized node"}
+    assert peer.recv() == {"type": "auth.error", "error": "unauthorized"}
     assert peer.recv() is None                       # then closed
     assert endpoint.hub_double.is_online("pi-1") is False
     client_sock.close()
@@ -170,7 +182,7 @@ def test_a_non_auth_first_message_is_refused(endpoint):
 
 def test_an_authenticated_device_is_registered_in_the_hub(connected):
     endpoint, _peer = connected
-    assert endpoint.hub_double.is_online("pi-1") is True
+    assert wait_until(lambda: endpoint.hub_double.is_online("pi-1"))
 
 
 def test_a_converse_turn_answers_over_the_socket(connected):
@@ -275,7 +287,7 @@ def test_the_device_is_deregistered_when_it_disconnects(endpoint):
         prefix += client_sock.recv(1)
     peer.send({"type": "auth", "node_id": "pi-1", "token": "good-token"})
     peer.recv()
-    assert endpoint.hub_double.is_online("pi-1") is True
+    assert wait_until(lambda: endpoint.hub_double.is_online("pi-1"))
 
     client_sock.close()
     thread.join(timeout=5)
@@ -289,3 +301,105 @@ def test_the_handshake_is_a_valid_101_for_a_real_client():
         "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==", "Sec-WebSocket-Version": "13",
     })
     assert response.startswith(b"HTTP/1.1 101 Switching Protocols")
+
+
+class TestPairedDeviceClients:
+    """The Android app authenticates here too, but as a device.
+
+    It pairs through DevicePairingManager rather than the node registry, so
+    without this it could not use the socket at all -- and its chat request is
+    exactly the long one a proxy cuts off. It gets the surface it already had
+    over HTTP, and no more.
+    """
+
+    @pytest.fixture
+    def device_endpoint(self):
+        turns = []
+
+        def run_device_turn(message, device_id):
+            turns.append((message, device_id))
+            return {"reply": "Hello from the backend.", "emotion": "warm", "gesture": "wave"}
+
+        endpoint = WebSocketEndpoint(
+            WebSocketHub(), FakeNodes(), FakeMedia(), FakeConverse(),
+            authorize_device=lambda token: token == "device-token",
+            run_device_turn=run_device_turn,
+        )
+        endpoint.turns = turns
+        return endpoint
+
+    def _connect(self, endpoint, auth):
+        server_sock, client_sock = socket.socketpair()
+        peer = Peer(client_sock)
+        threading.Thread(target=lambda: endpoint.handle(FakeHandler(server_sock)), daemon=True).start()
+        prefix = b""
+        while b"\r\n\r\n" not in prefix:
+            prefix += client_sock.recv(1)
+        peer.send(auth)
+        return peer, client_sock, server_sock
+
+    def test_a_paired_device_authenticates_and_is_told_what_it_is(self, device_endpoint):
+        peer, client_sock, server_sock = self._connect(device_endpoint, {
+            "type": "auth", "device_id": "phone-1", "token": "device-token",
+        })
+        try:
+            answer = peer.recv()
+            assert answer["type"] == "auth.ok"
+            assert answer["kind"] == "device"
+            assert answer["id"] == "phone-1"
+        finally:
+            client_sock.close()
+            server_sock.close()
+
+    def test_a_device_chat_runs_the_same_turn_as_the_http_route(self, device_endpoint):
+        peer, client_sock, server_sock = self._connect(device_endpoint, {
+            "type": "auth", "device_id": "phone-1", "token": "device-token",
+        })
+        try:
+            peer.recv()
+            peer.send({"type": "chat", "id": "c1", "message": "hello"})
+            answer = peer.recv()
+
+            assert answer["reply"] == "Hello from the backend."
+            assert answer["emotion"] == "warm"
+            assert device_endpoint.turns == [("hello", "phone-1")]
+        finally:
+            client_sock.close()
+            server_sock.close()
+
+    def test_a_bad_device_token_is_refused(self, device_endpoint):
+        peer, client_sock, server_sock = self._connect(device_endpoint, {
+            "type": "auth", "device_id": "phone-1", "token": "wrong",
+        })
+        try:
+            assert peer.recv()["type"] == "auth.error"
+        finally:
+            client_sock.close()
+            server_sock.close()
+
+    @pytest.mark.parametrize("kind", ["heartbeat", "converse", "media", "ack"])
+    def test_a_device_cannot_reach_the_node_surface(self, device_endpoint, kind):
+        """Upgrading the transport must not widen what a client can do."""
+        peer, client_sock, server_sock = self._connect(device_endpoint, {
+            "type": "auth", "device_id": "phone-1", "token": "device-token",
+        })
+        try:
+            peer.recv()
+            peer.send({"type": kind, "id": "x"})
+            answer = peer.recv()
+
+            assert answer["type"] == "error"
+            assert "peripheral-node capability" in answer["error"]
+        finally:
+            client_sock.close()
+            server_sock.close()
+
+    def test_a_node_cannot_use_the_device_chat_surface(self, connected):
+        """And the same in the other direction."""
+        _endpoint, peer = connected
+
+        peer.send({"type": "chat", "id": "c1", "message": "hello"})
+        answer = peer.recv()
+
+        assert answer["type"] == "error"
+        assert "paired device" in answer["error"]
