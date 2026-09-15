@@ -153,6 +153,7 @@ _PAGE = r"""<!doctype html>
   <div class="strip">
     <span class="chip"><span class="dot idle" id="d-paired"></span><span id="t-paired">pairing</span></span>
     <span class="chip"><span class="dot idle" id="d-backend"></span><span id="t-backend">backend</span></span>
+    <span class="chip"><span class="dot idle" id="d-ws"></span><span id="t-ws">live link</span></span>
     <span class="chip"><span class="dot idle" id="d-bt"></span><span id="t-bt">bluetooth</span></span>
     <span class="chip"><span class="dot idle" id="d-wake"></span><span id="t-wake">wake word</span></span>
   </div>
@@ -409,6 +410,12 @@ async function refresh() {
     if (authBroken) text('auth-note', s.auth_error);
     dot('d-backend', s.backend_reachable !== false ? 'on' : 'off');
     text('t-backend', s.backend_reachable !== false ? 'backend online' : 'backend unreachable');
+
+    // The live link is what keeps a long turn from being cut off by a proxy.
+    // "http fallback" is a working state, not an error -- say so.
+    var ws = s.websocket || {};
+    dot('d-ws', ws.connected ? 'on' : (ws.enabled === false ? 'idle' : 'off'));
+    text('t-ws', ws.connected ? 'live link' : (ws.enabled === false ? 'live link off' : 'http fallback'));
 
     var bt = s.bluetooth || {};
     // Everything audible goes through this server -- TTS replies, wake chimes

@@ -48,6 +48,7 @@ from .console_control import console_capabilities, console_command, console_stat
 from .kinect_vision_patch import KinectVisionService
 from .music import MusicController
 from .wakeword import WakeWordListener
+from .ws_client import WebSocketClient
 
 # node_media.py's STT endpoint (see nekosuneai/node_media.py:read_pcm_wav)
 # accepts mono PCM16 WAV at 16/24/48 kHz, at most 15 seconds. Recording longer
@@ -238,6 +239,19 @@ class PiProxyAgent:
         self.wake_last_transcript_at = 0.0
         self.wakeword = WakeWordListener(wake_config, self._on_wake_word_detected)
 
+        # Live link to the backend. Opportunistic: every caller below keeps
+        # its HTTP path, so a proxy that will not forward an upgrade, or a
+        # backend without /wss, changes nothing.
+        self.ws: WebSocketClient | None = None
+        if bool(config.get("websocket_enabled", True)):
+            self.ws = WebSocketClient(
+                server_url=self.server, node_id=self.node_id,
+                token_provider=lambda: self.token,
+                on_command=self._run_pushed_command,
+                verify_tls=self.verify_tls,
+                notify=self._on_ws_event,
+            )
+
         self._console_status_cache: dict[str, Any] = {}
         self._console_status_cached_at = 0.0
 
@@ -329,6 +343,28 @@ class PiProxyAgent:
     def _on_bluetooth_event(self, message: str) -> None:
         self.bt_event_log.append(f"{time.strftime('%H:%M:%S')}  {message}"[:240])
 
+    def _on_ws_event(self, message: str) -> None:
+        self.command_log.append(f"{time.strftime('%H:%M:%S')}  {message}"[:200])
+
+    def _run_pushed_command(self, command: dict[str, Any]) -> None:
+        """A command the backend pushed down the socket.
+
+        Same dispatch and same ack as a polled one -- the socket only removes
+        the wait, it does not create a second kind of command.
+        """
+        capability = str(command.get("capability", ""))
+        try:
+            self._last_result = self._dispatch(capability, dict(command.get("arguments") or {}))
+            self.command_log.append(f"{time.strftime('%H:%M:%S')}  {capability} (pushed) -> ok")
+        except Exception as exc:
+            self._last_result = {"ok": False, "error": str(exc)[:300]}
+            self.command_log.append(f"{time.strftime('%H:%M:%S')}  {capability} (pushed) -> error: {exc}"[:200])
+        command_id = int(command.get("id", 0) or 0)
+        if command_id:
+            self._last_command = max(self._last_command, command_id)
+            if self.ws is not None:
+                self.ws.send({"type": "ack", "command_id": command_id})
+
     def _on_music_event(self, message: str) -> None:
         self.command_log.append(f"{time.strftime('%H:%M:%S')}  music: {message}"[:200])
 
@@ -387,6 +423,12 @@ class PiProxyAgent:
         self.auth_error = ""
         self._auth_announced = False
         self._paired.set()
+        if self.ws is not None:
+            # The socket was either idle waiting for a token or pointed at the
+            # old address; restart it against what was just configured.
+            self.ws.server_url = server_url
+            self.ws.stop()
+            self.ws.start()
         self.command_log.append(f"{time.strftime('%H:%M:%S')}  paired with {server_url}")
         return {"ok": True, "server_url": server_url, "node_id": self.node_id}
 
@@ -415,6 +457,19 @@ class PiProxyAgent:
     def _media_request(self, operation: str, **payload: Any) -> dict[str, Any]:
         if not self.token:
             raise RuntimeError("pair this node first")
+        # The socket first: it is not subject to the proxy read timeout that
+        # makes long requests fail. Any failure falls through to HTTP rather
+        # than failing the call.
+        if self.ws is not None and self.ws.connected:
+            try:
+                result = self.ws.request({"type": "media", "operation": operation, **payload})
+                result.pop("type", None)
+                result.pop("id", None)
+                return result
+            except Exception as exc:
+                self.command_log.append(
+                    f"{time.strftime('%H:%M:%S')}  media over socket failed, using HTTP: {exc}"[:200]
+                )
         response = self.session.post(
             f"{self.server}/api/nodes/media/{operation}",
             json={"node_id": self.node_id, **payload},
@@ -700,6 +755,49 @@ class PiProxyAgent:
                 self.command_log.append(f"{time.strftime('%H:%M:%S')}  {capability} (queued) -> error: {exc}"[:200])
         return {"ok": True, "spoke": True}
 
+    def _apply_converse_result(self, text: str, result: dict[str, Any], speak: bool) -> dict[str, Any]:
+        """Act on a turn's answer, however it arrived.
+
+        Shared by the socket and the HTTP path so the two cannot drift into
+        handling the same reply differently.
+        """
+        turn_id = str(result.get("turn_id") or "")
+        if turn_id:
+            self._handled_turns.append(turn_id)
+
+        reply = str(result.get("reply") or "")
+        self.last_reply = reply
+        self.last_reply_at = time.time()
+        self.conversation.append({"epoch": time.time(), "text": text[:300], "reply": reply[:600]})
+
+        if speak and not self._disabled.is_set():
+            encoded = result.get("audio_base64")
+            spoken = False
+            if isinstance(encoded, str) and encoded:
+                try:
+                    self.player.play_wav_bytes(base64.b64decode(encoded, validate=True))
+                    spoken = True
+                except Exception as exc:
+                    self.command_log.append(f"{time.strftime('%H:%M:%S')}  reply playback failed: {exc}"[:200])
+            if not spoken and reply:
+                # The backend answered but its TTS did not reach us. Speaking
+                # in the fallback voice beats answering with silence.
+                self._speak_local_fallback(reply)
+
+        # Commands come back with the reply rather than through a later poll,
+        # so music starts with the answer. The backend has already checked
+        # each against this node's capability policy; dispatch still goes
+        # through the same path a polled command would.
+        for command in result.get("commands") or []:
+            capability = str(command.get("capability", ""))
+            try:
+                self._last_result = self._dispatch(capability, dict(command.get("arguments") or {}))
+                self.command_log.append(f"{time.strftime('%H:%M:%S')}  {capability} (spoken) -> ok")
+            except Exception as exc:
+                self._last_result = {"ok": False, "error": str(exc)[:300]}
+                self.command_log.append(f"{time.strftime('%H:%M:%S')}  {capability} (spoken) -> error: {exc}"[:200])
+        return result
+
     def converse(self, text: str, speak: bool = True) -> dict[str, Any]:
         """Submit a transcript to the backend and act on the reply.
 
@@ -717,6 +815,22 @@ class PiProxyAgent:
             raise ValueError("converse requires non-empty text")
         if not self.token:
             raise RuntimeError("pair this node first")
+        # Over the socket when there is one. This is the request that was
+        # actually failing: a proxy's read timeout cuts a long turn off at
+        # 504, and an upgraded connection is not subject to it.
+        if self.ws is not None and self.ws.connected:
+            try:
+                result = self.ws.request({
+                    "type": "converse", "text": text[:800], "speak": bool(speak),
+                })
+                result.pop("type", None)
+                result.pop("id", None)
+                return self._apply_converse_result(text, result, speak)
+            except Exception as exc:
+                self.command_log.append(
+                    f"{time.strftime('%H:%M:%S')}  converse over socket failed, using HTTP: {exc}"[:200]
+                )
+
         try:
             response = self.session.post(
                 f"{self.server}/api/nodes/converse",
@@ -741,46 +855,7 @@ class PiProxyAgent:
         if not response.ok:
             raise RuntimeError(str(result.get("error") or f"HTTP {response.status_code}"))
 
-        # Remember the turn so the queued copy of this same answer, which the
-        # backend always leaves for durability, is recognised and not spoken a
-        # second time.
-        turn_id = str(result.get("turn_id") or "")
-        if turn_id:
-            self._handled_turns.append(turn_id)
-
-        reply = str(result.get("reply") or "")
-        self.last_reply = reply
-        self.last_reply_at = time.time()
-        self.conversation.append({"epoch": time.time(), "text": text[:300], "reply": reply[:600]})
-
-        if speak and not self._disabled.is_set():
-            encoded = result.get("audio_base64")
-            spoken = False
-            if isinstance(encoded, str) and encoded:
-                try:
-                    self.player.play_wav_bytes(base64.b64decode(encoded, validate=True))
-                    spoken = True
-                except Exception as exc:
-                    self.command_log.append(f"{time.strftime('%H:%M:%S')}  reply playback failed: {exc}"[:200])
-            if not spoken and reply:
-                # The backend answered but its TTS did not reach us. Speaking
-                # in the fallback voice beats answering with silence.
-                self._speak_local_fallback(reply)
-
-        # Commands arrive inline rather than through /api/nodes/poll so the
-        # music starts with the reply instead of a poll cycle later. The
-        # backend has already checked each one against this node's capability
-        # policy; dispatching still goes through the same _dispatch path a
-        # polled command would.
-        for command in result.get("commands") or []:
-            capability = str(command.get("capability", ""))
-            try:
-                self._last_result = self._dispatch(capability, dict(command.get("arguments") or {}))
-                self.command_log.append(f"{time.strftime('%H:%M:%S')}  {capability} (spoken) -> ok")
-            except Exception as exc:
-                self._last_result = {"ok": False, "error": str(exc)[:300]}
-                self.command_log.append(f"{time.strftime('%H:%M:%S')}  {capability} (spoken) -> error: {exc}"[:200])
-        return result
+        return self._apply_converse_result(text, result, speak)
 
     def listen_and_converse(self, seconds: float | None = None, chime: bool = True) -> dict[str, Any]:
         """Chime, capture an utterance, transcribe it, and answer it.
@@ -899,6 +974,7 @@ class PiProxyAgent:
             "camera": self.kinect.status(),
             "backend_reachable": not self._backend_down_announced,
             "auth_error": self.auth_error,
+            "websocket": self.ws.status() if self.ws is not None else {"enabled": False},
             "conversation": list(self.conversation),
             "last_reply": self.last_reply,
             "last_reply_at": self.last_reply_at,
@@ -983,6 +1059,8 @@ class PiProxyAgent:
         # The watchdog thread was previously left running on shutdown, so its
         # poll kept re-selecting the Bluetooth sink after the agent had stopped.
         self.bt.stop()
+        if self.ws is not None:
+            self.ws.stop()
         if self.web_status is not None:
             self.web_status.stop()
 
@@ -998,6 +1076,8 @@ class PiProxyAgent:
             # kinect_vision_enabled is false in this node's config, same
             # off-by-default-needs-real-hardware pattern as wake word.
             self.kinect.start()
+            if self.ws is not None:
+                self.ws.start()
             if self.web_status is not None:
                 self.web_status.start()
             while not self._stop.is_set():
@@ -1077,6 +1157,7 @@ _ENV_OVERRIDE_KEYS: dict[str, tuple[str, Any]] = {
     "PI_PROXY_NAME": ("name", str),
     "PI_PROXY_DEVICE_TOKEN": ("device_token", str),
     "PI_PROXY_VERIFY_TLS": ("verify_tls", _env_bool),
+    "WEBSOCKET_ENABLED": ("websocket_enabled", _env_bool),
     "BLUETOOTH_RECONNECT_ENABLED": ("bluetooth_reconnect_enabled", _env_bool),
     "BLUETOOTH_SPEAKER_ADDRESS": ("bluetooth_speaker_address", str),
     "BLUETOOTH_RECONNECT_INTERVAL_SECONDS": ("bluetooth_reconnect_interval_seconds", float),
