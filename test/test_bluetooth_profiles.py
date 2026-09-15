@@ -37,6 +37,16 @@ Card #42
 """
 
 
+# A host whose audio server is reachable and has hardware, but no Bluetooth
+# support at all -- so BlueZ connects the speaker and no card ever appears.
+ANALOG_ONLY_CARDS = """Card #0
+	Name: alsa_card.platform-bcm2835_audio
+	Profiles:
+		output:analog-stereo: Analog Stereo (sinks: 1, sources: 0, priority: 6500, available: yes)
+	Active Profile: output:analog-stereo
+"""
+
+
 @pytest.fixture
 def watchdog(monkeypatch):
     """A watchdog whose pactl calls are faked and recorded."""
@@ -124,3 +134,82 @@ def test_profile_error_reaches_the_status_page(watchdog):
     watchdog.cards = ""
     watchdog._detected_profile_error = "something specific went wrong"
     assert watchdog.status()["profile_error"] == "something specific went wrong"
+
+
+class TestMissingCardDiagnosis:
+    """Why the speaker has no audio-server card.
+
+    BlueZ reporting "Connected: yes" tells you nothing about whether the audio
+    server made a card for it, and the causes need different fixes: an
+    unreachable server, a server with no Bluetooth support at all, or a card
+    that belongs to some other device. Saying "is PULSE_SERVER reachable?" for
+    all of them sends the owner after the wrong one.
+    """
+
+    def _diagnose(self, watchdog, cards, returncode=0, stderr=""):
+        watchdog.cards = cards
+        watchdog._detected_profile_error = ""
+
+        def fake_run(args):
+            if args[:3] == ["pactl", "list", "cards"]:
+                return type("R", (), {"returncode": returncode, "stdout": cards, "stderr": stderr})()
+            return type("R", (), {"returncode": 0, "stdout": "", "stderr": ""})()
+
+        watchdog._run = fake_run
+        assert watchdog._bluez_card(ADDRESS) is None
+        return watchdog._detected_profile_error
+
+    def test_unreachable_audio_server_quotes_the_real_error(self, watchdog, monkeypatch):
+        monkeypatch.setenv("PULSE_SERVER", "unix:/run/pulse/native")
+
+        message = self._diagnose(
+            watchdog, "", returncode=1, stderr="Connection failure: Connection refused",
+        )
+
+        assert "Connection refused" in message
+        assert "unix:/run/pulse/native" in message
+        assert "container" in message
+
+    def test_missing_pactl_says_so(self, watchdog, monkeypatch):
+        monkeypatch.setattr("nekosuneai.bluetooth_watchdog.shutil.which", lambda name: None)
+        watchdog._detected_profile_error = ""
+
+        assert watchdog._bluez_card(ADDRESS) is None
+        assert "pactl is not on PATH" in watchdog._detected_profile_error
+
+    def test_a_server_with_no_bluetooth_module_is_named_as_the_cause(self, watchdog):
+        """The common one: bluetoothctl connects fine, the audio server has no
+        Bluetooth support, so no card is ever created and nothing says why."""
+        message = self._diagnose(watchdog, ANALOG_ONLY_CARDS)
+
+        assert "none from Bluetooth" in message
+        assert "libspa-0.2-bluetooth" in message          # PipeWire
+        assert "pulseaudio-module-bluetooth" in message   # PulseAudio
+        assert "BlueZ will keep reporting the speaker as connected" in message
+
+    ANALOG_ONLY = """Card #0
+\tName: alsa_card.platform-bcm2835_audio
+\tProfiles:
+\t\toutput:analog-stereo: Analog Stereo (sinks: 1, sources: 0, priority: 6500, available: yes)
+\tActive Profile: output:analog-stereo
+"""
+
+    def _only_analog(self, watchdog):
+        return watchdog
+
+    def test_no_cards_at_all_is_distinguished(self, watchdog):
+        message = self._diagnose(watchdog, "")
+        assert "no sound cards at all" in message
+
+    def test_a_card_for_a_different_speaker_is_distinguished(self, watchdog):
+        other = """Card #7
+\tName: bluez_card.AA_BB_CC_DD_EE_FF
+\tProfiles:
+\t\ta2dp-sink: A2DP (sinks: 1, sources: 0, priority: 40, available: yes)
+\tActive Profile: a2dp-sink
+"""
+        message = self._diagnose(watchdog, other)
+
+        assert "bluez_card.AA_BB_CC_DD_EE_FF" in message
+        assert ADDRESS in message
+        assert "different host" in message

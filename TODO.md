@@ -218,6 +218,20 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
       first look. When it still fails, the reason is specific (on a headset
       profile / offers no A2DP at all / no card yet) and shows on the
       dashboard instead of the old unactionable message.
+- [x] "No audio-server card" now says which of the several causes it is,
+      instead of guessing at PULSE_SERVER for all of them. `_bluez_card`
+      returned None identically whether pactl was missing, the server was
+      unreachable, the server had no Bluetooth support, or the card simply
+      belonged to another device — so the one message it produced was wrong
+      most of the time. It now distinguishes: pactl absent; the server
+      unreachable (quoting pactl's own stderr and PULSE_SERVER); a reachable
+      server with no cards; a reachable server with cards but **none from
+      Bluetooth** — the common headless-Pi case, where BlueZ reports
+      `Connected: yes` forever because the audio server's Bluetooth module
+      (`libspa-0.2-bluetooth` for PipeWire, `pulseaudio-module-bluetooth` for
+      PulseAudio) was never installed; and Bluetooth cards existing for other
+      addresses. Documented in
+      [docs/RASPBERRY_PI_VOICE_HOME.md](docs/RASPBERRY_PI_VOICE_HOME.md).
 - [x] A rejected device token is no longer reported as an outage. A 401/403
       from `/api/nodes/heartbeat` fell into the generic failure counter, so a
       node with a stale token announced "Connection to the main server has

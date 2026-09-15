@@ -8,6 +8,7 @@ reconnect it and make its BlueZ sink the default output automatically.
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -281,9 +282,14 @@ class BluetoothSpeakerWatchdog:
         instead.
         """
         if not shutil.which("pactl"):
+            self._detected_profile_error = (
+                "pactl is not on PATH, so this node cannot talk to the audio "
+                "server at all (apt install pulseaudio-utils)."
+            )
             return None
         result = self._run(["pactl", "list", "cards"])
         if result.returncode != 0:
+            self._detected_profile_error = self._diagnose_unreachable_server(result)
             return None
         address_key = address.replace(":", "_").lower()
         for block in re.split(r"\n(?=Card #)", result.stdout):
@@ -302,7 +308,55 @@ class BluetoothSpeakerWatchdog:
                 # its codecs is a better answer than any list hardcoded here.
                 "profiles": [item[1] for item in sorted(profiles, reverse=True)],
             }
+        # The server answered but has no card for this speaker. Which of the
+        # several reasons that can be matters a great deal to the owner, and
+        # they are distinguishable from what it did return.
+        self._detected_profile_error = self._diagnose_missing_card(address, result.stdout)
         return None
+
+    def _diagnose_unreachable_server(self, result: subprocess.CompletedProcess[str]) -> str:
+        """`pactl` ran but could not talk to an audio server."""
+        detail = (result.stderr or result.stdout or "").strip().splitlines()
+        reason = detail[-1] if detail else f"pactl exited {result.returncode}"
+        target = os.environ.get("PULSE_SERVER", "")
+        where = f" PULSE_SERVER={target}." if target else ""
+        return (
+            f"Cannot reach the audio server: {reason}.{where} In a container, "
+            "check the pulse socket and cookie are mounted and that "
+            "PipeWire/PulseAudio is running as the desktop user on the host."
+        )
+
+    def _diagnose_missing_card(self, address: str, listing: str) -> str:
+        """Say why this speaker has no card, given what the server did report."""
+        cards = [
+            self._info_value(block, "Name")
+            for block in re.split(r"\n(?=Card #)", listing)
+            if self._info_value(block, "Name")
+        ]
+        if not cards:
+            return (
+                "The audio server reports no sound cards at all. It is reachable "
+                "but has no devices -- check it is the same server session that "
+                "owns the Pi's audio hardware."
+            )
+        bluez = [name for name in cards if "bluez" in name.lower()]
+        if not bluez:
+            # The common one, and invisible from BlueZ's side: bluetoothctl
+            # happily connects an A2DP speaker while the audio server has no
+            # Bluetooth support compiled in or installed, so no card is ever
+            # created and nothing explains why.
+            return (
+                f"The audio server has {len(cards)} card(s) but none from Bluetooth "
+                f"({', '.join(cards[:4])}). Its Bluetooth module is missing: install "
+                "libspa-0.2-bluetooth (PipeWire) or pulseaudio-module-bluetooth "
+                "(PulseAudio) on the host and restart the audio server. BlueZ will "
+                "keep reporting the speaker as connected regardless."
+            )
+        return (
+            f"The audio server has Bluetooth cards ({', '.join(bluez[:3])}) but none "
+            f"for {address}. The speaker may be connected to a different host, or "
+            "connected without its audio profile."
+        )
 
     def _activate_a2dp_profile(self, address: str) -> bool:
         """Switch this speaker's card to the best A2DP sink profile it has."""
@@ -380,13 +434,15 @@ class BluetoothSpeakerWatchdog:
             # on its own is unactionable when the real cause is a card sitting
             # on a headset profile, or offering no A2DP profile at all.
             if not self._detected_profile_error:
+                # _bluez_card records a specific diagnosis when it cannot find
+                # the card, so only the "card exists, sink did not appear"
+                # case is left to describe here.
                 card = self._bluez_card(address)
-                self._detected_profile_error = (
-                    f"No audio-server card for {address} yet; is the audio session "
-                    "socket reachable (PULSE_SERVER) and PipeWire/PulseAudio running?"
-                    if card is None
-                    else f"{card['card']} is on profile '{card['active'] or 'unknown'}' and no sink appeared."
-                )
+                if card is not None:
+                    self._detected_profile_error = (
+                        f"{card['card']} is on profile '{card['active'] or 'unknown'}' "
+                        "and no sink appeared."
+                    )
             return None
         self._detected_profile_error = ""
 

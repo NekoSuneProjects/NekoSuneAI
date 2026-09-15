@@ -19,6 +19,39 @@ connect AA:BB:CC:DD:EE:FF
 
 Select Alexa as the Raspberry Pi host output in the normal audio panel.
 
+### The audio server needs Bluetooth support of its own
+
+`bluetoothctl` connecting the speaker is **not** enough. BlueZ owns the radio
+link; the audio server has to separately create a *card* for it, and it can
+only do that with its own Bluetooth module installed. Without it BlueZ happily
+reports `Connected: yes` forever while no sink ever appears — which is exactly
+what the watchdog means by "connected over Bluetooth, but its A2DP audio sink
+is not ready".
+
+Check on the host, as the `pi` user:
+
+```bash
+# Should list a bluez_card.* line for the speaker once it is connected.
+sudo -u pi XDG_RUNTIME_DIR=/run/user/1000 pactl list cards short
+```
+
+If the only cards are `alsa_card.*`, install the module and restart the server:
+
+```bash
+# PipeWire (Raspberry Pi OS Bookworm and later)
+sudo apt install libspa-0.2-bluetooth
+systemctl --user restart pipewire pipewire-pulse wireplumber
+
+# PulseAudio (older images)
+sudo apt install pulseaudio-module-bluetooth
+systemctl --user restart pulseaudio
+```
+
+Then reconnect the speaker. Pi Proxy's dashboard names this case directly
+("The audio server has N card(s) but none from Bluetooth …"), along with the
+other reasons a card can be missing: an unreachable server, or a card that
+belongs to a different device.
+
 Unlike the Docker/`main` backend, Pi Proxy's `Dockerfile.pi-proxy` has no
 auto-detecting audio entrypoint (no session scanning, no UID auto-detection,
 no privilege drop) — `compose.pi-proxy.yml` mounts the host's PulseAudio/
