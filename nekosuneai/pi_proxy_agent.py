@@ -27,6 +27,7 @@ import base64
 import json
 import os
 import platform
+import secrets
 import shutil
 import signal
 import subprocess
@@ -815,6 +816,14 @@ class PiProxyAgent:
             raise ValueError("converse requires non-empty text")
         if not self.token:
             raise RuntimeError("pair this node first")
+
+        # One key for this utterance, carried on every attempt. When the socket
+        # times out and the HTTP path retries, the backend recognises the two
+        # as the same turn and answers with the original rather than running
+        # the whole pipeline again -- which otherwise cost a second LLM run and
+        # got the retry rejected as "that was too fast".
+        turn_key = secrets.token_hex(8)
+
         # Over the socket when there is one. This is the request that was
         # actually failing: a proxy's read timeout cuts a long turn off at
         # 504, and an upgraded connection is not subject to it.
@@ -822,6 +831,7 @@ class PiProxyAgent:
             try:
                 result = self.ws.request({
                     "type": "converse", "text": text[:800], "speak": bool(speak),
+                    "turn_key": turn_key,
                 })
                 result.pop("type", None)
                 result.pop("id", None)
@@ -834,7 +844,10 @@ class PiProxyAgent:
         try:
             response = self.session.post(
                 f"{self.server}/api/nodes/converse",
-                json={"node_id": self.node_id, "text": text[:800], "speak": bool(speak)},
+                json={
+                    "node_id": self.node_id, "text": text[:800],
+                    "speak": bool(speak), "turn_key": turn_key,
+                },
                 headers=self._headers(), timeout=(10, CONVERSE_READ_TIMEOUT), verify=self.verify_tls,
             )
         except requests.Timeout:
