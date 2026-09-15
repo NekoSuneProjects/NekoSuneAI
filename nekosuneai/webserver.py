@@ -15,6 +15,8 @@ from .android_devices import AndroidDeviceHub
 from .avatar_motion import drive_tts_avatar
 from .device_pairing import DevicePairingManager, MdnsAdvertiser
 from .device_turn import run_turn
+from .ws_hub import WebSocketHub
+from .ws_server import WebSocketEndpoint, wants_websocket
 from .local_affect import LocalAffectDetector
 from .mobile_notify import MobileNotifier
 from .mood_state import load_mood, update_from_interaction
@@ -171,10 +173,57 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     peripheral_nodes = PeripheralNodeRegistry()
     from .node_media import NodeMediaService
     node_media = NodeMediaService(api)
+    ws_hub = WebSocketHub()
     from .node_music import NodeMusicRouter
     node_music = NodeMusicRouter(peripheral_nodes.list_nodes)
     from .node_converse import NodeConverseService
     node_converse = NodeConverseService(api, peripheral_nodes, node_media, node_music)
+
+    def _ws_heartbeat(node_id, node):
+        """The same follow-on work the HTTP heartbeat route does.
+
+        Kept as one callback rather than duplicated in ws_server so the two
+        transports cannot drift into doing different things with a heartbeat.
+        """
+        routines.handle_event(f"node.{node_id}.heartbeat", {"node": node})
+        routines.handle_event("node.heartbeat", {"node": node})
+        home_timeline.record(
+            "node", "node.heartbeat", f"{node.get('name', node_id)} sent a heartbeat.",
+            source=node_id,
+            details={"battery_percent": node.get("battery_percent"), "latency_ms": node.get("latency_ms")},
+        )
+
+    def _ws_device_turn(message, device_id):
+        """The Android app's turn, run exactly as /api/android/chat runs it."""
+        api.initialize()
+        text = str(message or "").strip()
+        if not text:
+            raise ValueError("message is required")
+        reply = run_turn(api, text, speaker=str(device_id or "")) or "Sorry, I didn't catch that."
+        mood = load_mood()
+        return {"reply": reply, "emotion": mood.expression(), "gesture": mood.gesture()}
+
+    ws_endpoint = WebSocketEndpoint(
+        ws_hub, peripheral_nodes, node_media, node_converse, on_heartbeat=_ws_heartbeat,
+        authorize_device=pairing.authorize_device_token,
+        run_device_turn=_ws_device_turn,
+    )
+
+    # Deliver a queued command straight down the socket when the device has
+    # one open, instead of waiting for its next poll. The queue is still
+    # written first, so nothing is lost if the push fails or the device is
+    # offline -- this only removes the wait.
+    original_enqueue = peripheral_nodes.enqueue
+
+    def enqueue_and_push(node_id, capability, arguments=None, **kwargs):
+        item = original_enqueue(node_id, capability, arguments, **kwargs)
+        try:
+            ws_hub.send(str(node_id), {"type": "command", "command": item})
+        except Exception:
+            pass
+        return item
+
+    peripheral_nodes.enqueue = enqueue_and_push
 
     original_build_game_driver = api._build_game_driver
 
@@ -847,6 +896,11 @@ def serve(host: str, port: int, token: str | None = None) -> None:
         def do_GET(self):
             parsed = urlparse(self.path)
             query = parse_qs(parsed.query)
+            # Checked before anything else: an upgrade is not a page request,
+            # and the handler thread is handed over for the connection's life.
+            if wants_websocket(parsed.path, self.headers):
+                self.close_connection = True
+                return ws_endpoint.handle(self)
             if parsed.path == "/oauth/callback":
                 error = query.get("error", [""])[0]
                 result = ({"ok": False, "msg": error} if error else api.complete_mcp_oauth(query.get("state", [""])[0], query.get("code", [""])[0]))
