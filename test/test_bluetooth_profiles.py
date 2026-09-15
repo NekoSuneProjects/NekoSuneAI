@@ -159,16 +159,17 @@ class TestMissingCardDiagnosis:
         assert watchdog._bluez_card(ADDRESS) is None
         return watchdog._detected_profile_error
 
-    def test_unreachable_audio_server_quotes_the_real_error(self, watchdog, monkeypatch):
-        monkeypatch.setenv("PULSE_SERVER", "unix:/run/pulse/native")
+    def test_unreachable_audio_server_is_reported(self, watchdog, monkeypatch, tmp_path):
+        """With a live socket present, the server itself is the suspect."""
+        monkeypatch.setenv("PULSE_SERVER", f"unix:{tmp_path / 'native'}")
+        (tmp_path / "native").write_text("")   # exists, but not a socket
 
         message = self._diagnose(
             watchdog, "", returncode=1, stderr="Connection failure: Connection refused",
         )
 
-        assert "Connection refused" in message
-        assert "unix:/run/pulse/native" in message
-        assert "container" in message
+        assert "is not a socket" in message
+        assert str(tmp_path / "native") in message
 
     def test_missing_pactl_says_so(self, watchdog, monkeypatch):
         monkeypatch.setattr("nekosuneai.bluetooth_watchdog.shutil.which", lambda name: None)
@@ -240,18 +241,20 @@ class TestAudioServerProbe:
         assert "PipeWire" in message
         assert "alsa_output" in message
 
-    def test_connection_refused_names_the_repair_script(self, watchdog, monkeypatch):
-        """The exact failure seen on a headless Pi whose mounted socket points
-        at a UID with no live session."""
-        monkeypatch.setenv("PULSE_SERVER", "unix:/run/pulse/native")
+    def test_connection_refused_points_at_the_missing_socket(self, watchdog, monkeypatch, tmp_path):
+        """The container case: PULSE_SERVER names a path that is not there,
+        which Docker produces by creating an empty dir for a missing mount."""
+        empty = tmp_path / "pulse"
+        empty.mkdir()
+        monkeypatch.setenv("PULSE_SERVER", f"unix:{empty / 'native'}")
 
         ok, message = self._probe(
             watchdog, 1, stderr="pa_context_connect() failed: Connection refused",
         )
 
         assert ok is False
-        assert "Connection refused" in message
-        assert "unix:/run/pulse/native" in message
+        assert "does not exist here" in message
+        assert "is empty" in message
         assert "detect-pulse-audio.sh" in message
         assert "enable-linger" in message
 
@@ -276,3 +279,67 @@ class TestAudioServerProbe:
         assert watchdog.audio_server_ok is False
         assert "audio server is dead" in watchdog.notes
         assert watchdog.status()["audio_server_ok"] is False
+
+
+class TestUnreachableServerDiagnosis:
+    """"Connection refused" reads as "the server is down" and sends the owner
+    to a host session that is usually running fine. In a container the usual
+    cause is that the socket PULSE_SERVER names is not present at all."""
+
+    def _diagnose(self, watchdog, pulse_server, monkeypatch):
+        monkeypatch.setenv("PULSE_SERVER", pulse_server)
+        result = type("R", (), {
+            "returncode": 1, "stdout": "",
+            "stderr": "pa_context_connect() failed: Connection refused",
+        })()
+        return watchdog._diagnose_unreachable_server(result)
+
+    def test_a_missing_socket_is_named_as_the_cause(self, watchdog, monkeypatch, tmp_path):
+        missing = tmp_path / "pulse" / "native"
+        message = self._diagnose(watchdog, f"unix:{missing}", monkeypatch)
+
+        assert "does not exist here" in message
+        assert "force-recreate" in message
+
+    def test_an_empty_mount_directory_explains_the_docker_behaviour(self, watchdog, monkeypatch, tmp_path):
+        """Docker silently creates an empty dir when a bind source is missing."""
+        empty = tmp_path / "pulse"
+        empty.mkdir()
+        message = self._diagnose(watchdog, f"unix:{empty / 'native'}", monkeypatch)
+
+        assert "is empty" in message
+        assert "bind-mount source is missing" in message
+
+    def test_a_populated_directory_lists_what_is_actually_there(self, watchdog, monkeypatch, tmp_path):
+        present = tmp_path / "pulse"
+        present.mkdir()
+        (present / "pid").write_text("1")
+        message = self._diagnose(watchdog, f"unix:{present / 'native'}", monkeypatch)
+
+        assert "contains: pid" in message
+
+    def test_a_path_that_is_not_a_socket_is_distinguished(self, watchdog, monkeypatch, tmp_path):
+        notsock = tmp_path / "native"
+        notsock.write_text("not a socket")
+        message = self._diagnose(watchdog, f"unix:{notsock}", monkeypatch)
+
+        assert "is not a socket" in message
+
+    @pytest.mark.skipif(
+        not hasattr(__import__("socket"), "AF_UNIX"),
+        reason="AF_UNIX is POSIX-only; the Pi has it, this host does not",
+    )
+    def test_a_live_socket_being_refused_blames_the_server_not_the_path(self, watchdog, monkeypatch, tmp_path):
+        import socket as socketlib
+
+        sock_path = tmp_path / "native"
+        server = socketlib.socket(socketlib.AF_UNIX, socketlib.SOCK_STREAM)
+        try:
+            server.bind(str(sock_path))
+            message = self._diagnose(watchdog, f"unix:{sock_path}", monkeypatch)
+        finally:
+            server.close()
+
+        assert "Connection refused" in message
+        assert "PULSE_COOKIE" in message
+        assert "does not exist here" not in message

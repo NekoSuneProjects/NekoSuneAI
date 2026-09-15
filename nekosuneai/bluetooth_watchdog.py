@@ -14,6 +14,7 @@ import shutil
 import subprocess
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 from .config import Config
@@ -324,21 +325,58 @@ class BluetoothSpeakerWatchdog:
         return None
 
     def _diagnose_unreachable_server(self, result: subprocess.CompletedProcess[str]) -> str:
-        """`pactl` ran but could not talk to an audio server."""
+        """`pactl` ran but could not talk to an audio server.
+
+        "Connection refused" reads as "the server is down", which sends the
+        owner to the host to check a session that is usually running fine. The
+        far more common cause in a container is that the socket PULSE_SERVER
+        names is not *present* -- an empty directory Docker created because the
+        bind-mount source did not exist when the container was made. Look at
+        the path before blaming the server.
+        """
         detail = (result.stderr or result.stdout or "").strip().splitlines()
         reason = detail[-1] if detail else f"pactl exited {result.returncode}"
         target = os.environ.get("PULSE_SERVER", "")
+        socket_path = target.split("unix:", 1)[-1].split(",")[0] if target.startswith("unix:") else ""
         where = f" (PULSE_SERVER={target})" if target else ""
-        # Name the script rather than describing the fix: the mounted socket
-        # almost always points at a UID that has no live session, and
-        # detect-pulse-audio.sh finds the real one and writes it into .env.
+
+        if socket_path:
+            path = Path(socket_path)
+            if not path.exists():
+                listing = ""
+                if path.parent.is_dir():
+                    entries = sorted(item.name for item in path.parent.iterdir())
+                    listing = (
+                        f" {path.parent} contains: {', '.join(entries[:6])}."
+                        if entries
+                        else f" {path.parent} is empty -- Docker creates an empty "
+                        "directory when a bind-mount source is missing at container "
+                        "creation, so the mount is pointing at the wrong path or the "
+                        "container predates the socket. If the host has no session "
+                        "either, `sudo loginctl enable-linger <user>` keeps one alive "
+                        "on a headless Pi."
+                    )
+                else:
+                    listing = f" {path.parent} does not exist in this container."
+                return (
+                    f"The audio socket {socket_path} does not exist here{where}.{listing} "
+                    "Check the pulse mount in compose.pi-proxy.yml against the host's real "
+                    "path (`ls -la /run/user/*/pulse/`), then recreate the container with "
+                    "`docker compose up -d --force-recreate`. scripts/detect-pulse-audio.sh "
+                    "writes the correct PULSE_RUNTIME_DIR/PULSE_COOKIE_FILE into .env."
+                )
+            if not path.is_socket():
+                return (
+                    f"{socket_path} exists but is not a socket{where} -- the bind mount is "
+                    "pointing at the wrong thing. Compare it with the host's "
+                    "`ls -la /run/user/*/pulse/` and recreate the container."
+                )
+
         return (
-            f"Cannot reach the audio server{where}: {reason}. The mounted pulse "
-            "socket is not a live server. On the Pi host (not in the container) "
-            "run scripts/detect-pulse-audio.sh to find the real session and write "
-            "PULSE_RUNTIME_DIR/PULSE_COOKIE_FILE into .env, then recreate the "
-            "container. A headless Pi also needs `sudo loginctl enable-linger "
-            "<user>` so that session survives logout."
+            f"Cannot reach the audio server{where}: {reason}. The socket exists, so the "
+            "server is refusing the connection: check PULSE_COOKIE is mounted from the "
+            "same user that owns the session, and that the host's pipewire-pulse (or "
+            "pulseaudio) is still running for that user."
         )
 
     def audio_server_probe(self) -> tuple[bool, str]:

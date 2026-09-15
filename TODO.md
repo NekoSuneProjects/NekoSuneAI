@@ -218,6 +218,16 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
       first look. When it still fails, the reason is specific (on a headset
       profile / offers no A2DP at all / no card yet) and shows on the
       dashboard instead of the old unactionable message.
+- [x] An unreachable audio server now checks the socket path before blaming
+      the server. "Connection refused" reads as "the server is down" and sends
+      the owner to a host session that is usually running fine; in a container
+      the far more common cause is that the socket `PULSE_SERVER` names is not
+      present, because Docker silently creates an empty directory when a
+      bind-mount source is missing at container creation. The message now
+      distinguishes: socket absent (listing what the directory does contain, or
+      noting it is empty), path present but not a socket, and a real refusal
+      from a live socket (where PULSE_COOKIE and the host service are the
+      suspects).
 - [x] The audio server is probed once at startup (`audio_server_probe`,
       `pactl info`) and the result shows on the dashboard. A dead audio
       session silences spoken replies, the wake chime and music as well as
