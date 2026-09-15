@@ -1,6 +1,7 @@
 {
   "server_url": "https://your-nekosuneai-host.example",
   "verify_tls": true,
+  "websocket_enabled": true,
   "node_id": "pi-proxy-living-room",
   "name": "Living Room Pi Proxy",
   "device_token": "",
