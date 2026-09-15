@@ -14,6 +14,7 @@ from zoneinfo import ZoneInfo
 from .android_devices import AndroidDeviceHub
 from .avatar_motion import drive_tts_avatar
 from .device_pairing import DevicePairingManager, MdnsAdvertiser
+from .device_turn import run_turn
 from .local_affect import LocalAffectDetector
 from .mobile_notify import MobileNotifier
 from .mood_state import load_mood, update_from_interaction
@@ -822,7 +823,13 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                     message = str(payload.get("message", "")).strip()
                     if not message:
                         raise ValueError("message is required")
-                    reply = api._pipeline(message, False)
+                    # run_turn, not api._pipeline: _pipeline returns a UI
+                    # status string ("Ready."), so the app was being answered
+                    # with that instead of what the assistant actually said.
+                    # It also keeps the backend host from speaking a reply
+                    # meant for the phone.
+                    device_name = str(payload.get("name") or "").strip()
+                    reply = run_turn(api, message, speaker=device_name) or "Sorry, I didn't catch that."
                     mood = load_mood()
                     return self._json(200, {"reply": reply, "emotion": mood.expression(), "gesture": mood.gesture()})
 

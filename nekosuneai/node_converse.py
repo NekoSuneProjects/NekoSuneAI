@@ -29,19 +29,12 @@ residential IP; the backend may not) and plays it on its own speaker.
 """
 from __future__ import annotations
 
-import threading
 import time
 from collections import deque
 from typing import Any
 
+from .device_turn import run_turn
 from .node_music import NodeMusicRouter
-
-# `_pipeline` returns these to drive the desktop UI, not to answer anyone.
-# Treating one as a reply is how "hello" came back as "Ready.".
-_UI_STATUS_STRINGS = frozenset({
-    "Ready.", "Stopped.", "Hands-free listening.", "Listening...",
-    "Media request handled.", "Game command handled.", "Smart-home request handled.",
-})
 
 # A node turn is a person speaking out loud, so the ceiling only has to be
 # above human conversational pace. These bounds exist to stop a wedged or
@@ -61,7 +54,6 @@ class NodeConverseService:
         # a typed one mean the same thing rather than drifting apart.
         self.node_music = node_music or NodeMusicRouter(nodes.list_nodes)
         self._turns: dict[str, deque[float]] = {}
-        self._pipeline_lock = threading.Lock()
 
     def _check_rate(self, node_id: str) -> None:
         now = time.monotonic()
@@ -105,63 +97,24 @@ class NodeConverseService:
             )
         return reply, commands
 
-    def _generate_reply(self, text: str) -> str:
+    def _node_name(self, node_id: str) -> str:
+        try:
+            for node in self.nodes.list_nodes():
+                if str(node.get("node_id")) == node_id:
+                    return str(node.get("name") or node_id)
+        except Exception:
+            pass
+        return node_id
+
+    def _generate_reply(self, text: str, speaker: str = "") -> str:
         """Run the shared reply pipeline and return what the assistant said.
 
-        `_pipeline` is written for the desktop GUI: it pushes the actual reply
-        into the chat panel through `_push_chat` and *returns a status string*
-        for the UI -- "Ready.", "Hands-free listening.", "Media request
-        handled.". Using that return value as the reply is why a node asking
-        "hello" got told "Ready.". The reply has to be captured from the
-        `_push_chat` call instead, which every path takes (webgui's own
-        pipeline and webserver's routine/briefing/stream handlers alike).
-
-        Backend-host output is also suppressed for the duration: `_pipeline`
-        otherwise speaks through the backend's own audio stack and can play
-        media there, and for a node turn both belong on the node -- asking the
-        Pi a question should not make the VPS talk to an empty room.
+        See device_turn.run_turn: the reply comes from the `_push_chat` call
+        rather than `_pipeline`'s return value (which is a UI status string),
+        and the backend host's own voice/media output is suppressed so
+        answering the Pi does not make the VPS talk to an empty room.
         """
-        state = self.api.state
-        spoken: list[str] = []
-        original_push_chat = self.api._push_chat
-        # Whether _push_chat was already an instance attribute. Assigning the
-        # bound method back would otherwise leave one shadowing the class
-        # method forever, which is not what we found and not ours to leave.
-        had_own_push_chat = "_push_chat" in vars(self.api)
-
-        def capture(author: str, message: str, role: str) -> Any:
-            # Only the assistant's own lines. `_push_chat` also carries
-            # "System" notices ("Searching: …", "[Media error] …") that are
-            # not an answer to the owner.
-            if str(role) == "assistant":
-                spoken.append(str(message))
-            return original_push_chat(author, message, role)
-
-        # One turn at a time: the capture swaps an attribute on the shared Api
-        # object, so two overlapping turns would steal each other's replies.
-        with self._pipeline_lock:
-            previous_voice = getattr(state, "voice_enabled", False)
-            previous_media = getattr(self.api, "media_enabled", False)
-            state.voice_enabled = False
-            self.api.media_enabled = False
-            self.api._push_chat = capture
-            try:
-                status = self.api._pipeline(text, from_voice=True)
-            finally:
-                if had_own_push_chat:
-                    self.api._push_chat = original_push_chat
-                else:
-                    del self.api._push_chat
-                state.voice_enabled = previous_voice
-                self.api.media_enabled = previous_media
-
-        if spoken:
-            return spoken[-1].strip()
-        # Nothing was pushed as the assistant. An error path returns its
-        # message ("[Companion error] …") which is worth passing on, but a
-        # bare UI status is not an answer to anything.
-        status_text = str(status or "").strip()
-        return "" if status_text in _UI_STATUS_STRINGS else status_text
+        return run_turn(self.api, text, from_voice=True, speaker=speaker)
 
     def handle(self, node_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         text = str(payload.get("text", "")).strip()
@@ -175,7 +128,10 @@ class NodeConverseService:
         if routed is not None:
             reply, commands = routed
         else:
-            reply = self._generate_reply(text)
+            # Attribute the turn to the device in the backend dashboard, so a
+            # question asked in the living room does not read as one typed at
+            # the backend.
+            reply = self._generate_reply(text, speaker=self._node_name(node_id))
             commands = []
         if not reply:
             reply = "Sorry, I didn't catch that."
