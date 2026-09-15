@@ -48,6 +48,16 @@ class NodeMediaService:
         if not self._lock.acquire(blocking=False):
             raise RuntimeError("Node media is busy; retry when the current request finishes")
         try:
+            # api.config and api.state are None until this runs, and nothing on
+            # the node path used to trigger it -- so a node that asked for
+            # media before anyone opened the dashboard got
+            # "'NoneType' object has no attribute 'stt_provider'". Idempotent.
+            # Optional because this service is duck-typed against a real Api in
+            # production and against objects that supply config/state directly
+            # in tests, which have nothing to initialise.
+            initialize = getattr(self.api, "initialize", None)
+            if callable(initialize):
+                initialize()
             config = copy.copy(self.api.config)
             if operation == "vision":
                 from PIL import Image
