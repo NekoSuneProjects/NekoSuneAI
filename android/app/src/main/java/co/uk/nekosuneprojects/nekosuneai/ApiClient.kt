@@ -41,6 +41,24 @@ class ApiClient(private val context: Context) {
     private val legacyToken: String get() = prefs.getString("token", "") ?: ""
     private val token: String get() = deviceToken.ifBlank { legacyToken }
 
+    /**
+     * Live link to the backend. Opportunistic: every call below keeps its HTTP
+     * path, so a backend without /wss or a proxy that will not forward an
+     * upgrade changes nothing about how this app behaves.
+     */
+    val ws: WsClient by lazy {
+        WsClient(serverUrl = { serverUrl }, deviceId = { deviceId }, token = { token })
+    }
+
+    /** Called once the app is paired and has somewhere to connect to. */
+    fun startLiveLink() {
+        if (configured()) ws.start()
+    }
+
+    fun stopLiveLink() = ws.stop()
+
+    fun liveLinkConnected(): Boolean = ws.connected
+
     fun configured(): Boolean = serverUrl.startsWith("http") && token.isNotBlank()
     fun pairedAutomatically(): Boolean = serverUrl.startsWith("http") && deviceToken.isNotBlank()
     fun rememberedConnectionLabel(): String = if (pairedAutomatically()) "Paired device remembered" else if (configured()) "Manual connection remembered" else "Not paired"
@@ -130,6 +148,27 @@ class ApiClient(private val context: Context) {
 
     fun chat(message: String): ChatReply {
         if (!configured()) return ChatReply("Pair this phone with your NekoSuneAI server first.")
+
+        // Over the live link when there is one. This is the request that gets
+        // cut off: a turn runs web search, the LLM and TTS, which outlives a
+        // proxy's read timeout, and an upgraded connection is not subject to
+        // it. Any failure falls through to HTTP below.
+        if (ws.connected) {
+            try {
+                val result = ws.request(JSONObject().put("type", "chat").put("message", message))
+                val reply = result.optString("reply", "").trim()
+                if (reply.isNotBlank()) {
+                    return ChatReply(
+                        reply,
+                        result.optString("emotion", "neutral"),
+                        result.optString("gesture", "idle")
+                    )
+                }
+            } catch (failure: Exception) {
+                android.util.Log.w("NekoWs", "chat over the live link failed, using HTTP", failure)
+            }
+        }
+
         val payload = JSONObject().put("message", message)
         val req = authorized(Request.Builder().url("$serverUrl/api/android/chat"))
             .post(payload.toString().toRequestBody("application/json".toMediaType())).build()
