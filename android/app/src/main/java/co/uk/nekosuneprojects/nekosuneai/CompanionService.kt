@@ -23,6 +23,10 @@ class CompanionService : Service() {
     override fun onCreate() {
         super.onCreate()
         api = ApiClient(this)
+        // The foreground service is the right owner for the live link: it
+        // already outlives any one screen, so the connection survives the user
+        // leaving the chat rather than being torn down and re-established.
+        api.startLiveLink()
         ntfy = NtfySubscriber(this)
         val nm = getSystemService(NotificationManager::class.java)
         nm.createNotificationChannel(NotificationChannel(CHANNEL_ID, "NekoSuneAI Companion", NotificationManager.IMPORTANCE_LOW))
@@ -123,6 +127,7 @@ class CompanionService : Service() {
 
     override fun onDestroy() {
         running.set(false)
+        if (::api.isInitialized) api.stopLiveLink()
         if (::ntfy.isInitialized) ntfy.stop()
         super.onDestroy()
     }
