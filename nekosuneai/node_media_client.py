@@ -10,7 +10,12 @@ from .node_audio import NodeAudio
 
 
 class NodeMediaClient:
-    def __init__(self, config):
+    def __init__(self, config, ws=None):
+        # Optional live link. When one is connected, media goes over it: these
+        # requests carry vision frames and speech and are long enough for a
+        # reverse proxy's read timeout to cut them off, which an upgraded
+        # connection is not subject to. Any failure falls through to HTTP.
+        self.ws = ws
         self.config = config
         self.audio = NodeAudio()
         self._lock = threading.RLock()
@@ -34,6 +39,16 @@ class NodeMediaClient:
         token = self.config.get("device_token")
         if not token:
             raise RuntimeError("Pair this PC first")
+        if self.ws is not None and self.ws.connected:
+            try:
+                result = self.ws.request({"type": "media", "operation": operation, **payload})
+                result.pop("type", None)
+                result.pop("id", None)
+                if self.closed.is_set():
+                    raise RuntimeError("Node media stopped")
+                return result
+            except Exception:
+                pass  # fall through to HTTP; the socket is a fast path, not a requirement
         response = requests.post(str(self.config["server_url"]).rstrip("/") + "/api/nodes/media/" + operation,
                                  json={"node_id": self.config["node_id"], **payload},
                                  headers={"X-Neko-Device-Token": token},
