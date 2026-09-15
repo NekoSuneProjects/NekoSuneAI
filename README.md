@@ -208,6 +208,18 @@ before starting the agent.
 
 ## First-run pairing
 
+The easiest way is from the node's own dashboard: start the agent, open
+`http://<pi-address>:8799/`, and a **Pair this node** card appears while it has
+no device token. Create a pairing code on the NekoSuneAI dashboard (Nodes &
+Routines), type the server address and the code into that card, and press Pair.
+The device token is written into this node's config file for you.
+
+That matters most for the second and third Pi: a new node boots unpaired, serves
+its page, and waits there to be paired, so it never needs a terminal session or
+a hand-edited config. The command-line flow below still works and is what a
+scripted install should use.
+
+
 Run the agent once with no `device_token` saved yet and it will prompt
 interactively, the same as the Windows Gaming Node:
 

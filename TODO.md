@@ -295,10 +295,16 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
       a real Raspberry Pi (this is the actual target device, not just "some
       Linux box" — note any Pi-specific quirks found, e.g. BlueZ/PipeWire
       versions on Raspberry Pi OS).
-- [ ] Document first-run pairing (server address + pairing code entry) the
-      same way as `Windows/docs/WINDOWS_MEDIA_AND_VRCHAT.md`'s "First-run
-      pairing" section — no LAN discovery required, works against a
-      VPS-hosted Docker backend too.
+- [x] First-run pairing from the node's own dashboard, so a second Pi needs
+      no terminal: an unpaired node now boots, serves its page and waits there
+      instead of refusing to start, and a **Pair this node** card takes the
+      server address and pairing code and writes the device token into the
+      config file (`pair_and_save`, rewriting only `server_url`/`device_token`
+      so the rest of the owner's file is untouched). The interactive stdin
+      prompt now only runs on a real TTY — under systemd or in a container it
+      used to fail start-up outright. A failed attempt leaves any existing
+      pairing intact. Documented in README's "First-run pairing"; the
+      command-line flow still works for scripted installs.
 
 ## P1 — Multi-device support
 

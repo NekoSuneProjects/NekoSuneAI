@@ -303,3 +303,85 @@ class TestGatewayTimeoutSurvival:
 
     def test_the_node_advertises_the_capability(self, agent):
         assert agent.capabilities()["conversation.reply"] == {"kind": "write"}
+
+
+class TestPairingFromTheDashboard:
+    """Pairing a node from its own page instead of a terminal.
+
+    The command-line flow works, but every additional Pi then needs a shell
+    session and a hand-edited config. Opening the new node's dashboard and
+    typing the code the backend just showed is the same operation without any
+    of that.
+    """
+
+    @pytest.fixture
+    def unpaired(self, backend, tmp_path):
+        from nekosuneai.pi_proxy_agent import PiProxyAgent
+
+        config_path = tmp_path / "pi-proxy-agent.json"
+        config_path.write_text(json.dumps({
+            "node_id": "pi-new", "name": "New Pi", "device_token": "",
+            "wake_word_enabled": False, "bluetooth_reconnect_enabled": True,
+        }), encoding="utf-8")
+        node = PiProxyAgent({
+            "server_url": "", "node_id": "pi-new", "name": "New Pi", "device_token": "",
+            "bluetooth_reconnect_enabled": False, "wake_word_enabled": False,
+            "web_status_enabled": False, "alert_sounds_dir": str(tmp_path / "sounds"),
+        }, config_path=config_path)
+        node.backend_port = backend.server_address[1]
+        node.config_path_used = config_path
+        backend.responses["/api/nodes/register"] = {"ok": True, "device_token": "fresh-token"}
+        return node
+
+    def test_a_node_can_start_unpaired(self, unpaired):
+        assert unpaired.token == ""
+        assert unpaired.status()["paired"] is False
+        assert unpaired.status()["can_pair"] is True
+
+    def test_pairing_stores_the_token_on_disk(self, unpaired):
+        result = unpaired.pair_and_save(
+            f"http://127.0.0.1:{unpaired.backend_port}", "pair-123", "ABCD-EFGH",
+        )
+
+        assert result["ok"] is True
+        assert unpaired.token == "fresh-token"
+        saved = json.loads(unpaired.config_path_used.read_text(encoding="utf-8"))
+        assert saved["device_token"] == "fresh-token"
+        assert saved["server_url"] == f"http://127.0.0.1:{unpaired.backend_port}"
+        # Settings this agent did not touch survive the write.
+        assert saved["node_id"] == "pi-new"
+        assert saved["wake_word_enabled"] is False
+
+    def test_pairing_releases_the_waiting_run_loop(self, unpaired):
+        assert not unpaired._paired.is_set()
+
+        unpaired.pair_and_save(f"http://127.0.0.1:{unpaired.backend_port}", "p", "c")
+
+        assert unpaired._paired.is_set()
+
+    @pytest.mark.parametrize(
+        ("server", "pairing_id", "code"),
+        [
+            ("", "p", "c"),
+            ("not-a-url", "p", "c"),
+            ("http://x", "", "c"),
+            ("http://x", "p", ""),
+        ],
+    )
+    def test_bad_input_is_rejected_before_any_request(self, unpaired, backend, server, pairing_id, code):
+        with pytest.raises(ValueError):
+            unpaired.pair_and_save(server, pairing_id, code)
+        assert not [c for c in backend.calls if c[0] == "/api/nodes/register"]
+
+    def test_a_failed_pairing_leaves_the_previous_one_intact(self, unpaired, backend):
+        """A mistyped code must not also lose a working pairing."""
+        unpaired.token = "existing-token"
+        unpaired.server = "https://old.example"
+        backend.status_code = 403
+        backend.responses["/api/nodes/register"] = {"error": "invalid or expired pairing code"}
+
+        with pytest.raises(RuntimeError):
+            unpaired.pair_and_save(f"http://127.0.0.1:{unpaired.backend_port}", "p", "c")
+
+        assert unpaired.token == "existing-token"
+        assert unpaired.server == "https://old.example"

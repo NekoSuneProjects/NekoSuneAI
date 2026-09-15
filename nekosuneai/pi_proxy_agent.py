@@ -160,9 +160,13 @@ class LocalAudioPlayer:
 
 
 class PiProxyAgent:
-    def __init__(self, config: dict[str, Any]) -> None:
+    def __init__(self, config: dict[str, Any], config_path: Path | None = None) -> None:
         self.config = config
-        self.server = str(config["server_url"]).rstrip("/")
+        # Known so pairing can persist the device token itself. Without it the
+        # only way to pair was the command line, which means a second Pi needs
+        # a terminal session rather than just its own dashboard.
+        self.config_path = Path(config_path) if config_path else None
+        self.server = str(config.get("server_url") or "").rstrip("/")
         self.node_id = str(config.get("node_id") or platform.node() or "pi-proxy")
         self.token = str(config.get("device_token") or "")
         self.verify_tls = bool(config.get("verify_tls", True))
@@ -199,6 +203,11 @@ class PiProxyAgent:
         self.alerts_player = LocalAudioPlayer()
         self._disabled = threading.Event()
         self._stop = threading.Event()
+        # Set once a device token exists, so an unpaired node waiting on its
+        # dashboard starts heartbeating the moment pairing succeeds.
+        self._paired = threading.Event()
+        if self.token:
+            self._paired.set()
         self._last_command = 0
         self._last_result: dict[str, Any] = {}
         self.command_log: deque[str] = deque(maxlen=20)
@@ -342,6 +351,63 @@ class PiProxyAgent:
         if not self.token:
             raise RuntimeError("Node registration returned no device token")
         return self.token
+
+    def pair_and_save(self, server_url: str, pairing_id: str, pairing_code: str) -> dict[str, Any]:
+        """Pair against a backend and persist the result to the config file.
+
+        Exists so a node can be paired from its own dashboard. The command-line
+        flow works, but it means every additional Pi needs a terminal session
+        and a hand-edited config; opening the new node's page and typing the
+        code the backend just showed you is the same operation without any of
+        that.
+        """
+        server_url = str(server_url or "").strip().rstrip("/")
+        pairing_id = str(pairing_id or "").strip()
+        pairing_code = str(pairing_code or "").strip()
+        if not server_url:
+            raise ValueError("a server address is required")
+        if not server_url.startswith(("http://", "https://")):
+            raise ValueError("the server address must start with http:// or https://")
+        if not pairing_id or not pairing_code:
+            raise ValueError("both a pairing ID and a pairing code are required")
+
+        previous_server, previous_token = self.server, self.token
+        self.server = server_url
+        try:
+            token = self.pair(pairing_id, pairing_code)
+        except Exception:
+            # Leave the node exactly as it was, so a mistyped code does not
+            # also lose a working pairing.
+            self.server, self.token = previous_server, previous_token
+            raise
+
+        self.config["server_url"] = server_url
+        self.config["device_token"] = token
+        self._persist_config()
+        self.auth_error = ""
+        self._auth_announced = False
+        self._paired.set()
+        self.command_log.append(f"{time.strftime('%H:%M:%S')}  paired with {server_url}")
+        return {"ok": True, "server_url": server_url, "node_id": self.node_id}
+
+    def _persist_config(self) -> None:
+        """Write server_url/device_token back to the JSON config.
+
+        Only those two keys are touched: the file on disk stays the owner's,
+        including any comments-by-convention or settings this agent does not
+        know about, and the .env overlay keeps working the way it did.
+        """
+        if self.config_path is None:
+            return
+        try:
+            stored = json.loads(self.config_path.read_text("utf-8"))
+        except (OSError, ValueError):
+            stored = {}
+        stored["server_url"] = self.config.get("server_url", "")
+        stored["device_token"] = self.config.get("device_token", "")
+        tmp = self.config_path.with_suffix(self.config_path.suffix + ".tmp")
+        tmp.write_text(json.dumps(stored, indent=2), "utf-8")
+        tmp.replace(self.config_path)
 
     def _headers(self) -> dict[str, str]:
         return {"X-Neko-Device-Token": self.token}
@@ -843,6 +909,7 @@ class PiProxyAgent:
             },
             "alert_sounds": {"dir": str(self.sounds_dir), "error": self.alert_error},
             "control_enabled": bool(self.config.get("web_control_enabled", True)),
+            "can_pair": self.config_path is not None,
         }
 
     def microphones(self) -> list[dict[str, Any]]:
@@ -920,7 +987,7 @@ class PiProxyAgent:
             self.web_status.stop()
 
     def run(self) -> None:
-        if not self.token:
+        if not self.token and self.web_status is None:
             raise RuntimeError("pair the agent first and store device_token in its config")
         try:
             self.bt.start()
@@ -934,6 +1001,14 @@ class PiProxyAgent:
             if self.web_status is not None:
                 self.web_status.start()
             while not self._stop.is_set():
+                if not self.token:
+                    # Unpaired but serving its dashboard: wait there to be
+                    # paired from the browser instead of exiting. A fresh Pi
+                    # can then be set up entirely from its own page, which is
+                    # the point of not requiring a terminal for the second one.
+                    if self._paired.wait(5):
+                        continue
+                    continue
                 try:
                     self.heartbeat_once()
                     self.auth_error = ""
@@ -1057,8 +1132,14 @@ def main() -> None:
     config = json.loads(config_path.read_text("utf-8"))
     runtime_config = {**config, **_env_overrides()}
 
+    # Only prompt when someone is actually at a terminal. Under systemd or in
+    # a container stdin is not a TTY, and prompting there used to fail the
+    # start-up outright -- now the node boots and waits to be paired from its
+    # own dashboard instead.
     needs_interactive_pairing = (
-        not runtime_config.get("device_token") and not (args.pairing_id and args.pairing_code)
+        not runtime_config.get("device_token")
+        and not (args.pairing_id and args.pairing_code)
+        and sys.stdin.isatty()
     )
     if needs_interactive_pairing and not runtime_config.get("server_url"):
         print("No device token found; let's pair this node.")
@@ -1071,7 +1152,7 @@ def main() -> None:
         runtime_config["server_url"] = server_url
         config["server_url"] = server_url
 
-    agent = PiProxyAgent(runtime_config)
+    agent = PiProxyAgent(runtime_config, config_path=config_path)
     _install_signal_handlers(agent)
 
     if args.pairing_id and args.pairing_code:

@@ -158,6 +158,22 @@ _PAGE = r"""<!doctype html>
   </div>
 
   <div class="ro bad-note" id="auth-note" hidden></div>
+
+  <div class="card" id="pair-card" hidden style="margin-bottom:12px">
+    <h2><span>Pair this node</span><span class="pill warn">not paired</span></h2>
+    <p style="font-size:12px;color:var(--muted);margin:0 0 12px">
+      On the NekoSuneAI dashboard open <b>Nodes &amp; Routines</b> and create a pairing
+      code, then enter it here. No terminal needed.
+    </p>
+    <label class="lbl" for="pair-server">Server address</label>
+    <input type="text" id="pair-server" placeholder="https://your-server.example.com" autocomplete="off">
+    <div style="height:8px"></div>
+    <div class="field">
+      <input type="text" id="pair-id" placeholder="Pairing ID" autocomplete="off">
+      <input type="text" id="pair-code" placeholder="Pairing code" autocomplete="off">
+    </div>
+    <button class="btn primary wide" id="btn-pair">Pair</button>
+  </div>
   <div class="ro bad-note" id="audio-note" hidden></div>
 
   <div class="ro" id="readonly-note" hidden>
@@ -381,6 +397,12 @@ async function refresh() {
     // A stored token is not the same as an accepted one: the node used to
     // show "paired" while the backend refused every request.
     var authBroken = !!s.auth_error;
+    // Offer pairing right on the page when this node has no token yet, so a
+    // second Pi is set up from its own dashboard rather than a terminal.
+    $('pair-card').hidden = !(s.can_pair && (!s.paired || authBroken));
+    if (!$('pair-card').hidden && !$('pair-server').value && s.server_url) {
+      $('pair-server').value = s.server_url;
+    }
     dot('d-paired', authBroken ? 'off' : (s.paired ? 'on' : 'off'));
     text('t-paired', authBroken ? 'pairing rejected' : (s.paired ? 'paired' : 'not paired'));
     $('auth-note').hidden = !authBroken;
@@ -508,6 +530,16 @@ wire('btn-bt', function () { toast('Reconnecting…'); control('bluetooth_reconn
 wire('btn-mic', function () { control('set_microphone', { alsa_device: $('mic-sel').value }); });
 wire('btn-stop-all', function () { control('stop_all'); });
 wire('btn-enable', function () { control('enable'); });
+wire('btn-pair', function () {
+  control('pair', {
+    server_url: $('pair-server').value.trim(),
+    pairing_id: $('pair-id').value.trim(),
+    pairing_code: $('pair-code').value.trim(),
+  });
+});
+['pair-server', 'pair-id', 'pair-code'].forEach(function (id) {
+  $(id).addEventListener('keydown', function (e) { if (e.key === 'Enter') $('btn-pair').click(); });
+});
 
 refresh();
 setInterval(refresh, 2000);
@@ -705,6 +737,18 @@ class PiProxyWebStatusServer:
         if action == "stop_all":
             agent.stop_all(disable=True)
             return {"ok": True, "message": "Audio stopped and disarmed."}
+
+        if action == "pair":
+            # Pairing is the one control that has to work while the node is
+            # unpaired, so it is deliberately reachable in that state -- it is
+            # also the only one that can do nothing without a valid code from
+            # the owner's own backend.
+            result = agent.pair_and_save(
+                str(payload.get("server_url", "")),
+                str(payload.get("pairing_id", "")),
+                str(payload.get("pairing_code", "")),
+            )
+            return {"ok": True, "message": f"Paired with {result['server_url']}.", **result}
 
         if action == "enable":
             agent.enable()
