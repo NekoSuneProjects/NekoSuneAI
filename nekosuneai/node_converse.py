@@ -33,6 +33,7 @@ import time
 from collections import deque
 from typing import Any
 
+from .device_turn import run_turn
 from .node_music import NodeMusicRouter
 
 # A node turn is a person speaking out loud, so the ceiling only has to be
@@ -96,26 +97,24 @@ class NodeConverseService:
             )
         return reply, commands
 
-    def _generate_reply(self, text: str) -> str:
-        """Run the shared reply pipeline with backend-host output suppressed.
-
-        `_pipeline` normally speaks through the backend's own audio stack and
-        can play media on the backend host. For a node turn both belong on the
-        node instead, so they are turned off for the duration and restored
-        afterwards -- otherwise asking the Pi a question makes the VPS talk to
-        an empty room.
-        """
-        state = self.api.state
-        previous_voice = getattr(state, "voice_enabled", False)
-        previous_media = getattr(self.api, "media_enabled", False)
-        state.voice_enabled = False
-        self.api.media_enabled = False
+    def _node_name(self, node_id: str) -> str:
         try:
-            reply = self.api._pipeline(text, from_voice=True)
-        finally:
-            state.voice_enabled = previous_voice
-            self.api.media_enabled = previous_media
-        return str(reply or "").strip()
+            for node in self.nodes.list_nodes():
+                if str(node.get("node_id")) == node_id:
+                    return str(node.get("name") or node_id)
+        except Exception:
+            pass
+        return node_id
+
+    def _generate_reply(self, text: str, speaker: str = "") -> str:
+        """Run the shared reply pipeline and return what the assistant said.
+
+        See device_turn.run_turn: the reply comes from the `_push_chat` call
+        rather than `_pipeline`'s return value (which is a UI status string),
+        and the backend host's own voice/media output is suppressed so
+        answering the Pi does not make the VPS talk to an empty room.
+        """
+        return run_turn(self.api, text, from_voice=True, speaker=speaker)
 
     def handle(self, node_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         text = str(payload.get("text", "")).strip()
@@ -129,7 +128,10 @@ class NodeConverseService:
         if routed is not None:
             reply, commands = routed
         else:
-            reply = self._generate_reply(text)
+            # Attribute the turn to the device in the backend dashboard, so a
+            # question asked in the living room does not read as one typed at
+            # the backend.
+            reply = self._generate_reply(text, speaker=self._node_name(node_id))
             commands = []
         if not reply:
             reply = "Sorry, I didn't catch that."

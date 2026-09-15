@@ -43,18 +43,33 @@ class FakeState:
 
 
 class FakeApi:
-    """Stands in for webgui's Api; records what reached the reply pipeline."""
+    """Stands in for webgui's Api.
 
-    def __init__(self):
+    Reproduces the behaviour that caused the bug: the real `_pipeline` pushes
+    the assistant's reply through `_push_chat` and *returns a UI status
+    string*, so a test whose fake returns the reply directly would not have
+    caught "hello" coming back as "Ready.".
+    """
+
+    def __init__(self, reply="The sky is blue.", status="Ready."):
         self.state = FakeState()
         self.media_enabled = True
         self.seen = []
         self.output_during_turn = []
+        self.chat = []
+        self._reply = reply
+        self._status = status
+
+    def _push_chat(self, author, message, role):
+        self.chat.append((author, message, role))
 
     def _pipeline(self, text, from_voice):
         self.seen.append(text)
         self.output_during_turn.append((self.state.voice_enabled, self.media_enabled))
-        return "The sky is blue."
+        if self._reply is not None:
+            self._push_chat("System", f"Searching: {text}", "system")
+            self._push_chat("NekoSuneAI", self._reply, "assistant")
+        return self._status
 
 
 class FakeMedia:
@@ -246,3 +261,113 @@ class TestCapabilityPolicy:
         )["node"]
 
         assert node["capabilities"]["console.command"]["policy"] == "confirm"
+
+
+class TestReplyCapture:
+    """The assistant's words, not the GUI's status line.
+
+    `_pipeline` is written for the desktop UI: it pushes the real reply through
+    `_push_chat` and returns "Ready." / "Hands-free listening." / "Media
+    request handled.". Using that return value meant a node asking "hello" was
+    told "Ready." instead of being answered.
+    """
+
+    def _service(self, **kwargs):
+        return NodeConverseService(FakeApi(**kwargs), FakeNodes(), FakeMedia())
+
+    def test_the_llm_reply_is_returned_not_the_status_string(self):
+        service = self._service(reply="Hello! How can I help?", status="Ready.")
+
+        result = service.handle("pi-1", {"text": "hello"})
+
+        assert result["reply"] == "Hello! How can I help?"
+        assert result["reply"] != "Ready."
+
+    @pytest.mark.parametrize(
+        "status",
+        ["Ready.", "Hands-free listening.", "Stopped.", "Media request handled."],
+    )
+    def test_no_ui_status_string_can_become_a_reply(self, status):
+        """Every status `_pipeline` can return, not just the one that was seen."""
+        service = self._service(reply=None, status=status)
+
+        result = service.handle("pi-1", {"text": "hello"})
+
+        assert result["reply"] == "Sorry, I didn't catch that."
+
+    def test_system_notices_are_not_mistaken_for_the_reply(self):
+        """Web-search progress lines go through _push_chat too, as "system"."""
+        service = self._service(reply="Paris is the capital.")
+
+        result = service.handle("pi-1", {"text": "what is the capital of france"})
+
+        assert result["reply"] == "Paris is the capital."
+        # The pipeline really did emit a system line alongside it.
+        assert any(role == "system" for _author, _text, role in service.api.chat)
+
+    def test_an_error_message_still_reaches_the_owner(self):
+        """A failure has no assistant push, but its text is worth relaying."""
+        service = self._service(reply=None, status="[Companion error] Ollama is unreachable")
+
+        result = service.handle("pi-1", {"text": "hello"})
+
+        assert "Ollama is unreachable" in result["reply"]
+
+    def test_push_chat_is_restored_after_the_turn(self):
+        """The capture swaps an attribute on the shared Api object.
+
+        Restored by deletion rather than reassignment, so the object is left
+        exactly as found -- no instance attribute shadowing the class method.
+        """
+        service = self._service()
+
+        service.handle("pi-1", {"text": "hello"})
+
+        assert "_push_chat" not in vars(service.api)
+        assert service.api._push_chat.__func__ is FakeApi._push_chat
+
+    def test_push_chat_is_restored_even_when_the_pipeline_raises(self):
+        service = self._service()
+        service.api._pipeline = lambda text, from_voice: (_ for _ in ()).throw(RuntimeError("boom"))
+
+        with pytest.raises(RuntimeError):
+            service.handle("pi-1", {"text": "hello"})
+
+        assert "_push_chat" not in vars(service.api)
+        assert service.api._push_chat.__func__ is FakeApi._push_chat
+
+    def test_an_api_that_already_owns_push_chat_keeps_it(self):
+        """webserver.py assigns instance attributes onto Api (see _pipeline),
+        so an owned _push_chat must be put back, not deleted."""
+        service = self._service()
+        replacement = lambda author, message, role: service.api.chat.append((author, message, role))
+        service.api._push_chat = replacement
+
+        service.handle("pi-1", {"text": "hello"})
+
+        assert service.api._push_chat is replacement
+
+    def test_the_reply_still_reaches_the_dashboard(self):
+        """Capturing must not swallow the push the dashboard depends on."""
+        service = self._service(reply="Hello there.")
+
+        service.handle("pi-1", {"text": "hello"})
+
+        assert ("NekoSuneAI", "Hello there.", "assistant") in service.api.chat
+
+    def test_the_spoken_reply_is_the_llm_answer(self):
+        """What gets synthesised is what the owner actually hears."""
+        media = FakeMedia()
+        media.spoken = []
+        original = media.handle
+
+        def record(operation, payload):
+            media.spoken.append(payload["text"])
+            return original(operation, payload)
+
+        media.handle = record
+        service = NodeConverseService(FakeApi(reply="It is raining."), FakeNodes(), media)
+
+        service.handle("pi-1", {"text": "what is the weather"})
+
+        assert media.spoken == ["It is raining."]
