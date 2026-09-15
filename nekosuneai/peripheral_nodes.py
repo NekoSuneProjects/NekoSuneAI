@@ -40,6 +40,9 @@ _NODE_TYPE_AUTO_ALLOW: dict[str, frozenset[str]] = {
         "audio.speak",
         "music.play", "music.stop", "music.pause", "music.resume",
         "music.skip", "music.volume",
+        # The backend's own copy of a reply the node already asked for, queued
+        # so the answer survives a lost HTTP response (see node_converse).
+        "conversation.reply",
     }),
 }
 

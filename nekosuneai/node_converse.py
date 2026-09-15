@@ -29,6 +29,7 @@ residential IP; the backend may not) and plays it on its own speaker.
 """
 from __future__ import annotations
 
+import secrets
 import time
 from collections import deque
 from typing import Any
@@ -40,6 +41,13 @@ from .node_music import NodeMusicRouter
 # above human conversational pace. These bounds exist to stop a wedged or
 # compromised node from driving the LLM/TTS stack in a loop, not to ration a
 # real conversation.
+# Delivered through the ordinary command queue as a second copy of the reply,
+# so a turn survives losing its HTTP response. A converse request runs the
+# whole pipeline -- web search, the LLM, TTS -- and on a VPS behind a reverse
+# proxy that routinely outlasts the proxy's read timeout, which answers the
+# node 504 and throws away a reply the backend had already produced.
+REPLY_CAPABILITY = "conversation.reply"
+
 MIN_SECONDS_BETWEEN_TURNS = 1.0
 MAX_TURNS_PER_MINUTE = 20
 MAX_TEXT_CHARS = 800
@@ -116,6 +124,38 @@ class NodeConverseService:
         """
         return run_turn(self.api, text, from_voice=True, speaker=speaker)
 
+    def _queue_reply(
+        self, node_id: str, turn_id: str, reply: str, commands: list[dict[str, Any]],
+    ) -> None:
+        """Leave a copy of the reply on the node's command queue.
+
+        The inline response is the fast path and is what normally answers the
+        owner. But it has to cross whatever sits between the node and this
+        backend, and a converse turn is long: on a VPS behind a reverse proxy
+        the request regularly outlives the proxy's read timeout, which hands
+        the node a 504 and discards a reply the backend had already finished
+        computing. The queued copy is picked up by the poll the node is
+        already running, seconds later, so the answer arrives either way.
+
+        Text only, never the synthesised audio: the queue is persisted to disk
+        on every write, and base64 WAVs do not belong in it. The node asks for
+        TTS separately, which is a short request that survives the same proxy.
+
+        Best-effort throughout -- the inline answer has already been produced,
+        and failing to queue a backup must not turn a successful turn into an
+        error.
+        """
+        try:
+            if self.nodes.action_policy(node_id, REPLY_CAPABILITY) != "allow":
+                return  # an older node that does not advertise it
+            self.nodes.enqueue(
+                node_id, REPLY_CAPABILITY,
+                {"turn_id": turn_id, "text": reply[:4000], "commands": commands},
+                confirmed=True, requested_by="assistant-converse",
+            )
+        except Exception:
+            pass
+
     def handle(self, node_id: str, payload: dict[str, Any]) -> dict[str, Any]:
         text = str(payload.get("text", "")).strip()
         if not text:
@@ -136,7 +176,14 @@ class NodeConverseService:
         if not reply:
             reply = "Sorry, I didn't catch that."
 
-        result: dict[str, Any] = {"ok": True, "reply": reply[:4000], "commands": commands}
+        # Every turn is identified so the node can recognise the queued copy
+        # below as the same answer it may already have received inline, and
+        # speak it once rather than twice.
+        turn_id = secrets.token_hex(8)
+        result: dict[str, Any] = {
+            "ok": True, "turn_id": turn_id, "reply": reply[:4000], "commands": commands,
+        }
+        self._queue_reply(node_id, turn_id, reply, commands)
 
         # The node asks for audio explicitly. It falls back to its own local
         # espeak-ng when this is absent, so a TTS failure must degrade the
