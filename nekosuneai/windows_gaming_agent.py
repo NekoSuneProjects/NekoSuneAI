@@ -676,11 +676,23 @@ class WindowsGamingAgent:
         self.token = str(config.get("device_token") or "")
         self.verify_tls = bool(config.get("verify_tls", True))
         self.session = requests.Session()
+        # Live link to the backend. Opportunistic: heartbeat/poll and media all
+        # keep their HTTP paths, so a backend without /wss or a proxy that will
+        # not forward an upgrade changes nothing.
+        self.ws = None
+        if bool(config.get("websocket_enabled", True)):
+            from .ws_client import WebSocketClient
+            self.ws = WebSocketClient(
+                server_url=self.server, node_id=self.node_id,
+                token_provider=lambda: self.token,
+                on_command=self._run_pushed_command,
+                verify_tls=self.verify_tls,
+            )
         gamepad = VirtualGamepad(profile.input_backend) if profile.allow_controller else None
         self.input = InputSafetyController(profile, gamepad=gamepad)
         self.emergency_hotkey = EmergencyHotkey(self.input)
         self.vision = WindowVision(profile, config=config)
-        self.media = NodeMediaClient(config)
+        self.media = NodeMediaClient(config, ws=self.ws)
         self.vrchat = None
         self._media_thread = None
         self._speech_queue = queue.Queue(maxsize=3)
@@ -917,6 +929,23 @@ class WindowsGamingAgent:
             self.twitch.send(str(args.get("text", ""))); return {"ok": True, "sent": True}
         raise ValueError("command capability is not handled locally")
 
+    def _run_pushed_command(self, command: dict[str, Any]) -> None:
+        """A command the backend pushed rather than one we polled for.
+
+        Same _execute and same ack as a polled command -- on a gaming node the
+        difference is latency: an action lands now instead of up to a poll
+        interval later.
+        """
+        try:
+            self._last_result = self._execute(command)
+        except Exception as exc:
+            self._last_result = {"ok": False, "error": str(exc)[:300]}
+        command_id = int(command.get("id", 0) or 0)
+        if command_id:
+            self._last_command = max(self._last_command, command_id)
+            if self.ws is not None:
+                self.ws.send({"type": "ack", "command_id": command_id})
+
     def heartbeat_once(self) -> dict[str, Any]:
         response = self.session.post(
             self.server + "/api/nodes/heartbeat", headers=self._headers(), verify=self.verify_tls, timeout=10,
@@ -1050,6 +1079,7 @@ class WindowsGamingAgent:
             threading.Thread(target=self._speech_loop, daemon=True, name="windows-node-speech").start()
             if self.twitch is not None: self.twitch.start()
             if self.vrchat_friends is not None: self.vrchat_friends.start()
+            if self.ws is not None: self.ws.start()
             if self.web_status is not None: self.web_status.start()
             while not self._stop.is_set():
                 try:
@@ -1060,6 +1090,8 @@ class WindowsGamingAgent:
                     if self._stop.wait(3): break
         finally:
             self.stop()
+            if self.ws is not None:
+                self.ws.stop()
             if self.vrchat is not None:
                 self.vrchat.close()
             self.emergency_hotkey.stop()
