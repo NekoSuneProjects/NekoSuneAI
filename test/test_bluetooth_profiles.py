@@ -104,7 +104,9 @@ def test_a_card_already_on_a2dp_is_left_alone(watchdog):
     assert not [c for c in watchdog.commands if c[:2] == ["pactl", "set-card-profile"]]
 
 
-def test_a_card_with_no_a2dp_profile_explains_itself(watchdog):
+def test_a_headset_only_card_is_reported_as_the_wrong_role(watchdog):
+    """A card offering only headset profiles is the wrong-role case, and gets
+    the specific explanation rather than the generic "no A2DP" one."""
     watchdog.cards = """Card #42
 \tName: bluez_card.AC_63_BE_11_22_33
 \tProfiles:
@@ -114,7 +116,7 @@ def test_a_card_with_no_a2dp_profile_explains_itself(watchdog):
 """
 
     assert watchdog._activate_a2dp_profile(ADDRESS) is False
-    assert "no A2DP sink profile" in watchdog._detected_profile_error
+    assert "telephony role" in watchdog._detected_profile_error
     assert "headset-head-unit-cvsd" in watchdog._detected_profile_error
 
 
@@ -343,3 +345,99 @@ class TestUnreachableServerDiagnosis:
         assert "Connection refused" in message
         assert "PULSE_COOKIE" in message
         assert "does not exist here" not in message
+
+
+# An Echo Dot that connected in the wrong direction: it is acting as the audio
+# source and treating the Pi as its output, so its card carries only telephony
+# profiles and can never produce a playback sink.
+AUDIO_GATEWAY_CARD = """Card #42
+\tName: bluez_card.AC_63_BE_11_22_33
+\tProfiles:
+\t\toff: Off (sinks: 0, sources: 0, priority: 0, available: yes)
+\t\taudio-gateway: Audio Gateway (A2DP Source & HSP/HFP AG) (sinks: 0, sources: 1, priority: 20, available: yes)
+\tActive Profile: audio-gateway
+"""
+
+DEVICE_WITH_SINK = """Device AC:63:BE:11:22:33 (public)
+\tAlias: Echo Dot-8MR
+\tPaired: yes
+\tTrusted: yes
+\tConnected: yes
+\tUUID: Audio Sink                (0000110b-0000-1000-8000-00805f9b34fb)
+"""
+
+
+class TestWrongRoleRecovery:
+    """A speaker connected as the audio gateway.
+
+    Its card offers only telephony profiles, so waiting for a sink never
+    succeeds. When BlueZ says the device does advertise an A2DP Audio Sink,
+    the roles were negotiated badly and reconnecting from this side settles
+    them -- but only once, since repeatedly dropping a speaker someone is
+    listening through would be worse than the fault.
+    """
+
+    def _setup(self, watchdog, device_info=DEVICE_WITH_SINK):
+        watchdog.cards = AUDIO_GATEWAY_CARD
+        watchdog._detected_name = "Echo Dot-8MR"
+        watchdog._device_info = lambda address: device_info
+        return watchdog
+
+    def test_a_gateway_role_triggers_one_reconnect(self, watchdog, monkeypatch):
+        monkeypatch.setattr("nekosuneai.bluetooth_watchdog.time.sleep", lambda s: None)
+        dog = self._setup(watchdog)
+
+        assert dog._activate_a2dp_profile(ADDRESS) is False
+
+        actions = [c[:2] for c in dog.commands if c[0] == "bluetoothctl"]
+        assert ["bluetoothctl", "disconnect"] in actions
+        assert ["bluetoothctl", "connect"] in actions
+        assert any("audio gateway" in note for note in dog.notes)
+
+    def test_the_reconnect_is_not_repeated(self, watchdog, monkeypatch):
+        """Never drop the speaker twice for the same device."""
+        monkeypatch.setattr("nekosuneai.bluetooth_watchdog.time.sleep", lambda s: None)
+        dog = self._setup(watchdog)
+
+        dog._activate_a2dp_profile(ADDRESS)
+        first = len([c for c in dog.commands if c[:2] == ["bluetoothctl", "disconnect"]])
+        dog._activate_a2dp_profile(ADDRESS)
+        dog._activate_a2dp_profile(ADDRESS)
+        again = len([c for c in dog.commands if c[:2] == ["bluetoothctl", "disconnect"]])
+
+        assert first == 1 and again == 1
+
+    def test_after_the_retry_the_fix_is_spelled_out(self, watchdog, monkeypatch):
+        monkeypatch.setattr("nekosuneai.bluetooth_watchdog.time.sleep", lambda s: None)
+        dog = self._setup(watchdog)
+        dog._activate_a2dp_profile(ADDRESS)          # uses up the one retry
+
+        dog._activate_a2dp_profile(ADDRESS)
+
+        message = dog._detected_profile_error
+        assert "telephony role" in message
+        assert "Alexa, pair Bluetooth" in message
+        assert ADDRESS in message
+
+    def test_a_device_with_no_sink_uuid_is_not_reconnected(self, watchdog, monkeypatch):
+        """Nothing to renegotiate towards -- dropping it would be pointless."""
+        monkeypatch.setattr("nekosuneai.bluetooth_watchdog.time.sleep", lambda s: None)
+        dog = self._setup(watchdog, device_info="Device AC:63:BE:11:22:33 (public)\n\tPaired: yes\n")
+
+        dog._activate_a2dp_profile(ADDRESS)
+
+        assert not [c for c in dog.commands if c[:2] == ["bluetoothctl", "disconnect"]]
+        assert "telephony role" in dog._detected_profile_error
+
+    def test_a_non_telephony_card_without_a2dp_is_reported_plainly(self, watchdog):
+        """Not the wrong-role case, so no reconnect and no Echo advice."""
+        watchdog.cards = """Card #42
+\tName: bluez_card.AC_63_BE_11_22_33
+\tProfiles:
+\t\tsome-other-profile: Other (sinks: 1, sources: 0, priority: 5, available: yes)
+\tActive Profile: some-other-profile
+"""
+        assert watchdog._activate_a2dp_profile(ADDRESS) is False
+
+        assert "offers no A2DP sink profile" in watchdog._detected_profile_error
+        assert not [c for c in watchdog.commands if c[:2] == ["bluetoothctl", "disconnect"]]

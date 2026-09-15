@@ -62,6 +62,9 @@ class BluetoothSpeakerWatchdog:
         # visible immediately rather than only once a speaker fails to arrive.
         self.audio_server_ok: bool | None = None
         self.audio_server_message = ""
+        # Which device has already had a role renegotiation attempted, so a
+        # speaker the owner is listening through is never dropped repeatedly.
+        self._role_retry_address = ""
 
     @staticmethod
     def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -429,6 +432,61 @@ class BluetoothSpeakerWatchdog:
             "connected without its audio profile."
         )
 
+    def _handle_no_a2dp_profile(self, address: str, card: dict[str, Any]) -> None:
+        """The card exists but carries no A2DP sink profile.
+
+        The interesting case is a card whose only profiles are telephony ones
+        (`audio-gateway`, `headset-*`): the speaker has connected in the wrong
+        direction, as the audio *source*, treating this Pi as its output device
+        rather than the other way round. Amazon Echo devices do this readily,
+        since they support both roles -- and the result is a card that can
+        never produce a playback sink no matter how long the watchdog waits.
+
+        When BlueZ says the device does advertise an A2DP Audio Sink, the roles
+        were simply negotiated badly and a disconnect/reconnect initiated from
+        this side usually settles them correctly. Tried once per device, not in
+        a loop: repeatedly dropping a speaker the owner is listening through
+        would be worse than the fault.
+        """
+        profiles = ", ".join(card["profiles"][:6]) or "none"
+        telephony_only = all(
+            name.lower().startswith(("audio-gateway", "headset-", "off"))
+            for name in card["profiles"]
+        )
+        advertises_sink = self._is_audio_device_info(self._device_info(address))
+
+        if telephony_only and advertises_sink and self._role_retry_address != address:
+            self._role_retry_address = address
+            self.notify(
+                f"{self._detected_name or address} connected as an audio gateway "
+                "(it is trying to play *to* this Pi). Reconnecting to renegotiate."
+            )
+            self._run(["bluetoothctl", "disconnect", address])
+            time.sleep(2.0)
+            self._run(["bluetoothctl", "connect", address])
+            self._detected_profile_error = (
+                f"{card['card']} connected in the wrong role (active: "
+                f"{card['active'] or 'unknown'}); reconnecting to renegotiate A2DP."
+            )
+            return
+
+        if telephony_only:
+            self._detected_profile_error = (
+                f"{card['card']} is in a telephony role, not a music one (active: "
+                f"{card['active'] or 'unknown'}; available: {profiles}). The speaker "
+                "has connected as the audio source, treating this Pi as its output. "
+                "On an Echo: remove this Pi from the Alexa app's Bluetooth devices, "
+                "say \"Alexa, pair Bluetooth\" so it becomes discoverable as a "
+                "speaker, then connect to it from the Pi with `bluetoothctl connect "
+                f"{address}`."
+            )
+            return
+
+        self._detected_profile_error = (
+            f"{card['card']} offers no A2DP sink profile "
+            f"(active: {card['active'] or 'unknown'}). Available: {profiles}."
+        )
+
     def _activate_a2dp_profile(self, address: str) -> bool:
         """Switch this speaker's card to the best A2DP sink profile it has."""
         card = self._bluez_card(address)
@@ -436,11 +494,7 @@ class BluetoothSpeakerWatchdog:
             return False
         a2dp = [name for name in card["profiles"] if name.lower().startswith("a2dp-sink")]
         if not a2dp:
-            self._detected_profile_error = (
-                f"{card['card']} offers no A2DP sink profile "
-                f"(active: {card['active'] or 'unknown'}). Available: "
-                f"{', '.join(card['profiles'][:6]) or 'none'}."
-            )
+            self._handle_no_a2dp_profile(address, card)
             return False
         if card["active"] in a2dp:
             return True
@@ -591,6 +645,8 @@ class BluetoothSpeakerWatchdog:
 
             self._detected_sink = sink
             self._last_ready = True
+            self._role_retry_address = ""
+
             return (
                 True,
                 f"{name} ({address}) was auto-detected and selected as the default Bluetooth output.",

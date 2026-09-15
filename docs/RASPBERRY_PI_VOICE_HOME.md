@@ -45,6 +45,39 @@ Pi Proxy probes this once at startup and shows the result on its dashboard
 ("Audio server: unreachable", with the reason), so you do not have to infer it
 from a Bluetooth speaker that never becomes ready.
 
+### The Echo has to connect as a speaker, not as a source
+
+An Echo supports Bluetooth in **both** directions: it can be a speaker for your
+phone, and it can send its own audio out to an external speaker. If it connects
+in the second role, its card ends up with only telephony profiles —
+
+```
+bluez_card.7C_61_66_3E_5E_9C offers no A2DP sink profile
+(active: audio-gateway). Available: audio-gateway, off.
+```
+
+— and no playback sink will ever appear, because the Echo is treating the Pi as
+*its* output device rather than the other way round. Pi Proxy detects this,
+reconnects once to renegotiate, and if that does not settle it, says so on the
+dashboard.
+
+To fix it by hand:
+
+1. In the Alexa app: **Devices → your Echo → Bluetooth Devices**, and remove
+   the Pi from the list.
+2. Say **“Alexa, pair Bluetooth”** — this makes the Echo discoverable *as a
+   speaker* (an A2DP sink).
+3. Connect from the Pi, so the Pi is the one initiating:
+   ```bash
+   bluetoothctl connect 7C:61:66:3E:5E:9C
+   ```
+4. Confirm the card now has an A2DP profile:
+   ```bash
+   sudo -u pi XDG_RUNTIME_DIR=/run/user/1000 pactl list cards | grep -A6 bluez_card
+   ```
+
+Do not say “Alexa, connect to my speaker” — that is the role that causes this.
+
 ### The audio server needs Bluetooth support of its own
 
 `bluetoothctl` connecting the speaker is **not** enough. BlueZ owns the radio

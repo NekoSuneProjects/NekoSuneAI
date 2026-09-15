@@ -205,6 +205,19 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
       nothing extra has to be installed. `models.py` and `utils.py` existed
       solely to serve the removed STT code and are gone with it (`nekosuneai/`
       is down to 15 modules).
+- [x] A speaker that connects in the wrong role is detected and recovered
+      from. An Echo supports both Bluetooth directions, and when it connects as
+      the audio *source* its card carries only telephony profiles
+      (`audio-gateway`, `headset-*`) — so no playback sink can ever appear,
+      however long the watchdog waits, because the Echo is treating the Pi as
+      its output device. When BlueZ reports the device does advertise an A2DP
+      Audio Sink, the roles were simply negotiated badly, so the watchdog
+      reconnects once from this side to settle them — once per device, never in
+      a loop, since repeatedly dropping a speaker someone is listening through
+      would be worse than the fault. If that does not fix it the dashboard
+      carries the manual remedy (remove the Pi in the Alexa app, "Alexa, pair
+      Bluetooth", connect from the Pi). Documented in
+      [docs/RASPBERRY_PI_VOICE_HOME.md](docs/RASPBERRY_PI_VOICE_HOME.md).
 - [x] Echo Dot / Alexa A2DP: `_activate_a2dp_profile` guessed three hardcoded
       profile names (`a2dp-sink`, `a2dp-sink-sbc`, `a2dp_sink`). A card only
       accepts a name from its own codec-specific list — an Echo Dot can offer
