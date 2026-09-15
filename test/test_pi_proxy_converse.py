@@ -46,6 +46,11 @@ def backend():
     httpd.responses = {
         "/api/nodes/media/stt": {"ok": True, "text": "play lofi hip hop"},
         "/api/nodes/heartbeat": {"ok": True},
+        "/api/nodes/media/tts": {
+            "ok": True,
+            "audio_base64": base64.b64encode(REPLY_AUDIO).decode("ascii"),
+            "content_type": "audio/wav",
+        },
         "/api/nodes/poll": {"commands": []},
         "/api/nodes/converse": {
             "ok": True,
@@ -208,3 +213,93 @@ class TestRejectedPairing:
 
         node.auth_error = "rejected"
         assert node.status()["auth_error"] == "rejected"
+
+
+class TestGatewayTimeoutSurvival:
+    """A converse turn runs the whole backend pipeline and is long by nature.
+
+    Anything in front of the backend that gives up first (nginx, Caddy,
+    Cloudflare) answers 504 while the turn is still running, and the reply the
+    backend had already produced was thrown away. It now leaves a copy on the
+    command queue, which the poll collects seconds later.
+    """
+
+    def test_a_gateway_error_is_pending_not_a_failure(self, agent, backend):
+        backend.status_code = 504
+        backend.responses["/api/nodes/converse"] = {"error": "gateway timeout"}
+
+        result = agent.converse("hello")
+
+        assert result["pending"] is True
+        assert "504" in result["reason"]
+        assert agent.conversation[-1]["pending"] is True
+
+    def test_a_client_timeout_is_also_pending(self, agent, monkeypatch):
+        import requests
+
+        def timeout(*args, **kwargs):
+            raise requests.Timeout("read timed out")
+
+        monkeypatch.setattr(agent.session, "post", timeout)
+
+        assert agent.converse("hello")["pending"] is True
+
+    def test_a_real_backend_error_still_raises(self, agent, backend):
+        """400/500 from the backend itself is a genuine failure, not a wait."""
+        backend.status_code = 400
+        backend.responses["/api/nodes/converse"] = {"error": "text too long"}
+
+        with pytest.raises(RuntimeError, match="text too long"):
+            agent.converse("hello")
+
+    def test_the_queued_reply_is_spoken_and_completes_the_turn(self, agent, backend):
+        backend.status_code = 504
+        backend.responses["/api/nodes/converse"] = {"error": "gateway timeout"}
+        agent.converse("what is the weather")
+        backend.status_code = 200
+
+        agent._dispatch("conversation.reply", {
+            "turn_id": "t1", "text": "It is raining.", "commands": [],
+        })
+
+        assert agent.spoken == [REPLY_AUDIO]       # fetched TTS and played it
+        assert agent.last_reply == "It is raining."
+        # The pending placeholder is completed, not duplicated.
+        assert len(agent.conversation) == 1
+        assert agent.conversation[-1]["reply"] == "It is raining."
+        assert "pending" not in agent.conversation[-1]
+
+    def test_the_queued_copy_of_an_inline_reply_is_not_spoken_twice(self, agent, backend):
+        backend.responses["/api/nodes/converse"] = {
+            "ok": True, "turn_id": "t7", "reply": "Hello there.",
+            "audio_base64": base64.b64encode(REPLY_AUDIO).decode("ascii"), "commands": [],
+        }
+        agent.converse("hello")
+        assert agent.spoken == [REPLY_AUDIO]
+
+        result = agent._dispatch("conversation.reply", {"turn_id": "t7", "text": "Hello there."})
+
+        assert result["duplicate"] is True
+        assert agent.spoken == [REPLY_AUDIO]       # still once
+        assert len(agent.conversation) == 1
+
+    def test_a_queued_reply_runs_its_commands(self, agent):
+        agent._dispatch("conversation.reply", {
+            "turn_id": "t2", "text": "Playing lofi.",
+            "commands": [{"capability": "music.play", "arguments": {"query": "lofi"}}],
+        })
+
+        assert agent.played == ["http://stream.invalid/lofi"]
+
+    def test_a_queued_reply_falls_back_to_the_local_voice(self, agent, backend):
+        """The same degradation the inline path has."""
+        backend.responses["/api/nodes/media/tts"] = {"ok": True}      # no audio
+        fallback = []
+        agent._speak_local_fallback = fallback.append
+
+        agent._dispatch("conversation.reply", {"turn_id": "t3", "text": "Offline answer."})
+
+        assert fallback == ["Offline answer."]
+
+    def test_the_node_advertises_the_capability(self, agent):
+        assert agent.capabilities()["conversation.reply"] == {"kind": "write"}

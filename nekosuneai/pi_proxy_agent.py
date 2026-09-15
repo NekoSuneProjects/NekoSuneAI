@@ -62,6 +62,15 @@ STT_SAMPLE_RATE = 16000
 # on every single poll.
 CONSOLE_STATUS_CACHE_SECONDS = 5.0
 
+# A converse turn runs the whole backend pipeline -- web search, the LLM, TTS
+# -- so it is long by nature. Anything in front of the backend (nginx, Caddy,
+# Cloudflare) that gives up first answers with one of these rather than the
+# backend's own JSON. The turn is still running, and the backend leaves a copy
+# of the reply on this node's command queue, so a gateway error means "wait",
+# not "failed".
+_GATEWAY_STATUSES = frozenset({502, 503, 504, 408, 524})
+CONVERSE_READ_TIMEOUT = 180.0
+
 
 class NodeUnauthorizedError(RuntimeError):
     """The backend rejected this node's device token.
@@ -227,6 +236,9 @@ class PiProxyAgent:
         self.mic_error = ""
         self.last_reply = ""
         self.last_reply_at = 0.0
+        # Turn ids already answered inline, so the queued copy of the same
+        # reply is recognised instead of being spoken twice.
+        self._handled_turns: deque[str] = deque(maxlen=50)
         self.conversation: deque[dict[str, Any]] = deque(maxlen=30)
 
         # Wake-word ack chime + warning/danger alert tones (Alexa-style "I
@@ -288,6 +300,9 @@ class PiProxyAgent:
             "bluetooth.reconnect": {"kind": "write"},
             "audio.speak": {"kind": "write"},
             "audio.listen": {"kind": "write"},
+            # The backend's durable copy of a reply this node asked for, so an
+            # answer survives losing its HTTP response to a proxy timeout.
+            "conversation.reply": {"kind": "write"},
             "music.play": {"kind": "write"},
             "music.stop": {"kind": "write"},
             "music.pause": {"kind": "write"},
@@ -519,6 +534,8 @@ class PiProxyAgent:
             return self.music.skip() if not args.get("previous") else self.music.previous()
         if capability == "music.volume":
             return self.music.set_volume(int(args.get("percent", 100)))
+        if capability == "conversation.reply":
+            return self._deliver_reply(args)
         if capability == "music.status":
             return {"ok": True, **self.music.status()}
         if capability == "console.status":
@@ -546,6 +563,77 @@ class PiProxyAgent:
             return {"ok": True, "description": description}
         raise ValueError("command capability is not handled locally")
 
+    def _reply_in_flight(self, text: str, reason: str) -> dict[str, Any]:
+        """The turn is still running somewhere upstream; wait for the queue.
+
+        Raising here would be wrong twice over: the backend has not failed, and
+        the answer is still coming. It queues a copy of every reply, which the
+        poll already running collects seconds later, so the owner gets their
+        answer -- just not on this HTTP response.
+        """
+        self.command_log.append(
+            f"{time.strftime('%H:%M:%S')}  reply pending ({reason})"[:200]
+        )
+        self.conversation.append({
+            "epoch": time.time(), "text": text[:300],
+            "reply": "", "pending": True,
+        })
+        return {"ok": True, "pending": True, "reason": reason}
+
+    def _deliver_reply(self, args: dict[str, Any]) -> dict[str, Any]:
+        """Speak a reply the backend queued for this node.
+
+        Every converse turn leaves one of these behind so an answer survives
+        losing its HTTP response. In the normal case the inline response
+        already handled it and this is a duplicate, recognised by turn id.
+        """
+        turn_id = str(args.get("turn_id") or "")
+        if turn_id and turn_id in self._handled_turns:
+            return {"ok": True, "duplicate": True}
+        if turn_id:
+            self._handled_turns.append(turn_id)
+
+        reply = str(args.get("text") or "").strip()
+        if not reply:
+            return {"ok": False, "error": "queued reply had no text"}
+
+        self.last_reply = reply
+        self.last_reply_at = time.time()
+        # Replace the placeholder this turn left behind rather than appending a
+        # second entry, so the dashboard shows one exchange, now answered.
+        if self.conversation and self.conversation[-1].get("pending"):
+            self.conversation[-1]["reply"] = reply[:600]
+            self.conversation[-1].pop("pending", None)
+        else:
+            self.conversation.append({"epoch": time.time(), "text": "", "reply": reply[:600]})
+
+        if not self._disabled.is_set():
+            spoken = False
+            try:
+                # Synthesised now rather than carried on the queue: the queue is
+                # persisted to disk on every write and base64 audio does not
+                # belong in it. This is a short request that survives the same
+                # proxy the converse turn did not.
+                result = self._media_request("tts", text=reply[:1500])
+                encoded = result.get("audio_base64", "")
+                if isinstance(encoded, str) and encoded:
+                    self.player.play_wav_bytes(base64.b64decode(encoded, validate=True))
+                    spoken = True
+            except Exception as exc:
+                self.command_log.append(f"{time.strftime('%H:%M:%S')}  queued reply TTS failed: {exc}"[:200])
+            if not spoken:
+                self._speak_local_fallback(reply)
+
+        for command in args.get("commands") or []:
+            capability = str(command.get("capability", ""))
+            try:
+                self._last_result = self._dispatch(capability, dict(command.get("arguments") or {}))
+                self.command_log.append(f"{time.strftime('%H:%M:%S')}  {capability} (queued) -> ok")
+            except Exception as exc:
+                self._last_result = {"ok": False, "error": str(exc)[:300]}
+                self.command_log.append(f"{time.strftime('%H:%M:%S')}  {capability} (queued) -> error: {exc}"[:200])
+        return {"ok": True, "spoke": True}
+
     def converse(self, text: str, speak: bool = True) -> dict[str, Any]:
         """Submit a transcript to the backend and act on the reply.
 
@@ -563,17 +651,36 @@ class PiProxyAgent:
             raise ValueError("converse requires non-empty text")
         if not self.token:
             raise RuntimeError("pair this node first")
-        response = self.session.post(
-            f"{self.server}/api/nodes/converse",
-            json={"node_id": self.node_id, "text": text[:800], "speak": bool(speak)},
-            headers=self._headers(), timeout=(10, 120), verify=self.verify_tls,
-        )
+        try:
+            response = self.session.post(
+                f"{self.server}/api/nodes/converse",
+                json={"node_id": self.node_id, "text": text[:800], "speak": bool(speak)},
+                headers=self._headers(), timeout=(10, CONVERSE_READ_TIMEOUT), verify=self.verify_tls,
+            )
+        except requests.Timeout:
+            return self._reply_in_flight(text, "the backend is taking longer than usual")
+
+        # A gateway error is not the backend refusing the turn -- it is
+        # whatever sits in front of it giving up while it works. The reply is
+        # still being produced, and the backend queues a copy that the next
+        # poll collects, so this must not surface as a failed turn.
+        if response.status_code in _GATEWAY_STATUSES:
+            return self._reply_in_flight(
+                text, f"a proxy in front of the backend returned HTTP {response.status_code}",
+            )
         try:
             result = response.json()
         except ValueError as exc:
             raise RuntimeError(f"backend returned HTTP {response.status_code} without a JSON response") from exc
         if not response.ok:
             raise RuntimeError(str(result.get("error") or f"HTTP {response.status_code}"))
+
+        # Remember the turn so the queued copy of this same answer, which the
+        # backend always leaves for durability, is recognised and not spoken a
+        # second time.
+        turn_id = str(result.get("turn_id") or "")
+        if turn_id:
+            self._handled_turns.append(turn_id)
 
         reply = str(result.get("reply") or "")
         self.last_reply = reply
