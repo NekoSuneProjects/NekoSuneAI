@@ -19,6 +19,32 @@ connect AA:BB:CC:DD:EE:FF
 
 Select Alexa as the Raspberry Pi host output in the normal audio panel.
 
+### First: is the audio server reachable at all?
+
+Everything audible on this node goes through it — spoken replies, the wake
+chime and music, not just Bluetooth — so check this before anything else.
+From inside the container:
+
+```bash
+docker compose -f compose.pi-proxy.yml exec pi-proxy pactl info
+```
+
+`Connection failure: Connection refused` / `pa_context_connect() failed` means
+the mounted socket is not a live server. Almost always the mount points at a
+UID with no active session: `compose.pi-proxy.yml` defaults to
+`/run/user/1000/pulse`, and on a headless Pi `/run/user/<uid>/` only exists
+while that user has a `logind` session. Fix it on the host:
+
+```bash
+sudo loginctl enable-linger pi     # keep pi's session alive with nobody logged in
+./scripts/detect-pulse-audio.sh    # find the live session, write it into .env
+docker compose -f compose.pi-proxy.yml up -d --force-recreate
+```
+
+Pi Proxy probes this once at startup and shows the result on its dashboard
+("Audio server: unreachable", with the reason), so you do not have to infer it
+from a Bluetooth speaker that never becomes ready.
+
 ### The audio server needs Bluetooth support of its own
 
 `bluetoothctl` connecting the speaker is **not** enough. BlueZ owns the radio

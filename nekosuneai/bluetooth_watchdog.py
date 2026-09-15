@@ -57,6 +57,10 @@ class BluetoothSpeakerWatchdog:
         # Why A2DP could not be selected, surfaced on the status page: the
         # old code failed silently and only ever said "sink is not ready yet".
         self._detected_profile_error = ""
+        # Result of the one-off startup probe, so a dead audio session is
+        # visible immediately rather than only once a speaker fails to arrive.
+        self.audio_server_ok: bool | None = None
+        self.audio_server_message = ""
 
     @staticmethod
     def _run(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -76,6 +80,9 @@ class BluetoothSpeakerWatchdog:
             return
         if self._thread and self._thread.is_alive():
             return
+        self.audio_server_ok, self.audio_server_message = self.audio_server_probe()
+        if not self.audio_server_ok:
+            self.notify(self.audio_server_message)
         self._thread = threading.Thread(
             target=self._loop,
             daemon=True,
@@ -92,6 +99,8 @@ class BluetoothSpeakerWatchdog:
             "name": self._detected_name,
             "sink": self._detected_sink,
             "profile_error": self._detected_profile_error,
+            "audio_server_ok": self.audio_server_ok,
+            "audio_server": self.audio_server_message,
             "auto_detected": bool(
                 self._detected_address
                 and self._detected_address.lower() != configured.lower()
@@ -319,12 +328,36 @@ class BluetoothSpeakerWatchdog:
         detail = (result.stderr or result.stdout or "").strip().splitlines()
         reason = detail[-1] if detail else f"pactl exited {result.returncode}"
         target = os.environ.get("PULSE_SERVER", "")
-        where = f" PULSE_SERVER={target}." if target else ""
+        where = f" (PULSE_SERVER={target})" if target else ""
+        # Name the script rather than describing the fix: the mounted socket
+        # almost always points at a UID that has no live session, and
+        # detect-pulse-audio.sh finds the real one and writes it into .env.
         return (
-            f"Cannot reach the audio server: {reason}.{where} In a container, "
-            "check the pulse socket and cookie are mounted and that "
-            "PipeWire/PulseAudio is running as the desktop user on the host."
+            f"Cannot reach the audio server{where}: {reason}. The mounted pulse "
+            "socket is not a live server. On the Pi host (not in the container) "
+            "run scripts/detect-pulse-audio.sh to find the real session and write "
+            "PULSE_RUNTIME_DIR/PULSE_COOKIE_FILE into .env, then recreate the "
+            "container. A headless Pi also needs `sudo loginctl enable-linger "
+            "<user>` so that session survives logout."
         )
+
+    def audio_server_probe(self) -> tuple[bool, str]:
+        """Is an audio server reachable at all? Checked once at startup.
+
+        Without this the first sign of a dead audio session is a Bluetooth
+        speaker that never becomes ready -- which reads as a Bluetooth problem
+        and sends the owner to the wrong place. Local WAV playback (`paplay`)
+        goes through the same server, so this failing predicts silent TTS and
+        chimes too, not just Bluetooth.
+        """
+        if not shutil.which("pactl"):
+            return False, "pactl is not installed (apt install pulseaudio-utils)."
+        result = self._run(["pactl", "info"])
+        if result.returncode != 0:
+            return False, self._diagnose_unreachable_server(result)
+        server = self._info_value(result.stdout, "Server Name") or "audio server"
+        sink = self._info_value(result.stdout, "Default Sink")
+        return True, f"{server} reachable (default sink: {sink or 'none'})."
 
     def _diagnose_missing_card(self, address: str, listing: str) -> str:
         """Say why this speaker has no card, given what the server did report."""

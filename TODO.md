@@ -218,6 +218,16 @@ This checkout started as a full clone of `main` on 2026 — see BRANCH_MAP.md's
       first look. When it still fails, the reason is specific (on a headset
       profile / offers no A2DP at all / no card yet) and shows on the
       dashboard instead of the old unactionable message.
+- [x] The audio server is probed once at startup (`audio_server_probe`,
+      `pactl info`) and the result shows on the dashboard. A dead audio
+      session silences spoken replies, the wake chime and music as well as
+      Bluetooth, but its first visible symptom was a speaker that never became
+      ready — which reads as a Bluetooth fault and sends the owner to the
+      wrong place entirely. The unreachable-server message now names
+      `scripts/detect-pulse-audio.sh` (which already existed but was not
+      discoverable at the moment of failure) and `loginctl enable-linger`,
+      since the mounted socket almost always points at a UID with no live
+      logind session on a headless Pi.
 - [x] "No audio-server card" now says which of the several causes it is,
       instead of guessing at PULSE_SERVER for all of them. `_bluez_card`
       returned None identically whether pactl was missing, the server was

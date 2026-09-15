@@ -158,6 +158,7 @@ _PAGE = r"""<!doctype html>
   </div>
 
   <div class="ro bad-note" id="auth-note" hidden></div>
+  <div class="ro bad-note" id="audio-note" hidden></div>
 
   <div class="ro" id="readonly-note" hidden>
     View-only mode &mdash; controls are disabled by <code>web_control_enabled: false</code> in this node's config.
@@ -217,6 +218,7 @@ _PAGE = r"""<!doctype html>
       <div class="row"><span>Link</span><span id="bt-link"></span></div>
       <div class="row"><span>Device</span><span id="bt-name"></span></div>
       <div class="row"><span>Sink</span><span id="bt-sink"></span></div>
+      <div class="row"><span>Audio server</span><span id="bt-server"></span></div>
       <div class="row err" id="bt-err-row" hidden><span>A2DP</span><span id="bt-err"></span></div>
       <div class="btns" style="margin-top:10px"><button class="btn" id="btn-bt">Reconnect now</button></div>
       <div class="log" id="bt-log">&mdash;</div>
@@ -387,11 +389,19 @@ async function refresh() {
     text('t-backend', s.backend_reachable !== false ? 'backend online' : 'backend unreachable');
 
     var bt = s.bluetooth || {};
+    // Everything audible goes through this server -- TTS replies, wake chimes
+    // and music alike -- so a dead one is not just a Bluetooth problem.
+    var audioDead = bt.audio_server_ok === false;
+    $('audio-note').hidden = !audioDead;
+    if (audioDead) text('audio-note', 'No audio output: ' + (bt.audio_server || 'the audio server is unreachable.'));
     dot('d-bt', bt.ready ? 'on' : (bt.connected ? 'idle' : 'off'));
     text('t-bt', bt.name || bt.address || 'no speaker');
     html('bt-link', pill(!!bt.connected, 'connected', 'disconnected'));
     text('bt-name', bt.name || bt.address || 'not detected');
     text('bt-sink', bt.sink || 'not ready');
+    html('bt-server', bt.audio_server_ok == null
+      ? '<span class="pill warn">not probed</span>'
+      : pill(bt.audio_server_ok, 'reachable', 'unreachable'));
     // "sink is not ready" alone is unactionable; the watchdog now says whether
     // the card is on a headset profile, offers no A2DP at all, or is missing.
     errRow('bt-err-row', 'bt-err', bt.connected && !bt.sink ? bt.profile_error : '');

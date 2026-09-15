@@ -213,3 +213,66 @@ class TestMissingCardDiagnosis:
         assert "bluez_card.AA_BB_CC_DD_EE_FF" in message
         assert ADDRESS in message
         assert "different host" in message
+
+
+class TestAudioServerProbe:
+    """A one-off startup probe of the audio server.
+
+    Everything audible on this node -- TTS replies, wake chimes, music --
+    goes through the same server, so a dead session is not a Bluetooth
+    problem. Discovering it only when a speaker fails to become ready sent
+    the owner looking at Bluetooth instead of at their audio session.
+    """
+
+    def _probe(self, watchdog, returncode, stdout="", stderr=""):
+        watchdog._run = lambda args: type(
+            "R", (), {"returncode": returncode, "stdout": stdout, "stderr": stderr},
+        )()
+        return watchdog.audio_server_probe()
+
+    def test_a_reachable_server_reports_its_name_and_sink(self, watchdog):
+        ok, message = self._probe(watchdog, 0, stdout=(
+            "Server Name: PulseAudio (on PipeWire 1.0.5)\n"
+            "Default Sink: alsa_output.platform-bcm2835_audio.analog-stereo\n"
+        ))
+
+        assert ok is True
+        assert "PipeWire" in message
+        assert "alsa_output" in message
+
+    def test_connection_refused_names_the_repair_script(self, watchdog, monkeypatch):
+        """The exact failure seen on a headless Pi whose mounted socket points
+        at a UID with no live session."""
+        monkeypatch.setenv("PULSE_SERVER", "unix:/run/pulse/native")
+
+        ok, message = self._probe(
+            watchdog, 1, stderr="pa_context_connect() failed: Connection refused",
+        )
+
+        assert ok is False
+        assert "Connection refused" in message
+        assert "unix:/run/pulse/native" in message
+        assert "detect-pulse-audio.sh" in message
+        assert "enable-linger" in message
+
+    def test_missing_pactl_is_distinguished(self, watchdog, monkeypatch):
+        monkeypatch.setattr("nekosuneai.bluetooth_watchdog.shutil.which", lambda name: None)
+        ok, message = watchdog.audio_server_probe()
+
+        assert ok is False
+        assert "pulseaudio-utils" in message
+
+    def test_start_probes_and_announces_a_dead_server(self, watchdog, monkeypatch):
+        watchdog.config.bluetooth_reconnect_enabled = True
+        monkeypatch.setattr(
+            watchdog, "audio_server_probe", lambda: (False, "audio server is dead"),
+        )
+        monkeypatch.setattr("nekosuneai.bluetooth_watchdog.threading.Thread", lambda **kw: type(
+            "T", (), {"start": lambda self: None, "is_alive": lambda self: False},
+        )())
+
+        watchdog.start()
+
+        assert watchdog.audio_server_ok is False
+        assert "audio server is dead" in watchdog.notes
+        assert watchdog.status()["audio_server_ok"] is False
