@@ -4,12 +4,84 @@ import os
 
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
+# Ranking tables for PortAudio auto-routing. Each entry pairs a set of
+# lower-cased name fragments with the rank awarded to the first fragment that
+# matches; tables are scanned top to bottom, so earlier rows win ties.
+_CAPTURE_RANKS: tuple[tuple[tuple[str, ...], int], ...] = (
+    (("kinect", "xbox nui"), 0),
+    (("usb",), 1),
+    (("pulse",), 3),
+    (("pipewire",), 4),
+    (("default",), 5),
+    (("bluez", "bluetooth"), 20),
+    (("monitor",), 30),
+)
+_CAPTURE_FALLBACK_RANK = 8
 
-def _valid_device_index(value: object) -> bool:
+_PLAYBACK_RANKS: tuple[tuple[tuple[str, ...], int], ...] = (
+    (("pulse",), 0),
+    (("pipewire",), 1),
+    (("default",), 2),
+)
+_PLAYBACK_FALLBACK_RANK = 3
+
+_NO_DEVICE = -1
+
+
+def _coerce_index(value: object) -> int:
+    """Return a non-negative PortAudio index, or _NO_DEVICE when unusable."""
     try:
-        return int(value) >= 0
+        index = int(value)  # type: ignore[arg-type]
     except (TypeError, ValueError):
+        return _NO_DEVICE
+    return index if index >= 0 else _NO_DEVICE
+
+
+def _channel_count(device: object, key: str) -> int:
+    try:
+        return int(device.get(key, 0))  # type: ignore[attr-defined]
+    except (AttributeError, TypeError, ValueError):
+        return 0
+
+
+def _rank_of(name: str, table: tuple[tuple[tuple[str, ...], int], ...], fallback: int) -> int:
+    for fragments, rank in table:
+        if any(fragment in name for fragment in fragments):
+            return rank
+    return fallback
+
+
+def _highest_ranked(
+    devices: object,
+    channel_key: str,
+    table: tuple[tuple[tuple[str, ...], int], ...],
+    fallback: int,
+) -> int:
+    """Pick the best-ranked device exposing at least one channel of channel_key."""
+    best_rank: int | None = None
+    best_index = _NO_DEVICE
+    for index, device in enumerate(devices):  # type: ignore[call-overload]
+        if _channel_count(device, channel_key) <= 0:
+            continue
+        name = str(device.get("name", "")).strip().lower()
+        rank = _rank_of(name, table, fallback)
+        if best_rank is None or rank < best_rank:
+            best_rank, best_index = rank, index
+    return best_index
+
+
+def _host_session_routing() -> bool:
+    """True when a host PulseAudio/PipeWire session is driving audio for us."""
+    if os.name == "nt":
         return False
+    return bool(os.environ.get("PULSE_SERVER") or os.environ.get("PIPEWIRE_REMOTE"))
+
+
+def _current_defaults(sd: object) -> tuple[int, int]:
+    configured = sd.default.device  # type: ignore[attr-defined]
+    if isinstance(configured, (tuple, list)) and len(configured) >= 2:
+        return _coerce_index(configured[0]), _coerce_index(configured[1])
+    return _NO_DEVICE, _NO_DEVICE
 
 
 def _repair_session_audio_default() -> None:
@@ -21,9 +93,7 @@ def _repair_session_audio_default() -> None:
     Pulse/PipeWire, Bluetooth, or monitor inputs. This prevents changing the
     speaker route from silently stealing the wake-word microphone.
     """
-    if os.name == "nt":
-        return
-    if not (os.environ.get("PULSE_SERVER") or os.environ.get("PIPEWIRE_REMOTE")):
+    if not _host_session_routing():
         return
 
     try:
@@ -32,89 +102,38 @@ def _repair_session_audio_default() -> None:
         return
 
     try:
-        current = sd.default.device
-        if isinstance(current, (tuple, list)) and len(current) >= 2:
-            current_input, current_output = current[0], current[1]
-        else:
-            current_input, current_output = -1, -1
+        capture_index, playback_index = _current_defaults(sd)
         devices = sd.query_devices()
     except Exception:
         return
 
-    input_index = int(current_input) if _valid_device_index(current_input) else -1
-    output_index = int(current_output) if _valid_device_index(current_output) else -1
+    device_count = len(devices)
 
-    # Always rank visible inputs when auto-routing is active. A valid PortAudio
-    # default can still be the wrong source after a Bluetooth card appears.
-    input_candidates: list[tuple[int, int]] = []
-    for index, device in enumerate(devices):
-        try:
-            if int(device.get("max_input_channels", 0)) <= 0:
-                continue
-        except (TypeError, ValueError):
-            continue
+    # Capture is re-ranked unconditionally: a valid PortAudio default can still
+    # point at the wrong source once a Bluetooth card shows up mid-session.
+    ranked_capture = _highest_ranked(
+        devices, "max_input_channels", _CAPTURE_RANKS, _CAPTURE_FALLBACK_RANK
+    )
+    if ranked_capture != _NO_DEVICE:
+        capture_index = ranked_capture
+    elif capture_index >= device_count:
+        capture_index = _NO_DEVICE
 
-        name = str(device.get("name", "")).strip().lower()
-        if "kinect" in name or "xbox nui" in name:
-            priority = 0
-        elif "usb" in name:
-            priority = 1
-        elif "pulse" in name:
-            priority = 3
-        elif "pipewire" in name:
-            priority = 4
-        elif name in {"default", "sysdefault"} or "default" in name:
-            priority = 5
-        elif "bluez" in name or "bluetooth" in name:
-            priority = 20
-        elif "monitor" in name:
-            priority = 30
-        else:
-            priority = 8
-        input_candidates.append((priority, index))
+    # Playback stays host-session driven. An already-valid sink (say, one picked
+    # through pactl) is left untouched; only broken defaults get re-derived.
+    playback_usable = (
+        0 <= playback_index < device_count
+        and _channel_count(devices[playback_index], "max_output_channels") > 0
+    )
+    if not playback_usable:
+        playback_index = _highest_ranked(
+            devices, "max_output_channels", _PLAYBACK_RANKS, _PLAYBACK_FALLBACK_RANK
+        )
 
-    if input_candidates:
-        _, input_index = min(input_candidates)
-    elif input_index >= len(devices):
-        input_index = -1
-
-    # Output remains host-session driven. Preserve an already-valid output so a
-    # Bluetooth sink selected through pactl keeps working; only repair -1/bad
-    # PortAudio defaults here.
-    output_valid = False
-    if 0 <= output_index < len(devices):
-        try:
-            output_valid = int(devices[output_index].get("max_output_channels", 0)) > 0
-        except (TypeError, ValueError):
-            output_valid = False
-
-    if not output_valid:
-        output_index = -1
-        output_candidates: list[tuple[int, int]] = []
-        for index, device in enumerate(devices):
-            try:
-                if int(device.get("max_output_channels", 0)) <= 0:
-                    continue
-            except (TypeError, ValueError):
-                continue
-            name = str(device.get("name", "")).strip().lower()
-            if "pulse" in name:
-                priority = 0
-            elif "pipewire" in name:
-                priority = 1
-            elif name in {"default", "sysdefault"} or "default" in name:
-                priority = 2
-            else:
-                priority = 3
-            output_candidates.append((priority, index))
-
-        if output_candidates:
-            _, output_index = min(output_candidates)
-
-    if input_index < 0 and output_index < 0:
+    if capture_index == _NO_DEVICE and playback_index == _NO_DEVICE:
         return
 
-    sd.default.device = (input_index, output_index)
+    sd.default.device = (capture_index, playback_index)
 
 
 _repair_session_audio_default()

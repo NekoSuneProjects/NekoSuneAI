@@ -1,3 +1,15 @@
+"""Speech synthesis and playback.
+
+Covers the whole outbound audio path: choosing an output device that will
+actually accept the stream, rendering text with XTTS or gTTS, streaming XTTS
+chunks as they are generated, resampling when the device insists on its own
+rate, and playing the result back with an amplitude signal for avatar lip sync.
+
+Every heavyweight dependency is optional. The module imports on a machine with
+no speakers and no ML stack; the functions that genuinely need them raise a
+readable error instead.
+"""
+
 from __future__ import annotations
 
 import ctypes
@@ -10,7 +22,7 @@ import wave
 from io import BytesIO
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 import numpy as np
 
@@ -52,19 +64,102 @@ from .audio_input import (
     get_hostapi_names,
     normalize_audio_device_name,
 )
-
-
-def _require_xtts() -> None:
-    """Raise a friendly error if the local XTTS stack (coqui-tts + torch) is absent."""
-    if TTS is None or torch is None:
-        import_error = _tts_import_error or _torch_import_error
-        if import_error is None:
-            raise RuntimeError(VOICE_EXTRAS_HINT)
-        raise RuntimeError(f"{VOICE_EXTRAS_HINT}\n\nImport error: {import_error}") from import_error
 from .config import Config
 from .models import SessionState
 from .paths import AUDIO_DIR, ROOT_DIR, XTTS_STREAM_END
 from .utils import console_safe_text
+
+_DEFAULT_XTTS_SAMPLE_RATE = 24000
+_MIN_SAMPLE_RATE = 8000
+_COMMON_FALLBACK_RATES = (48000, 44100)
+
+_DEVICE_KEY_MAX_CHARS = 28
+_NON_ALNUM = re.compile(r"[^a-z0-9]+")
+_SENTENCE_BOUNDARY = re.compile(r"(?<=[.!?])\s+")
+
+# Amplitude reported for lip sync is RMS scaled into roughly 0..1; speech RMS
+# is small, so it needs a sizeable multiplier to read as mouth-open.
+_AMPLITUDE_GAIN = 6.0
+_ENVELOPE_FRAME_SECONDS = 0.04  # ~25 fps
+_BLOCK_SECONDS = 0.05  # ~50 ms playback frames
+_MIN_BLOCK_FRAMES = 256
+_STREAM_BLOCKSIZE = 2048
+
+_MCI_ALIAS = "ai_companion_audio"
+_MCI_ERROR_BUFFER_CHARS = 255
+
+# Host APIs that open the device exclusively, locking other apps out.
+_EXCLUSIVE_HOSTAPIS = {
+    "Windows WASAPI",
+    "Windows WDM-KS",
+    "WDM-KS",
+    "JACK Audio Connection Kit",
+    "JACK",
+}
+
+# Preference when the same physical speaker is reachable through several host
+# APIs: shared-mode APIs first, so playback does not seize the device.
+_PLAYBACK_HOSTAPI_PRIORITY = {
+    # Windows
+    "Windows DirectSound": 0,
+    "MME": 1,
+    "Windows WASAPI": 2,
+    "Windows WDM-KS": 3,
+    "WDM-KS": 3,
+    "ASIO": 4,
+    # Linux
+    "ALSA": 0,
+    "PulseAudio": 1,
+    "PipeWire": 1,
+    "JACK Audio Connection Kit": 2,
+    "JACK": 2,
+    # macOS
+    "Core Audio": 0,
+}
+
+# Near-identical to the table above, but tuned for what to *show* in a picker:
+# ASIO and WDM-KS are demoted together rather than ranked apart.
+_LISTING_HOSTAPI_PRIORITY = {
+    # Windows - favor shared-mode APIs first for compatibility.
+    "Windows DirectSound": 0,
+    "MME": 1,
+    "Windows WASAPI": 2,
+    "WDM-KS": 3,
+    "ASIO": 3,
+    "Windows WDM-KS": 4,
+    # Linux
+    "ALSA": 0,
+    "PulseAudio": 1,
+    "PipeWire": 1,
+    "JACK Audio Connection Kit": 2,
+    "JACK": 2,
+    # macOS
+    "Core Audio": 0,
+}
+_UNRANKED_HOSTAPI = 9
+
+_IGNORED_OUTPUT_NAMES = {
+    "primary sound driver",
+    "microsoft sound mapper - output",
+}
+
+
+def _require_xtts() -> None:
+    """Raise a friendly error if the local XTTS stack (coqui-tts + torch) is absent."""
+    if TTS is not None and torch is not None:
+        return
+
+    import_error = _tts_import_error or _torch_import_error
+    if import_error is None:
+        raise RuntimeError(VOICE_EXTRAS_HINT)
+    raise RuntimeError(
+        f"{VOICE_EXTRAS_HINT}\n\nImport error: {import_error}"
+    ) from import_error
+
+
+# --------------------------------------------------------------------------
+# Small helpers
+# --------------------------------------------------------------------------
 
 
 def normalize_gtts_language(language: str) -> str:
@@ -75,65 +170,70 @@ def normalize_gtts_language(language: str) -> str:
 
 
 def should_play_audio_after_synthesis(config: Config) -> bool:
+    """Whether this host should play what it just synthesised."""
     # Audio synthesised for a peripheral node belongs on that node's speaker.
     # Playing it here means a VPS talking to an empty room -- and on a
     # container with no audio device, a stream of ALSA/PulseAudio failures.
     if getattr(config, "node_tts_no_playback", False):
         return False
+
     if config.tts_provider == "bridge":
         try:
             from .bridge_voice import stream_was_played
-            if stream_was_played(): return False
+
+            if stream_was_played():
+                return False
         except Exception:
             pass
+
     # Chat RVC needs the fully-synthesized file to convert before anything is
-    # played, so it forces the non-streaming path (see _speak_text_inner) —
+    # played, so it forces the non-streaming path (see _speak_text_inner) -
     # meaning playback always happens afterward, same as gTTS/non-streaming XTTS.
     if config.rvc_chat_enabled:
         return True
-    return not (
-        config.tts_provider == "xtts"
-        and config.xtts_stream_output
-    )
+
+    return not (config.tts_provider == "xtts" and config.xtts_stream_output)
 
 
 def resolve_optional_path(path_value: str | None) -> Path | None:
     if not path_value:
         return None
     candidate = Path(path_value)
-    if not candidate.is_absolute():
-        candidate = ROOT_DIR / candidate
-    return candidate
+    return candidate if candidate.is_absolute() else ROOT_DIR / candidate
 
 
 def get_xtts_device(config: Config) -> str:
-    if config.xtts_use_gpu and torch is not None and torch.cuda.is_available():
-        return "cuda"
-    return "cpu"
+    cuda_ready = torch is not None and torch.cuda.is_available()
+    return "cuda" if (config.xtts_use_gpu and cuda_ready) else "cpu"
+
+
+# --------------------------------------------------------------------------
+# Output device discovery
+# --------------------------------------------------------------------------
 
 
 def get_default_output_device_index() -> int | None:
     if sd is None:
         return None
-    default_device = sd.default.device
-    if isinstance(default_device, (list, tuple)):
-        if len(default_device) < 2:
+
+    configured = sd.default.device
+    if isinstance(configured, (list, tuple)):
+        if len(configured) < 2:
             return None
-        candidate = default_device[1]
+        candidate = configured[1]
     else:
+        # A scalar default names an input device only; there is no output half.
         candidate = None
 
     if candidate is None:
         return None
 
     try:
-        candidate_index = int(candidate)
+        index = int(candidate)
     except (TypeError, ValueError):
         return None
 
-    if candidate_index < 0:
-        return None
-    return candidate_index
+    return index if index >= 0 else None
 
 
 def resolve_output_device_info(device_index: int | None) -> dict[str, Any]:
@@ -145,18 +245,18 @@ def resolve_output_device_info(device_index: int | None) -> dict[str, Any]:
             device = sd.query_devices(device_index, "output")
             resolved_index = device_index
     except Exception as exc:
-        chosen = (
+        label = (
             "the default speaker"
             if device_index is None
             else f"speaker #{device_index}"
         )
         raise RuntimeError(
-            f"I couldn't access {chosen}. Refresh devices and try another option."
+            f"I couldn't access {label}. Refresh devices and try another option."
         ) from exc
 
     device_name = str(device.get("name", "Output device"))
-    default_sample_rate = device.get("default_samplerate")
-    if not isinstance(default_sample_rate, (int, float)) or default_sample_rate <= 0:
+    reported_rate = device.get("default_samplerate")
+    if not isinstance(reported_rate, (int, float)) or reported_rate <= 0:
         raise RuntimeError(
             f"The speaker '{device_name}' did not report a valid sample rate."
         )
@@ -164,16 +264,16 @@ def resolve_output_device_info(device_index: int | None) -> dict[str, Any]:
     return {
         "index": resolved_index,
         "name": normalize_audio_device_name(device_name),
-        "default_sample_rate": int(default_sample_rate),
+        "default_sample_rate": int(reported_rate),
     }
 
 
 def output_device_name_key(device_name: str) -> str:
+    """A loose identity for a speaker, so the same box seen through several
+    host APIs collapses to one entry."""
     normalized = normalize_audio_device_name(device_name).lower()
-    simplified = re.sub(r"[^a-z0-9]+", "", normalized)
-    if not simplified:
-        return normalized
-    return simplified[:28]
+    simplified = _NON_ALNUM.sub("", normalized)
+    return simplified[:_DEVICE_KEY_MAX_CHARS] if simplified else normalized
 
 
 def resolve_output_hostapi_name(
@@ -181,17 +281,24 @@ def resolve_output_hostapi_name(
     hostapi_names: list[str],
 ) -> str:
     hostapi_index = device.get("hostapi")
-    if (
-        isinstance(hostapi_index, int)
-        and 0 <= hostapi_index < len(hostapi_names)
-    ):
+    if isinstance(hostapi_index, int) and 0 <= hostapi_index < len(hostapi_names):
         return hostapi_names[hostapi_index]
     return ""
+
+
+def _output_channel_count(device: Any) -> int:
+    count = device.get("max_output_channels", 0)
+    return int(count) if isinstance(count, (int, float)) else 0
+
+
+def _hostapi_rank(hostapi_name: str, table: dict[str, int]) -> int:
+    return table.get(hostapi_name, _UNRANKED_HOSTAPI)
 
 
 def choose_compatible_output_device_index(
     output_device_index: int | None,
 ) -> int | None:
+    """Swap an exclusive-mode device for a shared-mode view of the same speaker."""
     if output_device_index is None:
         return None
 
@@ -203,10 +310,6 @@ def choose_compatible_output_device_index(
 
     hostapi_names = get_hostapi_names()
     selected_hostapi = resolve_output_hostapi_name(selected_device, hostapi_names)
-    _EXCLUSIVE_HOSTAPIS = {
-        "Windows WASAPI", "Windows WDM-KS", "WDM-KS",
-        "JACK Audio Connection Kit", "JACK",
-    }
     if selected_hostapi not in _EXCLUSIVE_HOSTAPIS:
         return output_device_index
 
@@ -214,37 +317,20 @@ def choose_compatible_output_device_index(
     if not selected_key:
         return output_device_index
 
-    hostapi_priority = {
-        # Windows
-        "Windows DirectSound": 0,
-        "MME": 1,
-        "Windows WASAPI": 2,
-        "Windows WDM-KS": 3,
-        "WDM-KS": 3,
-        "ASIO": 4,
-        # Linux
-        "ALSA": 0,
-        "PulseAudio": 1,
-        "PipeWire": 1,
-        "JACK Audio Connection Kit": 2,
-        "JACK": 2,
-        # macOS
-        "Core Audio": 0,
-    }
     best_index = output_device_index
-    best_score = (hostapi_priority.get(selected_hostapi, 9), output_device_index)
+    best_score = (
+        _hostapi_rank(selected_hostapi, _PLAYBACK_HOSTAPI_PRIORITY),
+        output_device_index,
+    )
 
     for index, device in enumerate(all_devices):
-        max_output_channels = device.get("max_output_channels", 0)
-        if not isinstance(max_output_channels, (int, float)) or max_output_channels <= 0:
+        if _output_channel_count(device) <= 0:
             continue
-
-        device_key = output_device_name_key(str(device.get("name", "")))
-        if device_key != selected_key:
+        if output_device_name_key(str(device.get("name", ""))) != selected_key:
             continue
 
         hostapi_name = resolve_output_hostapi_name(device, hostapi_names)
-        score = (hostapi_priority.get(hostapi_name, 9), index)
+        score = (_hostapi_rank(hostapi_name, _PLAYBACK_HOSTAPI_PRIORITY), index)
         if score < best_score:
             best_score = score
             best_index = index
@@ -253,8 +339,10 @@ def choose_compatible_output_device_index(
 
 
 def list_output_devices_compact(max_devices: int = 24) -> list[dict[str, Any]]:
+    """One row per physical speaker, best host API chosen, default first."""
     if sd is None:
         return []
+
     try:
         devices = sd.query_devices()
     except Exception as exc:
@@ -262,84 +350,64 @@ def list_output_devices_compact(max_devices: int = 24) -> list[dict[str, Any]]:
 
     default_index = get_default_output_device_index()
     hostapi_names = get_hostapi_names()
-    hostapi_priority = {
-        # Windows — favor shared-mode APIs first for compatibility.
-        "Windows DirectSound": 0,
-        "MME": 1,
-        "Windows WASAPI": 2,
-        "WDM-KS": 3,
-        "ASIO": 3,
-        "Windows WDM-KS": 4,
-        # Linux
-        "ALSA": 0,
-        "PulseAudio": 1,
-        "PipeWire": 1,
-        "JACK Audio Connection Kit": 2,
-        "JACK": 2,
-        # macOS
-        "Core Audio": 0,
-    }
-    ignored_names = {
-        "primary sound driver",
-        "microsoft sound mapper - output",
-    }
-    compact: dict[str, dict[str, Any]] = {}
+
+    scored: list[tuple[tuple[int, int, int, int], dict[str, Any]]] = []
     for index, device in enumerate(devices):
-        max_output_channels = device.get("max_output_channels", 0)
-        if not isinstance(max_output_channels, (int, float)) or max_output_channels <= 0:
+        if _output_channel_count(device) <= 0:
             continue
 
-        raw_name = str(device.get("name", "Output device"))
-        normalized_name = normalize_audio_device_name(raw_name)
-        if normalized_name.strip().lower() in ignored_names:
+        name = normalize_audio_device_name(str(device.get("name", "Output device")))
+        if name.strip().lower() in _IGNORED_OUTPUT_NAMES:
             continue
 
-        hostapi_index = device.get("hostapi")
-        hostapi_name = (
-            hostapi_names[int(hostapi_index)]
-            if isinstance(hostapi_index, int)
-            and 0 <= hostapi_index < len(hostapi_names)
-            else ""
+        hostapi_name = resolve_output_hostapi_name(device, hostapi_names)
+        is_default = index == default_index
+        scored.append(
+            (
+                (
+                    0 if is_default else 1,
+                    _hostapi_rank(hostapi_name, _LISTING_HOSTAPI_PRIORITY),
+                    # Prefer the longer, more descriptive spelling of a name.
+                    -len(name),
+                    index,
+                ),
+                {
+                    "index": index,
+                    "name": name,
+                    "hostapi": hostapi_name,
+                    "is_default": is_default,
+                },
+            )
         )
-        candidate = {
-            "index": index,
-            "name": normalized_name,
-            "hostapi": hostapi_name,
-            "is_default": index == default_index,
-            "_score": (
-                0 if index == default_index else 1,
-                hostapi_priority.get(hostapi_name, 9),
-                -len(normalized_name),
-                index,
-            ),
-        }
 
-        existing = compact.get(output_device_name_key(normalized_name))
-        if existing is None or candidate["_score"] < existing["_score"]:
-            compact[output_device_name_key(normalized_name)] = candidate
+    # Sort by rank first, then keep the first sighting of each speaker: the
+    # survivor is by construction the best-ranked one.
+    best_per_key: dict[str, dict[str, Any]] = {}
+    for _score, entry in sorted(scored, key=lambda pair: pair[0]):
+        best_per_key.setdefault(output_device_name_key(entry["name"]), entry)
 
-    devices_out = sorted(
-        compact.values(),
+    ordered = sorted(
+        best_per_key.values(),
         key=lambda item: (0 if item["is_default"] else 1, item["name"].lower()),
     )
-    if max_devices > 0:
-        devices_out = devices_out[:max_devices]
-    for item in devices_out:
-        item.pop("_score", None)
-    return devices_out
+    return ordered[:max_devices] if max_devices > 0 else ordered
 
 
 def describe_selected_speaker(config: Config) -> str:
+    requested = config.speaker_device_index
     try:
-        device_info = resolve_output_device_info(config.speaker_device_index)
+        info = resolve_output_device_info(requested)
     except RuntimeError:
-        if config.speaker_device_index is None:
-            return "default speaker"
-        return f"speaker #{config.speaker_device_index}"
+        return "default speaker" if requested is None else f"speaker #{requested}"
 
-    if config.speaker_device_index is None:
-        return f"default speaker ({device_info['name']})"
-    return f"#{device_info['index']} ({device_info['name']})"
+    if requested is None:
+        return f"default speaker ({info['name']})"
+    return f"#{info['index']} ({info['name']})"
+
+
+# --------------------------------------------------------------------------
+# Sample-rate planning and resampling
+# --------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -350,6 +418,14 @@ class OutputPlaybackPlan:
 
 
 class StreamingLinearResampler:
+    """Linear resampler that keeps phase across successive chunks.
+
+    A streaming synth hands over short buffers; resampling each one in
+    isolation would restart the interpolation phase every time and click at the
+    seams. This carries the fractional read position and the unconsumed tail
+    from one call to the next.
+    """
+
     def __init__(self, source_sample_rate: int, target_sample_rate: int) -> None:
         self.source_sample_rate = max(1, int(source_sample_rate))
         self.target_sample_rate = max(1, int(target_sample_rate))
@@ -358,54 +434,59 @@ class StreamingLinearResampler:
         self._next_source_position = 0.0
 
     def process(self, audio: np.ndarray) -> np.ndarray:
-        audio_array = np.asarray(audio, dtype=np.float32).reshape(-1, 1)
-        if audio_array.size == 0:
+        incoming = np.asarray(audio, dtype=np.float32).reshape(-1, 1)
+        if incoming.size == 0:
             return np.empty((0,), dtype=np.float32)
 
-        if self._buffer.size == 0:
-            self._buffer = audio_array.copy()
-        else:
-            self._buffer = np.concatenate([self._buffer, audio_array], axis=0)
-
-        resampled = self._consume_available()
-        return np.ascontiguousarray(resampled.reshape(-1), dtype=np.float32)
+        self._buffer = (
+            incoming.copy()
+            if self._buffer.size == 0
+            else np.concatenate([self._buffer, incoming], axis=0)
+        )
+        return self._flatten(self._consume_available())
 
     def flush(self) -> np.ndarray:
+        """Emit the tail, then reset for reuse."""
         if self._buffer.size == 0:
             return np.empty((0,), dtype=np.float32)
 
-        # Pad with the final frame once so the last interpolation window can finish cleanly.
+        # Repeat the final frame once so the last interpolation window closes.
         self._buffer = np.concatenate([self._buffer, self._buffer[-1:, :]], axis=0)
         resampled = self._consume_available()
+
         self._buffer = np.empty((0, 1), dtype=np.float32)
         self._next_source_position = 0.0
+        return self._flatten(resampled)
+
+    @staticmethod
+    def _flatten(resampled: np.ndarray) -> np.ndarray:
         return np.ascontiguousarray(resampled.reshape(-1), dtype=np.float32)
 
     def _consume_available(self) -> np.ndarray:
+        empty = np.empty((0, 1), dtype=np.float32)
         if self._buffer.shape[0] < 2:
-            return np.empty((0, 1), dtype=np.float32)
+            return empty
 
         outputs: list[np.ndarray] = []
-        max_source_position = float(self._buffer.shape[0] - 1)
-        while self._next_source_position <= max_source_position:
-            low_index = int(self._next_source_position)
-            high_index = min(low_index + 1, self._buffer.shape[0] - 1)
-            blend = self._next_source_position - low_index
-            sample = (
-                (1.0 - blend) * self._buffer[low_index]
-                + blend * self._buffer[high_index]
-            ).astype(np.float32)
-            outputs.append(sample)
+        last_index = self._buffer.shape[0] - 1
+        while self._next_source_position <= float(last_index):
+            low = int(self._next_source_position)
+            high = min(low + 1, last_index)
+            blend = self._next_source_position - low
+            outputs.append(
+                ((1.0 - blend) * self._buffer[low] + blend * self._buffer[high]).astype(
+                    np.float32
+                )
+            )
             self._next_source_position += self._step
 
-        consumed_prefix = max(0, int(self._next_source_position) - 1)
-        if consumed_prefix > 0:
-            self._buffer = self._buffer[consumed_prefix:, :]
-            self._next_source_position -= consumed_prefix
+        # Drop frames that can no longer be read, keeping one for interpolation.
+        consumed = max(0, int(self._next_source_position) - 1)
+        if consumed > 0:
+            self._buffer = self._buffer[consumed:, :]
+            self._next_source_position -= consumed
 
-        if not outputs:
-            return np.empty((0, 1), dtype=np.float32)
-        return np.stack(outputs, axis=0)
+        return np.stack(outputs, axis=0) if outputs else empty
 
 
 def can_use_output_sample_rate(
@@ -418,11 +499,19 @@ def can_use_output_sample_rate(
             device=output_device_index,
             channels=max(1, int(channels)),
             dtype="float32",
-            samplerate=max(8000, int(sample_rate)),
+            samplerate=max(_MIN_SAMPLE_RATE, int(sample_rate)),
         )
     except Exception:
         return False
     return True
+
+
+def _device_default_rate(output_device_index: int | None) -> int | None:
+    try:
+        info = resolve_output_device_info(output_device_index)
+    except RuntimeError:
+        return None
+    return max(_MIN_SAMPLE_RATE, int(info["default_sample_rate"]))
 
 
 def choose_output_playback_plan(
@@ -430,76 +519,47 @@ def choose_output_playback_plan(
     source_sample_rate: int,
     channels: int = 1,
 ) -> OutputPlaybackPlan:
-    resolved_output_device_index = choose_compatible_output_device_index(
-        output_device_index
-    )
-    normalized_source_rate = max(8000, int(source_sample_rate))
-    device_default_rate: int | None = None
-    try:
-        device_info = resolve_output_device_info(resolved_output_device_index)
-        device_default_rate = max(8000, int(device_info["default_sample_rate"]))
-    except RuntimeError:
-        device_default_rate = None
+    """Pick a device and rate the stream will actually open at."""
+    device_index = choose_compatible_output_device_index(output_device_index)
+    source_rate = max(_MIN_SAMPLE_RATE, int(source_sample_rate))
+    default_rate = _device_default_rate(device_index)
 
-    # Prefer the device's native default rate first. A few Windows drivers "accept"
-    # uncommon rates but still run the stream at their native mode, which can sound
-    # chipmunked. Using the default device rate avoids that class of mismatch.
-    if device_default_rate is not None and can_use_output_sample_rate(
-        resolved_output_device_index,
-        device_default_rate,
-        channels=channels,
-    ):
+    def plan(rate: int) -> OutputPlaybackPlan:
         return OutputPlaybackPlan(
-            output_device_index=resolved_output_device_index,
-            sample_rate=device_default_rate,
-            requires_resample=device_default_rate != normalized_source_rate,
+            output_device_index=device_index,
+            sample_rate=rate,
+            requires_resample=rate != source_rate,
         )
 
-    if can_use_output_sample_rate(
-        resolved_output_device_index,
-        normalized_source_rate,
-        channels=channels,
-    ):
-        return OutputPlaybackPlan(
-            output_device_index=resolved_output_device_index,
-            sample_rate=normalized_source_rate,
-            requires_resample=False,
-        )
+    def accepts(rate: int) -> bool:
+        return can_use_output_sample_rate(device_index, rate, channels=channels)
+
+    # Prefer the device's native default rate first. A few Windows drivers
+    # "accept" uncommon rates but still run the stream at their native mode,
+    # which can sound chipmunked; using the default avoids that mismatch.
+    if default_rate is not None and accepts(default_rate):
+        return plan(default_rate)
+
+    if accepts(source_rate):
+        return plan(source_rate)
 
     candidate_rates: list[int] = []
-    if device_default_rate is not None:
-        candidate_rates.append(device_default_rate)
+    if default_rate is not None:
+        candidate_rates.append(default_rate)
+    candidate_rates.extend(_COMMON_FALLBACK_RATES)
 
-    candidate_rates.extend([48000, 44100])
-    seen_rates = {normalized_source_rate}
-    for candidate_rate in candidate_rates:
-        if candidate_rate in seen_rates:
+    tried = {source_rate}
+    for rate in candidate_rates:
+        if rate in tried:
             continue
-        seen_rates.add(candidate_rate)
-        if can_use_output_sample_rate(
-            resolved_output_device_index,
-            candidate_rate,
-            channels=channels,
-        ):
-            return OutputPlaybackPlan(
-                output_device_index=resolved_output_device_index,
-                sample_rate=candidate_rate,
-                requires_resample=candidate_rate != normalized_source_rate,
-            )
+        tried.add(rate)
+        if accepts(rate):
+            return plan(rate)
 
-    fallback_rate = next(
-        (
-            candidate_rate
-            for candidate_rate in candidate_rates
-            if candidate_rate != normalized_source_rate
-        ),
-        normalized_source_rate,
-    )
-    return OutputPlaybackPlan(
-        output_device_index=resolved_output_device_index,
-        sample_rate=fallback_rate,
-        requires_resample=fallback_rate != normalized_source_rate,
-    )
+    # Nothing was accepted: take any rate other than the source and resample,
+    # which at least has a chance of opening.
+    fallback = next((r for r in candidate_rates if r != source_rate), source_rate)
+    return plan(fallback)
 
 
 def resample_audio_for_output(
@@ -507,22 +567,20 @@ def resample_audio_for_output(
     source_sample_rate: int,
     target_sample_rate: int,
 ) -> np.ndarray:
+    """Linearly resample a complete buffer, preserving its 1-D/2-D shape."""
     audio_array = np.asarray(audio, dtype=np.float32)
     if audio_array.size == 0 or source_sample_rate == target_sample_rate:
         return np.ascontiguousarray(audio_array, dtype=np.float32)
 
-    squeeze_output = False
-    if audio_array.ndim == 1:
+    squeeze_output = audio_array.ndim == 1
+    if squeeze_output:
         audio_array = audio_array.reshape(-1, 1)
-        squeeze_output = True
 
     source_length = audio_array.shape[0]
     if source_length == 1:
-        repeated = np.repeat(
-            audio_array,
-            max(1, int(round(target_sample_rate / source_sample_rate))),
-            axis=0,
-        )
+        # Nothing to interpolate between; hold the single frame instead.
+        repeats = max(1, int(round(target_sample_rate / source_sample_rate)))
+        repeated = np.repeat(audio_array, repeats, axis=0)
         return repeated.reshape(-1) if squeeze_output else repeated
 
     target_length = max(
@@ -531,38 +589,42 @@ def resample_audio_for_output(
     )
     source_positions = np.arange(source_length, dtype=np.float32)
     target_positions = np.linspace(
-        0,
-        source_length - 1,
-        num=target_length,
-        dtype=np.float32,
+        0, source_length - 1, num=target_length, dtype=np.float32
     )
 
-    channels: list[np.ndarray] = []
-    for channel_index in range(audio_array.shape[1]):
-        channel = np.interp(
-            target_positions,
-            source_positions,
-            audio_array[:, channel_index],
-        ).astype(np.float32)
-        channels.append(channel)
-
-    resampled = np.stack(channels, axis=1)
+    resampled = np.stack(
+        [
+            np.interp(
+                target_positions, source_positions, audio_array[:, channel]
+            ).astype(np.float32)
+            for channel in range(audio_array.shape[1])
+        ],
+        axis=1,
+    )
     if squeeze_output:
         return np.ascontiguousarray(resampled.reshape(-1), dtype=np.float32)
     return np.ascontiguousarray(resampled, dtype=np.float32)
 
 
+# --------------------------------------------------------------------------
+# XTTS model lifecycle
+# --------------------------------------------------------------------------
+
+
 def ensure_xtts_model(config: Config, state: SessionState) -> "TTS":
     _require_xtts()
     desired_device = get_xtts_device(config)
+
     if state.xtts_model is None or state.xtts_device != desired_device:
         model = TTS(config.xtts_model_name, progress_bar=False)
         model.to(desired_device)
         state.xtts_model = model
         state.xtts_device = desired_device
         state.xtts_speakers = list(model.speakers or [])
+        # The cached conditioning belongs to the previous model instance.
         state.xtts_cached_voice_key = None
         state.xtts_cached_conditioning = None
+
     return state.xtts_model
 
 
@@ -583,80 +645,75 @@ def print_xtts_speakers(config: Config, state: SessionState) -> None:
 
     print("Available XTTS speakers:")
     for speaker in speakers:
-        suffix = " (current)" if speaker == config.xtts_speaker else ""
-        print(console_safe_text(f"- {speaker}{suffix}"))
+        marker = " (current)" if speaker == config.xtts_speaker else ""
+        print(console_safe_text(f"- {speaker}{marker}"))
     print()
 
 
 def describe_tts_voice(config: Config) -> str:
     if config.tts_provider == "gtts":
         return f"gTTS ({normalize_gtts_language(config.tts_language)})"
+
     speaker_wav = resolve_optional_path(config.xtts_speaker_wav)
     if speaker_wav is not None:
         return f"reference voice file ({speaker_wav})"
     return config.xtts_speaker
 
 
+# --------------------------------------------------------------------------
+# Text chunking
+# --------------------------------------------------------------------------
+
+
+def _pack_into_chunks(parts: Iterable[str], max_chars: int) -> list[str]:
+    """Greedily join space-separated parts without exceeding ``max_chars``."""
+    chunks: list[str] = []
+    current = ""
+
+    for part in parts:
+        if not current:
+            current = part
+            continue
+
+        candidate = f"{current} {part}"
+        if len(candidate) <= max_chars:
+            current = candidate
+        else:
+            chunks.append(current)
+            current = part
+
+    if current:
+        chunks.append(current)
+    return chunks
+
+
 def split_long_text_fragment(text: str, max_chars: int) -> list[str]:
+    """Break one over-long run of text on word boundaries."""
     if len(text) <= max_chars:
         return [text]
 
     words = text.split()
     if not words:
         return []
-
-    chunks: list[str] = []
-    current = ""
-    for word in words:
-        if not current:
-            current = word
-            continue
-
-        candidate = f"{current} {word}"
-        if len(candidate) <= max_chars:
-            current = candidate
-            continue
-
-        chunks.append(current)
-        current = word
-
-    if current:
-        chunks.append(current)
-
-    return chunks
+    return _pack_into_chunks(words, max_chars)
 
 
 def split_text_for_xtts(text: str, max_chars: int) -> list[str]:
+    """Split text into synthesis-sized chunks, preferring sentence breaks."""
     normalized_text = " ".join(text.split())
     if not normalized_text:
         return []
 
-    sentences = re.split(r"(?<=[.!?])\s+", normalized_text)
-    chunks: list[str] = []
-    current = ""
+    parts: list[str] = []
+    for sentence in _SENTENCE_BOUNDARY.split(normalized_text):
+        if sentence:
+            parts.extend(split_long_text_fragment(sentence, max_chars))
 
-    for sentence in sentences:
-        if not sentence:
-            continue
+    return _pack_into_chunks(parts, max_chars) or [normalized_text]
 
-        sentence_parts = split_long_text_fragment(sentence, max_chars)
-        for part in sentence_parts:
-            if not current:
-                current = part
-                continue
 
-            candidate = f"{current} {part}"
-            if len(candidate) <= max_chars:
-                current = candidate
-                continue
-
-            chunks.append(current)
-            current = part
-
-    if current:
-        chunks.append(current)
-
-    return chunks or [normalized_text]
+# Separators to back off to when hard-trimming, best first.
+_TRIM_BOUNDARIES = (". ", "! ", "? ", ", ", "; ", ": ", " ")
 
 
 def trim_text_for_tts(text: str, max_chars: int) -> str:
@@ -665,21 +722,14 @@ def trim_text_for_tts(text: str, max_chars: int) -> str:
         return normalized_text
 
     trimmed = normalized_text[: max_chars + 1]
-    boundary = max(
-        trimmed.rfind(". "),
-        trimmed.rfind("! "),
-        trimmed.rfind("? "),
-        trimmed.rfind(", "),
-        trimmed.rfind("; "),
-        trimmed.rfind(": "),
-        trimmed.rfind(" "),
-    )
-    if boundary > 0:
-        trimmed = trimmed[:boundary]
-    else:
-        trimmed = trimmed[:max_chars]
-
+    boundary = max(trimmed.rfind(separator) for separator in _TRIM_BOUNDARIES)
+    trimmed = trimmed[:boundary] if boundary > 0 else trimmed[:max_chars]
     return trimmed.rstrip(" ,;:")
+
+
+# --------------------------------------------------------------------------
+# Synthesis
+# --------------------------------------------------------------------------
 
 
 def get_xtts_output_sample_rate(model: TTS) -> int:
@@ -690,11 +740,28 @@ def get_xtts_output_sample_rate(model: TTS) -> int:
     audio_config = getattr(
         getattr(model.synthesizer.tts_model, "config", None), "audio", None
     )
-    output_sample_rate = getattr(audio_config, "output_sample_rate", None)
-    if isinstance(output_sample_rate, int) and output_sample_rate > 0:
-        return output_sample_rate
+    configured_rate = getattr(audio_config, "output_sample_rate", None)
+    if isinstance(configured_rate, int) and configured_rate > 0:
+        return configured_rate
 
-    return 24000
+    return _DEFAULT_XTTS_SAMPLE_RATE
+
+
+def _require_known_speaker(config: Config, state: SessionState, model: TTS) -> None:
+    """Fail early on a speaker name the loaded model does not have."""
+    available = state.xtts_speakers or list(model.speakers or [])
+    if available and config.xtts_speaker not in available:
+        raise RuntimeError(
+            f"XTTS speaker '{config.xtts_speaker}' was not found. "
+            "Run /speakers to list valid voices."
+        )
+
+
+def _require_speaker_wav(speaker_wav: Path) -> None:
+    if not speaker_wav.exists():
+        raise RuntimeError(
+            f"XTTS speaker reference file was not found: {speaker_wav}"
+        )
 
 
 def resolve_xtts_conditioning(
@@ -702,14 +769,12 @@ def resolve_xtts_conditioning(
     state: SessionState,
     model: TTS,
 ) -> tuple[torch.Tensor, torch.Tensor]:
+    """Conditioning latents for streaming, cached per voice source."""
     speaker_wav = resolve_optional_path(config.xtts_speaker_wav)
     xtts_model = model.synthesizer.tts_model
 
     if speaker_wav is not None:
-        if not speaker_wav.exists():
-            raise RuntimeError(
-                f"XTTS speaker reference file was not found: {speaker_wav}"
-            )
+        _require_speaker_wav(speaker_wav)
 
         resolved_path = str(speaker_wav.resolve())
         cache_key = f"speaker_wav:{resolved_path}"
@@ -724,19 +789,13 @@ def resolve_xtts_conditioning(
         state.xtts_cached_conditioning = conditioning
         return conditioning
 
-    available_speakers = state.xtts_speakers or list(model.speakers or [])
-    if available_speakers and config.xtts_speaker not in available_speakers:
-        raise RuntimeError(
-            f"XTTS speaker '{config.xtts_speaker}' was not found. "
-            "Run /speakers to list valid voices."
-        )
+    _require_known_speaker(config, state, model)
 
     speaker_data = xtts_model.speaker_manager.speakers.get(config.xtts_speaker)
     if not speaker_data:
         raise RuntimeError(
             f"XTTS speaker '{config.xtts_speaker}' did not expose streaming data."
         )
-
     return speaker_data["gpt_cond_latent"], speaker_data["speaker_embedding"]
 
 
@@ -748,8 +807,7 @@ def write_wav_audio(
     if not audio_chunks:
         raise RuntimeError("XTTS did not generate any audio.")
 
-    full_audio = np.concatenate(audio_chunks)
-    pcm_audio = np.clip(full_audio, -1.0, 1.0)
+    pcm_audio = np.clip(np.concatenate(audio_chunks), -1.0, 1.0)
     pcm_audio = (pcm_audio * 32767.0).astype(np.int16)
 
     with wave.open(str(audio_path), "wb") as wav_file:
@@ -769,36 +827,28 @@ def synthesize_xtts_to_file(
     output_path: Path,
 ) -> Path:
     speaker_wav = resolve_optional_path(config.xtts_speaker_wav)
-    clipped_text = trim_text_for_tts(text, config.xtts_max_text_chars)
-    text_chunks = split_text_for_xtts(clipped_text, config.xtts_chunk_max_chars)
-    audio_chunks: list[np.ndarray] = []
 
     base_kwargs: dict[str, Any] = {
         "language": config.tts_language,
         "speed": config.xtts_speed,
         "split_sentences": False,
     }
-
     if speaker_wav is not None:
-        if not speaker_wav.exists():
-            raise RuntimeError(
-                f"XTTS speaker reference file was not found: {speaker_wav}"
-            )
+        _require_speaker_wav(speaker_wav)
         base_kwargs["speaker_wav"] = str(speaker_wav)
     else:
-        available_speakers = state.xtts_speakers or list(model.speakers or [])
-        if available_speakers and config.xtts_speaker not in available_speakers:
-            raise RuntimeError(
-                f"XTTS speaker '{config.xtts_speaker}' was not found. "
-                "Run /speakers to list valid voices."
-            )
+        _require_known_speaker(config, state, model)
         base_kwargs["speaker"] = config.xtts_speaker
 
-    for text_chunk in text_chunks:
-        chunk_audio = model.tts(text=text_chunk, **base_kwargs)
-        audio_chunks.append(np.asarray(chunk_audio, dtype=np.float32))
+    clipped_text = trim_text_for_tts(text, config.xtts_max_text_chars)
+    audio_chunks = [
+        np.asarray(model.tts(text=chunk, **base_kwargs), dtype=np.float32)
+        for chunk in split_text_for_xtts(clipped_text, config.xtts_chunk_max_chars)
+    ]
 
-    return write_wav_audio(output_path, audio_chunks, get_xtts_output_sample_rate(model))
+    return write_wav_audio(
+        output_path, audio_chunks, get_xtts_output_sample_rate(model)
+    )
 
 
 def synthesize_gtts_to_file(
@@ -809,18 +859,14 @@ def synthesize_gtts_to_file(
     try:
         from gtts import gTTS
     except ImportError as exc:
-        raise RuntimeError(
-            "gTTS is not installed. Run: pip install gTTS"
-        ) from exc
-
-    clipped_text = trim_text_for_tts(text, config.xtts_max_text_chars)
-    language = normalize_gtts_language(config.tts_language)
+        raise RuntimeError("gTTS is not installed. Run: pip install gTTS") from exc
 
     tts = gTTS(
-        text=clipped_text,
-        lang=language,
+        text=trim_text_for_tts(text, config.xtts_max_text_chars),
+        lang=normalize_gtts_language(config.tts_language),
         slow=False,
     )
+
     output_path.parent.mkdir(parents=True, exist_ok=True)
     buffer = BytesIO()
     tts.write_to_fp(buffer)
@@ -828,14 +874,20 @@ def synthesize_gtts_to_file(
     return output_path
 
 
+# --------------------------------------------------------------------------
+# Streaming synthesis
+# --------------------------------------------------------------------------
+
+
 def produce_xtts_stream_chunks(
     text: str,
     config: Config,
     state: SessionState,
     model: TTS,
-    chunk_queue: queue.SimpleQueue[object],
+    chunk_queue: "queue.SimpleQueue[object]",
     producer_errors: list[Exception],
 ) -> None:
+    """Generate audio chunks onto ``chunk_queue``; always posts the end marker."""
     xtts_model = model.synthesizer.tts_model
 
     try:
@@ -843,6 +895,7 @@ def produce_xtts_stream_chunks(
             config, state, model
         )
         clipped_text = trim_text_for_tts(text, config.xtts_max_text_chars)
+
         for text_chunk in split_text_for_xtts(
             clipped_text, config.xtts_chunk_max_chars
         ):
@@ -855,12 +908,10 @@ def produce_xtts_stream_chunks(
                 speed=config.xtts_speed,
                 enable_text_splitting=False,
             )
-
             for chunk in chunk_generator:
                 audio_chunk = chunk.detach().float().cpu().numpy().reshape(-1)
-                if audio_chunk.size == 0:
-                    continue
-                chunk_queue.put(audio_chunk.copy())
+                if audio_chunk.size:
+                    chunk_queue.put(audio_chunk.copy())
     except Exception as exc:
         producer_errors.append(exc)
     finally:
@@ -872,11 +923,27 @@ def _emit_amplitude(on_amplitude: Any, audio_chunk: np.ndarray) -> None:
         return
     try:
         rms = float(np.sqrt(np.mean(np.square(audio_chunk, dtype=np.float64))))
-        # Normalize to a roughly 0..1 mouth-open value (speech RMS is small).
-        level = max(0.0, min(1.0, rms * 6.0))
-        on_amplitude(level)
+        on_amplitude(max(0.0, min(1.0, rms * _AMPLITUDE_GAIN)))
     except Exception:
         pass
+
+
+def _prime_stream_buffer(
+    chunk_queue: "queue.SimpleQueue[object]", target_samples: int
+) -> tuple[list[np.ndarray], bool]:
+    """Collect chunks until the buffer target is met or the producer finishes."""
+    buffered: list[np.ndarray] = []
+    buffered_samples = 0
+
+    while buffered_samples < target_samples:
+        item = chunk_queue.get()
+        if item is XTTS_STREAM_END:
+            return buffered, True
+        assert isinstance(item, np.ndarray)
+        buffered.append(item)
+        buffered_samples += item.size
+
+    return buffered, False
 
 
 def stream_xtts_audio(
@@ -887,13 +954,13 @@ def stream_xtts_audio(
     output_path: Path,
     on_amplitude: Any = None,
 ) -> Path:
+    """Play XTTS output as it is generated, then save the whole take."""
     sample_rate = get_xtts_output_sample_rate(model)
     playback_plan = choose_output_playback_plan(
-        config.speaker_device_index,
-        sample_rate,
+        config.speaker_device_index, sample_rate
     )
-    audio_chunks: list[np.ndarray] = []
-    chunk_queue: queue.SimpleQueue[object] = queue.SimpleQueue()
+
+    chunk_queue: "queue.SimpleQueue[object]" = queue.SimpleQueue()
     producer_errors: list[Exception] = []
     producer_thread = threading.Thread(
         target=produce_xtts_stream_chunks,
@@ -902,37 +969,35 @@ def stream_xtts_audio(
     )
     producer_thread.start()
 
-    target_buffer_samples = int(sample_rate * config.xtts_stream_buffer_seconds)
-    buffered_chunks: list[np.ndarray] = []
-    buffered_samples = 0
-    stream_finished = False
-
-    while buffered_samples < target_buffer_samples:
-        chunk_or_end = chunk_queue.get()
-        if chunk_or_end is XTTS_STREAM_END:
-            stream_finished = True
-            break
-        assert isinstance(chunk_or_end, np.ndarray)
-        buffered_chunks.append(chunk_or_end)
-        buffered_samples += chunk_or_end.size
+    # Build a head start before opening the device, so playback does not
+    # underrun while the model is still warming up.
+    pending_chunks, stream_finished = _prime_stream_buffer(
+        chunk_queue, int(sample_rate * config.xtts_stream_buffer_seconds)
+    )
 
     audio_stream = sd.OutputStream(
         samplerate=playback_plan.sample_rate,
         channels=1,
         dtype="float32",
-        blocksize=2048,
+        blocksize=_STREAM_BLOCKSIZE,
         latency="high",
         device=playback_plan.output_device_index,
     )
-    stream_resampler = (
+    resampler = (
         StreamingLinearResampler(sample_rate, playback_plan.sample_rate)
         if playback_plan.requires_resample
         else None
     )
 
+    def write(samples: np.ndarray) -> None:
+        if samples.size:
+            audio_stream.write(
+                np.ascontiguousarray(samples.reshape(-1, 1), dtype=np.float32)
+            )
+
+    audio_chunks: list[np.ndarray] = []
     try:
         audio_stream.start()
-        pending_chunks = buffered_chunks
 
         while True:
             if pending_chunks:
@@ -940,32 +1005,22 @@ def stream_xtts_audio(
             elif stream_finished:
                 break
             else:
-                chunk_or_end = chunk_queue.get()
-                if chunk_or_end is XTTS_STREAM_END:
-                    stream_finished = True
+                item = chunk_queue.get()
+                if item is XTTS_STREAM_END:
                     break
-                assert isinstance(chunk_or_end, np.ndarray)
-                audio_chunk = chunk_or_end
+                assert isinstance(item, np.ndarray)
+                audio_chunk = item
 
             audio_chunks.append(audio_chunk)
             _emit_amplitude(on_amplitude, audio_chunk)
-            playback_chunk = (
-                stream_resampler.process(audio_chunk)
-                if stream_resampler is not None
+            write(
+                resampler.process(audio_chunk)
+                if resampler is not None
                 else np.ascontiguousarray(audio_chunk, dtype=np.float32)
             )
-            if playback_chunk.size == 0:
-                continue
-            audio_stream.write(
-                np.ascontiguousarray(playback_chunk.reshape(-1, 1), dtype=np.float32)
-            )
 
-        if stream_resampler is not None:
-            final_chunk = stream_resampler.flush()
-            if final_chunk.size > 0:
-                audio_stream.write(
-                    np.ascontiguousarray(final_chunk.reshape(-1, 1), dtype=np.float32)
-                )
+        if resampler is not None:
+            write(resampler.flush())
     finally:
         try:
             audio_stream.stop()
@@ -980,6 +1035,11 @@ def stream_xtts_audio(
     return write_wav_audio(output_path, audio_chunks, sample_rate)
 
 
+# --------------------------------------------------------------------------
+# Speaking
+# --------------------------------------------------------------------------
+
+
 def speak_text(
     text: str,
     config: Config,
@@ -989,21 +1049,22 @@ def speak_text(
     cleaned_text = trim_text_for_tts(text, config.xtts_max_text_chars)
 
     # Per-language voicing: speak each reply in its own detected language so a
-    # Japanese/Russian/etc. line isn't read with English phonetics. Temporarily
-    # overrides config.tts_language for this synthesis only.
-    _restore_lang = None
+    # Japanese/Russian/etc. line isn't read with English phonetics. This
+    # overrides config.tts_language for one synthesis and puts it back after.
+    restore_language: str | None = None
     if getattr(config, "tts_auto_language", False):
         from .lang_detect import detect_language
 
-        lang = detect_language(cleaned_text, config.tts_language)
-        if lang and lang != config.tts_language:
-            _restore_lang = config.tts_language
-            config.tts_language = lang
+        detected = detect_language(cleaned_text, config.tts_language)
+        if detected and detected != config.tts_language:
+            restore_language = config.tts_language
+            config.tts_language = detected
+
     try:
         output_path = _speak_text_inner(cleaned_text, config, state, on_amplitude)
     finally:
-        if _restore_lang is not None:
-            config.tts_language = _restore_lang
+        if restore_language is not None:
+            config.tts_language = restore_language
 
     if config.rvc_chat_enabled:
         from .rvc import apply_rvc
@@ -1024,16 +1085,19 @@ def _speak_text_inner(
 ) -> Path:
     if config.tts_provider == "bridge":
         from .bridge_voice import synthesize
+
         return synthesize(cleaned_text, config)
+
     if config.tts_provider == "gtts":
-        output_path = AUDIO_DIR / "latest_reply.mp3"
-        return synthesize_gtts_to_file(cleaned_text, config, output_path)
+        return synthesize_gtts_to_file(
+            cleaned_text, config, AUDIO_DIR / "latest_reply.mp3"
+        )
 
     output_path = AUDIO_DIR / "latest_reply.wav"
     model = ensure_xtts_model(config, state)
 
     # Chat RVC needs to convert the whole rendered file before anything plays,
-    # which live streaming can't do (it plays each chunk as it's generated) —
+    # which live streaming can't do (it plays each chunk as it's generated) -
     # fall back to full-file synthesis whenever chat RVC is on.
     if config.xtts_stream_output and not config.rvc_chat_enabled:
         return stream_xtts_audio(
@@ -1043,17 +1107,19 @@ def _speak_text_inner(
     return synthesize_xtts_to_file(cleaned_text, config, state, model, output_path)
 
 
+# --------------------------------------------------------------------------
+# Playback
+# --------------------------------------------------------------------------
+
+
 def get_mci_error(error_code: int) -> str:
-    buffer = ctypes.create_unicode_buffer(255)
+    buffer = ctypes.create_unicode_buffer(_MCI_ERROR_BUFFER_CHARS)
     ctypes.windll.winmm.mciGetErrorStringW(error_code, buffer, len(buffer))
     return buffer.value or f"MCI error {error_code}"
 
 
-def play_wav_with_sounddevice(
-    audio_path: Path,
-    output_device_index: int | None = None,
-    on_amplitude: Any = None,
-) -> None:
+def _read_wav_as_float32(audio_path: Path) -> tuple[np.ndarray, int, int]:
+    """Read a 16-bit PCM WAV into a (frames, channels) float32 array."""
     with wave.open(str(audio_path), "rb") as wav_file:
         channels = wav_file.getnchannels()
         sample_width = wav_file.getsampwidth()
@@ -1066,22 +1132,22 @@ def play_wav_with_sounddevice(
         )
 
     audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-    if channels > 1:
-        audio = audio.reshape(-1, channels)
-    else:
-        audio = audio.reshape(-1, 1)
+    shaped = audio.reshape(-1, channels) if channels > 1 else audio.reshape(-1, 1)
+    return shaped, sample_rate, channels
+
+
+def play_wav_with_sounddevice(
+    audio_path: Path,
+    output_device_index: int | None = None,
+    on_amplitude: Any = None,
+) -> None:
+    audio, sample_rate, channels = _read_wav_as_float32(audio_path)
 
     playback_plan = choose_output_playback_plan(
-        output_device_index,
-        sample_rate,
-        channels=channels,
+        output_device_index, sample_rate, channels=channels
     )
     playback_audio = (
-        resample_audio_for_output(
-            audio,
-            sample_rate,
-            playback_plan.sample_rate,
-        )
+        resample_audio_for_output(audio, sample_rate, playback_plan.sample_rate)
         if playback_plan.requires_resample
         else np.ascontiguousarray(audio, dtype=np.float32)
     )
@@ -1095,6 +1161,7 @@ def play_wav_with_sounddevice(
                 on_amplitude,
             )
             return
+
         sd.play(
             playback_audio,
             samplerate=playback_plan.sample_rate,
@@ -1102,12 +1169,12 @@ def play_wav_with_sounddevice(
             blocking=True,
         )
     except Exception as exc:
-        selected = (
+        label = (
             "the default speaker"
             if output_device_index is None
             else f"speaker #{output_device_index}"
         )
-        raise RuntimeError(f"Could not play audio on {selected}. {exc}") from exc
+        raise RuntimeError(f"Could not play audio on {label}. {exc}") from exc
 
 
 def _play_blocks_with_amplitude(
@@ -1120,14 +1187,15 @@ def _play_blocks_with_amplitude(
     data = np.ascontiguousarray(audio, dtype=np.float32)
     if data.ndim == 1:
         data = data.reshape(-1, 1)
-    channels = data.shape[1]
-    block = max(256, int(sample_rate * 0.05))  # ~50ms frames
+
+    block = max(_MIN_BLOCK_FRAMES, int(sample_rate * _BLOCK_SECONDS))
     stream = sd.OutputStream(
         samplerate=sample_rate,
-        channels=channels,
+        channels=data.shape[1],
         dtype="float32",
         device=output_device_index,
     )
+
     stream.start()
     try:
         for start in range(0, data.shape[0], block):
@@ -1141,14 +1209,13 @@ def _play_blocks_with_amplitude(
             pass
         stream.close()
         try:
-            on_amplitude(0.0)
+            on_amplitude(0.0)  # close the avatar's mouth
         except Exception:
             pass
 
 
 def _play_with_mci(audio_path: Path) -> None:
     """Play audio via Windows MCI (Media Control Interface)."""
-    alias = "ai_companion_audio"
     winmm = ctypes.windll.winmm
 
     def send(command: str) -> None:
@@ -1156,22 +1223,20 @@ def _play_with_mci(audio_path: Path) -> None:
         if error_code:
             raise RuntimeError(get_mci_error(error_code))
 
-    try:
-        send(f"close {alias}")
-    except RuntimeError:
-        pass
-
-    try:
-        if audio_path.suffix.lower() == ".wav":
-            send(f'open "{audio_path}" type waveaudio alias {alias}')
-        else:
-            send(f'open "{audio_path}" type mpegvideo alias {alias}')
-        send(f"play {alias} wait")
-    finally:
+    def close_quietly() -> None:
         try:
-            send(f"close {alias}")
+            send(f"close {_MCI_ALIAS}")
         except RuntimeError:
             pass
+
+    close_quietly()  # clear a handle left behind by an earlier play
+
+    device_type = "waveaudio" if audio_path.suffix.lower() == ".wav" else "mpegvideo"
+    try:
+        send(f'open "{audio_path}" type {device_type} alias {_MCI_ALIAS}')
+        send(f"play {_MCI_ALIAS} wait")
+    finally:
+        close_quietly()
 
 
 def _play_with_ffplay(audio_path: Path) -> None:
@@ -1190,42 +1255,55 @@ def _play_with_ffplay(audio_path: Path) -> None:
     )
 
 
-def _decode_audio_mono(audio_path: Path) -> tuple[np.ndarray | None, int]:
-    """Decode an audio file to mono float32 samples + sample rate.
+_FFMPEG_DECODE_RATE = 22050
 
-    WAV is read directly; other formats (e.g. gTTS .mp3) go through ffmpeg, which
-    is already present whenever ffplay is used for fallback playback.
-    """
-    suffix = audio_path.suffix.lower()
-    if suffix == ".wav":
-        try:
-            with wave.open(str(audio_path), "rb") as wav_file:
-                channels = wav_file.getnchannels()
-                sample_rate = wav_file.getframerate()
-                frames = wav_file.readframes(wav_file.getnframes())
-            audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
-            if channels > 1:
-                audio = audio.reshape(-1, channels).mean(axis=1)
-            return audio, sample_rate
-        except Exception:
-            return None, 0
+
+def _decode_wav_mono(audio_path: Path) -> tuple[np.ndarray | None, int]:
+    try:
+        with wave.open(str(audio_path), "rb") as wav_file:
+            channels = wav_file.getnchannels()
+            sample_rate = wav_file.getframerate()
+            frames = wav_file.readframes(wav_file.getnframes())
+        audio = np.frombuffer(frames, dtype=np.int16).astype(np.float32) / 32768.0
+        if channels > 1:
+            audio = audio.reshape(-1, channels).mean(axis=1)
+        return audio, sample_rate
+    except Exception:
+        return None, 0
+
+
+def _decode_via_ffmpeg_mono(audio_path: Path) -> tuple[np.ndarray | None, int]:
     import shutil as _shutil
     import subprocess as _subprocess
 
     ffmpeg = _shutil.which("ffmpeg")
     if not ffmpeg:
         return None, 0
+
     try:
         out = _subprocess.run(
             [ffmpeg, "-v", "quiet", "-i", str(audio_path),
-             "-f", "s16le", "-ac", "1", "-ar", "22050", "-"],
-            capture_output=True, check=True,
+             "-f", "s16le", "-ac", "1", "-ar", str(_FFMPEG_DECODE_RATE), "-"],
+            capture_output=True,
+            check=True,
         ).stdout
         if not out:
             return None, 0
-        return np.frombuffer(out, dtype=np.int16).astype(np.float32) / 32768.0, 22050
+        samples = np.frombuffer(out, dtype=np.int16).astype(np.float32) / 32768.0
+        return samples, _FFMPEG_DECODE_RATE
     except Exception:
         return None, 0
+
+
+def _decode_audio_mono(audio_path: Path) -> tuple[np.ndarray | None, int]:
+    """Decode an audio file to mono float32 samples + sample rate.
+
+    WAV is read directly; other formats (e.g. gTTS .mp3) go through ffmpeg, which
+    is already present whenever ffplay is used for fallback playback.
+    """
+    if audio_path.suffix.lower() == ".wav":
+        return _decode_wav_mono(audio_path)
+    return _decode_via_ffmpeg_mono(audio_path)
 
 
 def _emit_amplitude_envelope(audio_path: Path, on_amplitude: Any) -> None:
@@ -1237,22 +1315,27 @@ def _emit_amplitude_envelope(audio_path: Path, on_amplitude: Any) -> None:
     """
     if on_amplitude is None:
         return
+
     samples, sample_rate = _decode_audio_mono(audio_path)
     if samples is None or samples.size == 0:
         return
-    hop = max(1, int(sample_rate * 0.04))  # 40 ms ≈ 25 fps
-    nblocks = max(1, samples.size // hop)
-    start = time.monotonic()
+
+    hop = max(1, int(sample_rate * _ENVELOPE_FRAME_SECONDS))
+    block_count = max(1, samples.size // hop)
+    started = time.monotonic()
+
     try:
-        for i in range(nblocks):
-            wait = start + i * 0.04 - time.monotonic()
+        for index in range(block_count):
+            # Pace against the wall clock so the envelope stays in step.
+            wait = started + index * _ENVELOPE_FRAME_SECONDS - time.monotonic()
             if wait > 0:
                 time.sleep(wait)
-            block = samples[i * hop:(i + 1) * hop]
+
+            block = samples[index * hop : (index + 1) * hop]
             if block.size == 0:
                 continue
             rms = float(np.sqrt(np.mean(np.square(block, dtype=np.float64))))
-            on_amplitude(max(0.0, min(1.0, rms * 6.0)))
+            on_amplitude(max(0.0, min(1.0, rms * _AMPLITUDE_GAIN)))
         on_amplitude(0.0)
     except Exception:
         pass
@@ -1278,6 +1361,7 @@ def play_audio_file(
             daemon=True,
         )
         envelope_thread.start()
+
     try:
         if os.name == "nt":
             _play_with_mci(audio_path)
@@ -1288,9 +1372,14 @@ def play_audio_file(
             envelope_thread.join(timeout=0.1)
 
 
+_ALERT_SOUND_ATTRS = {"danger": "danger_sound_path", "warning": "warning_sound_path"}
+
+
 def play_alert_sound(level: str, config: Config) -> None:
     """Play a configured warning/danger cue; missing files are harmless."""
-    raw = config.danger_sound_path if level == "danger" else config.warning_sound_path if level == "warning" else None
+    attribute = _ALERT_SOUND_ATTRS.get(level)
+    raw = getattr(config, attribute) if attribute else None
+
     path = resolve_optional_path(raw)
     if path and path.is_file():
         play_audio_file(path, config.speaker_device_index)

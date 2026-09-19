@@ -1,3 +1,11 @@
+"""Hardware detection and automatic runtime tuning.
+
+Inspects the host once at start-up, grades it into a coarse tier, and picks the
+model sizes, decode budgets and buffer depths that tier can actually sustain,
+so the same image behaves sensibly on a Raspberry Pi and on a desktop with a
+discrete GPU.
+"""
+
 from __future__ import annotations
 
 import ctypes
@@ -8,6 +16,8 @@ try:
     import torch
 except ImportError:  # torch is an optional voice/GPU extra; absent on minimal installs
     torch = None  # type: ignore[assignment]
+
+_BYTES_PER_GB = 1024**3
 
 
 @dataclass(frozen=True)
@@ -41,48 +51,78 @@ class PerformanceProfile:
         return f"{self.goal}-{self.tier}"
 
 
+# --------------------------------------------------------------------------
+# Goal parsing
+# --------------------------------------------------------------------------
+
+_GOAL_ALIASES = {
+    "quality": "quality",
+    "best": "quality",
+    "max": "quality",
+    "speed": "speed",
+    "fast": "speed",
+    "latency": "speed",
+}
+_DEFAULT_GOAL = "balanced"
+
+
 def normalize_auto_tune_goal(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized in {"quality", "best", "max"}:
-        return "quality"
-    if normalized in {"speed", "fast", "latency"}:
-        return "speed"
-    return "balanced"
+    return _GOAL_ALIASES.get(value.strip().lower(), _DEFAULT_GOAL)
 
 
-def _get_total_memory_bytes() -> int | None:
-    if os.name == "nt":
-        class MemoryStatusEx(ctypes.Structure):
-            _fields_ = [
-                ("dwLength", ctypes.c_ulong),
-                ("dwMemoryLoad", ctypes.c_ulong),
-                ("ullTotalPhys", ctypes.c_ulonglong),
-                ("ullAvailPhys", ctypes.c_ulonglong),
-                ("ullTotalPageFile", ctypes.c_ulonglong),
-                ("ullAvailPageFile", ctypes.c_ulonglong),
-                ("ullTotalVirtual", ctypes.c_ulonglong),
-                ("ullAvailVirtual", ctypes.c_ulonglong),
-                ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
-            ]
+# --------------------------------------------------------------------------
+# Hardware detection
+# --------------------------------------------------------------------------
 
-        memory_status = MemoryStatusEx()
-        memory_status.dwLength = ctypes.sizeof(MemoryStatusEx)
-        if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(memory_status)):
-            return int(memory_status.ullTotalPhys)
-        return None
 
+class _Win32MemoryStatusEx(ctypes.Structure):
+    """Layout of the Win32 MEMORYSTATUSEX struct."""
+
+    _fields_ = [
+        ("dwLength", ctypes.c_ulong),
+        ("dwMemoryLoad", ctypes.c_ulong),
+        ("ullTotalPhys", ctypes.c_ulonglong),
+        ("ullAvailPhys", ctypes.c_ulonglong),
+        ("ullTotalPageFile", ctypes.c_ulonglong),
+        ("ullAvailPageFile", ctypes.c_ulonglong),
+        ("ullTotalVirtual", ctypes.c_ulonglong),
+        ("ullAvailVirtual", ctypes.c_ulonglong),
+        ("ullAvailExtendedVirtual", ctypes.c_ulonglong),
+    ]
+
+
+def _windows_total_memory_bytes() -> int | None:
+    status = _Win32MemoryStatusEx()
+    status.dwLength = ctypes.sizeof(_Win32MemoryStatusEx)
+    if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(status)):
+        return int(status.ullTotalPhys)
+    return None
+
+
+def _posix_total_memory_bytes() -> int | None:
     try:
-        page_count = os.sysconf("SC_PHYS_PAGES")
+        pages = os.sysconf("SC_PHYS_PAGES")
         page_size = os.sysconf("SC_PAGE_SIZE")
     except (AttributeError, ValueError, OSError):
         return None
 
-    if not isinstance(page_count, int) or not isinstance(page_size, int):
+    if not (isinstance(pages, int) and isinstance(page_size, int)):
         return None
-    if page_count <= 0 or page_size <= 0:
+    if pages <= 0 or page_size <= 0:
         return None
+    return pages * page_size
 
-    return page_count * page_size
+
+def _get_total_memory_bytes() -> int | None:
+    if os.name == "nt":
+        return _windows_total_memory_bytes()
+    return _posix_total_memory_bytes()
+
+
+def _as_gb(total_bytes: int | None) -> float | None:
+    if total_bytes is None or total_bytes <= 0:
+        return None
+    return round(total_bytes / _BYTES_PER_GB, 1)
 
 
 def _get_primary_gpu_info() -> tuple[bool, str | None, float | None]:
@@ -95,26 +135,15 @@ def _get_primary_gpu_info() -> tuple[bool, str | None, float | None]:
         return True, "CUDA GPU", None
 
     total_memory = getattr(props, "total_memory", 0)
-    gpu_vram_gb = (
-        round(total_memory / (1024**3), 1)
-        if isinstance(total_memory, int) and total_memory > 0
-        else None
-    )
-    return True, str(getattr(props, "name", "CUDA GPU")), gpu_vram_gb
+    vram_gb = _as_gb(total_memory) if isinstance(total_memory, int) else None
+    return True, str(getattr(props, "name", "CUDA GPU")), vram_gb
 
 
 def detect_system_capabilities() -> SystemCapabilities:
-    total_memory_bytes = _get_total_memory_bytes()
-    total_ram_gb = (
-        round(total_memory_bytes / (1024**3), 1)
-        if total_memory_bytes is not None and total_memory_bytes > 0
-        else None
-    )
     has_cuda, gpu_name, gpu_vram_gb = _get_primary_gpu_info()
-
     return SystemCapabilities(
         cpu_cores=max(1, os.cpu_count() or 1),
-        total_ram_gb=total_ram_gb,
+        total_ram_gb=_as_gb(_get_total_memory_bytes()),
         has_cuda=has_cuda,
         gpu_name=gpu_name,
         gpu_vram_gb=gpu_vram_gb,
@@ -123,160 +152,168 @@ def detect_system_capabilities() -> SystemCapabilities:
 
 def describe_system_capabilities(capabilities: SystemCapabilities) -> str:
     parts = [f"{capabilities.cpu_cores} CPU threads"]
+
     if capabilities.total_ram_gb is not None:
         parts.append(f"{capabilities.total_ram_gb:.1f} GB RAM")
 
     if capabilities.gpu_name:
-        gpu_part = capabilities.gpu_name
+        gpu = capabilities.gpu_name
         if capabilities.gpu_vram_gb is not None:
-            gpu_part = f"{gpu_part} ({capabilities.gpu_vram_gb:.1f} GB VRAM)"
-        parts.append(gpu_part)
+            gpu = f"{gpu} ({capabilities.gpu_vram_gb:.1f} GB VRAM)"
+        parts.append(gpu)
     else:
         parts.append("no CUDA GPU detected")
 
     return " | ".join(parts)
 
 
+# --------------------------------------------------------------------------
+# Tier classification
+# --------------------------------------------------------------------------
+
+# Descending (minimum, points) ladders; the first row a value clears wins.
+_CORE_POINTS = ((12, 2.0), (8, 1.5), (4, 1.0))
+_RAM_POINTS = ((32, 2.0), (16, 1.5), (8, 1.0))
+_VRAM_POINTS = ((10, 2.5), (8, 2.0), (6, 1.5), (4, 1.0))
+
+# Awarded when CUDA is present but VRAM could not be measured, and when a
+# measured card is smaller than the smallest VRAM row above.
+_CUDA_UNKNOWN_VRAM_POINTS = 1.0
+_CUDA_TINY_VRAM_POINTS = 0.5
+
+_TIER_THRESHOLDS = (("high", 5.0), ("medium", 2.75))
+_FALLBACK_TIER = "low"
+
+
+def _ladder_points(
+    value: float,
+    ladder: tuple[tuple[int, float], ...],
+    floor: float = 0.0,
+) -> float:
+    for minimum, points in ladder:
+        if value >= minimum:
+            return points
+    return floor
+
+
+def _gpu_points(capabilities: SystemCapabilities) -> float:
+    if not capabilities.has_cuda:
+        return 0.0
+    if capabilities.gpu_vram_gb is None:
+        return _CUDA_UNKNOWN_VRAM_POINTS
+    return _ladder_points(
+        capabilities.gpu_vram_gb, _VRAM_POINTS, floor=_CUDA_TINY_VRAM_POINTS
+    )
+
+
 def classify_hardware_tier(capabilities: SystemCapabilities) -> str:
-    score = 0.0
-
-    if capabilities.cpu_cores >= 12:
-        score += 2.0
-    elif capabilities.cpu_cores >= 8:
-        score += 1.5
-    elif capabilities.cpu_cores >= 4:
-        score += 1.0
-
+    score = _ladder_points(capabilities.cpu_cores, _CORE_POINTS)
     if capabilities.total_ram_gb is not None:
-        if capabilities.total_ram_gb >= 32:
-            score += 2.0
-        elif capabilities.total_ram_gb >= 16:
-            score += 1.5
-        elif capabilities.total_ram_gb >= 8:
-            score += 1.0
+        score += _ladder_points(capabilities.total_ram_gb, _RAM_POINTS)
+    score += _gpu_points(capabilities)
 
-    if capabilities.has_cuda:
-        if capabilities.gpu_vram_gb is not None:
-            if capabilities.gpu_vram_gb >= 10:
-                score += 2.5
-            elif capabilities.gpu_vram_gb >= 8:
-                score += 2.0
-            elif capabilities.gpu_vram_gb >= 6:
-                score += 1.5
-            elif capabilities.gpu_vram_gb >= 4:
-                score += 1.0
-            else:
-                score += 0.5
-        else:
-            score += 1.0
+    for tier, minimum in _TIER_THRESHOLDS:
+        if score >= minimum:
+            return tier
+    return _FALLBACK_TIER
 
-    if score >= 5.0:
-        return "high"
-    if score >= 2.75:
-        return "medium"
-    return "low"
+
+# --------------------------------------------------------------------------
+# Tuning presets
+# --------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class _TuningPreset:
+    """The knobs a single (goal, tier) combination settles on."""
+
+    ollama_num_predict: int
+    xtts_stream_chunk_size: int
+    xtts_stream_buffer_seconds: float
+    stt_model: str
+    stt_beam_size: int
+    stt_best_of: int
+    request_timeout: int
+    mic_chunk_size: int
+
+
+# Keyed by (goal, tier). Read down a goal to see how each knob opens up as the
+# hardware improves; read across a tier to see what each goal trades away.
+_PRESETS: dict[tuple[str, str], _TuningPreset] = {
+    ("speed", "low"): _TuningPreset(450, 14, 2.4, "base.en", 2, 2, 240, 2048),
+    ("speed", "medium"): _TuningPreset(700, 18, 1.8, "small.en", 3, 3, 300, 1024),
+    ("speed", "high"): _TuningPreset(900, 24, 1.2, "small.en", 3, 3, 360, 1024),
+    ("balanced", "low"): _TuningPreset(600, 16, 2.3, "base.en", 3, 3, 300, 2048),
+    ("balanced", "medium"): _TuningPreset(1000, 20, 1.8, "small.en", 4, 4, 360, 1024),
+    ("balanced", "high"): _TuningPreset(1400, 28, 1.2, "medium.en", 5, 5, 420, 1024),
+    ("quality", "low"): _TuningPreset(750, 16, 2.4, "small.en", 4, 4, 360, 2048),
+    ("quality", "medium"): _TuningPreset(1400, 24, 1.8, "medium.en", 5, 5, 420, 1024),
+    ("quality", "high"): _TuningPreset(1800, 30, 1.2, "medium.en", 6, 6, 480, 1024),
+}
 
 
 def _profile_defaults(goal: str, tier: str) -> dict[str, float | int | str]:
-    profiles: dict[str, dict[str, dict[str, float | int | str]]] = {
-        "speed": {
-            "low": {
-                "ollama_num_predict": 450,
-                "xtts_stream_chunk_size": 14,
-                "xtts_stream_buffer_seconds": 2.4,
-                "stt_model": "base.en",
-                "stt_beam_size": 2,
-                "stt_best_of": 2,
-                "request_timeout": 240,
-                "mic_chunk_size": 2048,
-            },
-            "medium": {
-                "ollama_num_predict": 700,
-                "xtts_stream_chunk_size": 18,
-                "xtts_stream_buffer_seconds": 1.8,
-                "stt_model": "small.en",
-                "stt_beam_size": 3,
-                "stt_best_of": 3,
-                "request_timeout": 300,
-                "mic_chunk_size": 1024,
-            },
-            "high": {
-                "ollama_num_predict": 900,
-                "xtts_stream_chunk_size": 24,
-                "xtts_stream_buffer_seconds": 1.2,
-                "stt_model": "small.en",
-                "stt_beam_size": 3,
-                "stt_best_of": 3,
-                "request_timeout": 360,
-                "mic_chunk_size": 1024,
-            },
-        },
-        "balanced": {
-            "low": {
-                "ollama_num_predict": 600,
-                "xtts_stream_chunk_size": 16,
-                "xtts_stream_buffer_seconds": 2.3,
-                "stt_model": "base.en",
-                "stt_beam_size": 3,
-                "stt_best_of": 3,
-                "request_timeout": 300,
-                "mic_chunk_size": 2048,
-            },
-            "medium": {
-                "ollama_num_predict": 1000,
-                "xtts_stream_chunk_size": 20,
-                "xtts_stream_buffer_seconds": 1.8,
-                "stt_model": "small.en",
-                "stt_beam_size": 4,
-                "stt_best_of": 4,
-                "request_timeout": 360,
-                "mic_chunk_size": 1024,
-            },
-            "high": {
-                "ollama_num_predict": 1400,
-                "xtts_stream_chunk_size": 28,
-                "xtts_stream_buffer_seconds": 1.2,
-                "stt_model": "medium.en",
-                "stt_beam_size": 5,
-                "stt_best_of": 5,
-                "request_timeout": 420,
-                "mic_chunk_size": 1024,
-            },
-        },
-        "quality": {
-            "low": {
-                "ollama_num_predict": 750,
-                "xtts_stream_chunk_size": 16,
-                "xtts_stream_buffer_seconds": 2.4,
-                "stt_model": "small.en",
-                "stt_beam_size": 4,
-                "stt_best_of": 4,
-                "request_timeout": 360,
-                "mic_chunk_size": 2048,
-            },
-            "medium": {
-                "ollama_num_predict": 1400,
-                "xtts_stream_chunk_size": 24,
-                "xtts_stream_buffer_seconds": 1.8,
-                "stt_model": "medium.en",
-                "stt_beam_size": 5,
-                "stt_best_of": 5,
-                "request_timeout": 420,
-                "mic_chunk_size": 1024,
-            },
-            "high": {
-                "ollama_num_predict": 1800,
-                "xtts_stream_chunk_size": 30,
-                "xtts_stream_buffer_seconds": 1.2,
-                "stt_model": "medium.en",
-                "stt_beam_size": 6,
-                "stt_best_of": 6,
-                "request_timeout": 480,
-                "mic_chunk_size": 1024,
-            },
-        },
+    """The preset for a (goal, tier) pair, as a plain mapping."""
+    preset = _PRESETS[(goal, tier)]
+    return {
+        "ollama_num_predict": preset.ollama_num_predict,
+        "xtts_stream_chunk_size": preset.xtts_stream_chunk_size,
+        "xtts_stream_buffer_seconds": preset.xtts_stream_buffer_seconds,
+        "stt_model": preset.stt_model,
+        "stt_beam_size": preset.stt_beam_size,
+        "stt_best_of": preset.stt_best_of,
+        "request_timeout": preset.request_timeout,
+        "mic_chunk_size": preset.mic_chunk_size,
     }
-    return profiles[goal][tier]
+
+
+# --------------------------------------------------------------------------
+# Profile assembly
+# --------------------------------------------------------------------------
+
+_MIN_VRAM_GB_FOR_STT = 6.0
+_MIN_RAM_GB_FOR_MEDIUM_ON_CPU = 24
+_MIN_RAM_GB_FOR_SMALL_ON_CPU = 10
+
+
+def _stt_can_use_gpu(capabilities: SystemCapabilities) -> bool:
+    if not capabilities.has_cuda:
+        return False
+    vram = capabilities.gpu_vram_gb
+    return vram is None or vram >= _MIN_VRAM_GB_FOR_STT
+
+
+def _downgrade_stt_model_for_cpu(
+    model: str, capabilities: SystemCapabilities
+) -> str:
+    """Step the Whisper model down when it would not fit in host RAM."""
+    ram = capabilities.total_ram_gb
+
+    if model == "medium.en" and (ram is None or ram < _MIN_RAM_GB_FOR_MEDIUM_ON_CPU):
+        model = "small.en"
+    if model == "small.en" and ram is not None and ram < _MIN_RAM_GB_FOR_SMALL_ON_CPU:
+        model = "base.en"
+    return model
+
+
+def _build_notes(
+    preset: _TuningPreset,
+    stt_model: str,
+    stt_use_gpu: bool,
+    stt_compute_type: str,
+    xtts_use_gpu: bool,
+) -> tuple[str, ...]:
+    stt_device = "cuda" if stt_use_gpu else "cpu"
+    xtts_device = "cuda" if xtts_use_gpu else "cpu"
+    return (
+        f"Ollama reply budget set to {preset.ollama_num_predict} tokens.",
+        f"Speech recognition uses {stt_model} on "
+        f"{stt_device}/{stt_compute_type}.",
+        f"XTTS runs on {xtts_device} with "
+        f"chunk size {preset.xtts_stream_chunk_size} "
+        f"and a {preset.xtts_stream_buffer_seconds:.1f}s buffer.",
+        f"Microphone chunk size set to {preset.mic_chunk_size}.",
+    )
 
 
 def choose_performance_profile(
@@ -285,45 +322,31 @@ def choose_performance_profile(
 ) -> PerformanceProfile:
     normalized_goal = normalize_auto_tune_goal(goal)
     tier = classify_hardware_tier(capabilities)
-    settings = _profile_defaults(normalized_goal, tier)
+    preset = _PRESETS[(normalized_goal, tier)]
 
     xtts_use_gpu = capabilities.has_cuda
-    stt_use_gpu = capabilities.has_cuda and (
-        capabilities.gpu_vram_gb is None or capabilities.gpu_vram_gb >= 6.0
-    )
-    stt_model = str(settings["stt_model"])
+    stt_use_gpu = _stt_can_use_gpu(capabilities)
 
-    if stt_model == "medium.en" and not stt_use_gpu:
-        if capabilities.total_ram_gb is None or capabilities.total_ram_gb < 24:
-            stt_model = "small.en"
-    if stt_model == "small.en" and not stt_use_gpu:
-        if capabilities.total_ram_gb is not None and capabilities.total_ram_gb < 10:
-            stt_model = "base.en"
-
+    stt_model = preset.stt_model
+    if not stt_use_gpu:
+        stt_model = _downgrade_stt_model_for_cpu(stt_model, capabilities)
     stt_compute_type = "float16" if stt_use_gpu else "int8"
-    notes = (
-        f"Ollama reply budget set to {int(settings['ollama_num_predict'])} tokens.",
-        f"Speech recognition uses {stt_model} on "
-        f"{'cuda' if stt_use_gpu else 'cpu'}/{stt_compute_type}.",
-        f"XTTS runs on {'cuda' if xtts_use_gpu else 'cpu'} with "
-        f"chunk size {int(settings['xtts_stream_chunk_size'])} "
-        f"and a {float(settings['xtts_stream_buffer_seconds']):.1f}s buffer.",
-        f"Microphone chunk size set to {int(settings['mic_chunk_size'])}.",
-    )
 
     return PerformanceProfile(
         goal=normalized_goal,
         tier=tier,
-        ollama_num_predict=int(settings["ollama_num_predict"]),
+        ollama_num_predict=preset.ollama_num_predict,
         xtts_use_gpu=xtts_use_gpu,
-        xtts_stream_chunk_size=int(settings["xtts_stream_chunk_size"]),
-        xtts_stream_buffer_seconds=float(settings["xtts_stream_buffer_seconds"]),
+        xtts_stream_chunk_size=preset.xtts_stream_chunk_size,
+        xtts_stream_buffer_seconds=preset.xtts_stream_buffer_seconds,
         stt_use_gpu=stt_use_gpu,
         stt_model=stt_model,
         stt_compute_type=stt_compute_type,
-        stt_beam_size=int(settings["stt_beam_size"]),
-        stt_best_of=int(settings["stt_best_of"]),
-        request_timeout=int(settings["request_timeout"]),
-        mic_chunk_size=int(settings["mic_chunk_size"]),
-        notes=notes,
+        stt_beam_size=preset.stt_beam_size,
+        stt_best_of=preset.stt_best_of,
+        request_timeout=preset.request_timeout,
+        mic_chunk_size=preset.mic_chunk_size,
+        notes=_build_notes(
+            preset, stt_model, stt_use_gpu, stt_compute_type, xtts_use_gpu
+        ),
     )

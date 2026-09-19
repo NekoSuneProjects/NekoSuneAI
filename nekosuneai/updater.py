@@ -1,3 +1,13 @@
+"""Self-update against a GitHub repository.
+
+Reads the upstream ``VERSION`` file, compares it with the local one, and - only
+when explicitly enabled - downloads that branch as a zip, copies it over the
+working tree while preserving user data, and reruns setup.
+
+Update checks are cached so start-up does not hit the network every launch, and
+extraction is validated against zip-slip before a single byte is written.
+"""
+
 from __future__ import annotations
 
 import argparse
@@ -5,6 +15,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import zipfile
@@ -22,15 +33,27 @@ DEFAULT_GITHUB_REPO = "NekoSuneProjects/NekoSuneAI"
 DEFAULT_GITHUB_BRANCH = "main"
 DEFAULT_UPDATE_CACHE_SECONDS = 21600
 DEFAULT_AUTO_UPDATE_CHECK = True
+
 # Security: do NOT silently download and execute remote code on startup. Auto-
 # install pulls a zip from the configured GitHub repo, overwrites local files and
-# reruns setup.py with no confirmation — so whoever controls that upstream repo
+# reruns setup.py with no confirmation - so whoever controls that upstream repo
 # would get code execution on every launch. Default OFF: the app only *notifies*
 # that an update exists. Opt in explicitly with AUTO_UPDATE_INSTALL=1 (and only
 # when you trust the upstream repo) or run `python setup.py --update` by hand.
 DEFAULT_AUTO_UPDATE_INSTALL = False
+
 GITHUB_REQUEST_HEADERS = {"User-Agent": "NekoSuneAI-Updater"}
 
+_FALLBACK_VERSION = "0.0.0"
+_TRUTHY_VALUES = {"1", "true", "yes", "on"}
+
+_VERSION_FETCH_TIMEOUT = 5.0
+_ARCHIVE_FETCH_TIMEOUT = 30
+_ARCHIVE_CHUNK_BYTES = 1024 * 1024
+_GIT_REMOTE_TIMEOUT = 5
+_GIT_STATUS_TIMEOUT = 10
+
+# Never overwritten by an update: user configuration, virtualenvs and data.
 UPDATE_EXCLUDED_TOP_LEVEL = {
     ".env",
     ".git",
@@ -47,6 +70,18 @@ UPDATE_EXCLUDED_RELATIVE = {
     Path("data/update_state.json"),
 }
 
+# Current env var first, then the pre-rename name, so older .env files keep working.
+_REPO_ENV_NAMES = ("NEKOSUNEAI_GITHUB_REPO", "NOVA_GITHUB_REPO")
+_BRANCH_ENV_NAMES = ("NEKOSUNEAI_GITHUB_BRANCH", "NOVA_GITHUB_BRANCH")
+
+# Where Git usually lands on Windows when it is not on PATH.
+_WINDOWS_GIT_CANDIDATES = (
+    r"C:\Program Files\Git\cmd\git.exe",
+    r"C:\Program Files\Git\bin\git.exe",
+    r"%LocalAppData%\Programs\Git\cmd\git.exe",
+    r"%LocalAppData%\Programs\Git\bin\git.exe",
+)
+
 
 @dataclass(frozen=True)
 class UpdateStatus:
@@ -59,13 +94,19 @@ class UpdateStatus:
     error: str | None = None
 
 
+# --------------------------------------------------------------------------
+# Small parsers
+# --------------------------------------------------------------------------
+
+
 def parse_bool(value: str | None, default: bool) -> bool:
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return value.strip().lower() in _TRUTHY_VALUES
 
 
 def parse_version_tuple(value: str) -> tuple[int, ...]:
+    """Turn "v1.2.3-rc" into (1, 2, 3) for ordering, ignoring non-digits."""
     normalized = value.strip().lower().lstrip("v")
     if not normalized:
         return (0,)
@@ -77,30 +118,76 @@ def parse_version_tuple(value: str) -> tuple[int, ...]:
     return tuple(parts)
 
 
+def _is_newer(remote_version: str, local_version: str) -> bool:
+    return parse_version_tuple(remote_version) > parse_version_tuple(local_version)
+
+
+def _env_first(names: tuple[str, ...]) -> str:
+    """First non-empty value among ``names``."""
+    for name in names:
+        value = os.getenv(name, "").strip()
+        if value:
+            return value
+    return ""
+
+
 def read_local_version() -> str:
     try:
-        return VERSION_PATH.read_text(encoding="utf-8").strip() or "0.0.0"
+        return VERSION_PATH.read_text(encoding="utf-8").strip() or _FALLBACK_VERSION
     except FileNotFoundError:
-        return "0.0.0"
+        return _FALLBACK_VERSION
+
+
+# --------------------------------------------------------------------------
+# Git discovery
+# --------------------------------------------------------------------------
 
 
 def resolve_git_executable() -> str | None:
-    git_executable = shutil.which("git")
-    if git_executable:
-        return git_executable
+    on_path = shutil.which("git")
+    if on_path:
+        return on_path
 
-    # Check common Windows install locations as fallback
     if os.name == "nt":
-        candidate_paths = (
-            Path(r"C:\Program Files\Git\cmd\git.exe"),
-            Path(r"C:\Program Files\Git\bin\git.exe"),
-            Path(os.path.expandvars(r"%LocalAppData%\Programs\Git\cmd\git.exe")),
-            Path(os.path.expandvars(r"%LocalAppData%\Programs\Git\bin\git.exe")),
-        )
-        for candidate_path in candidate_paths:
-            if candidate_path.exists():
-                return str(candidate_path)
+        for candidate in _WINDOWS_GIT_CANDIDATES:
+            path = Path(os.path.expandvars(candidate))
+            if path.exists():
+                return str(path)
 
+    return None
+
+
+def _run_git(arguments: list[str], timeout: int) -> subprocess.CompletedProcess | None:
+    """Run a git command in the project root; None if git is missing or failed."""
+    git_executable = resolve_git_executable()
+    if not git_executable:
+        return None
+
+    try:
+        return subprocess.run(
+            [git_executable, *arguments],
+            cwd=str(ROOT_DIR),
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=timeout,
+        )
+    except Exception:
+        return None
+
+
+def parse_repo_slug_from_remote(remote_url: str) -> str | None:
+    trimmed = remote_url.strip()
+    if not trimmed:
+        return None
+
+    if trimmed.endswith(".git"):
+        trimmed = trimmed[:-4]
+
+    if "github.com/" in trimmed:
+        return trimmed.split("github.com/", 1)[1].strip("/")
+    if trimmed.startswith("git@github.com:"):
+        return trimmed.split("git@github.com:", 1)[1].strip("/")
     return None
 
 
@@ -114,11 +201,12 @@ def normalize_repo_slug(value: str) -> str:
     trimmed = value.strip()
     if not trimmed:
         return DEFAULT_GITHUB_REPO
-    # Full URL / SSH form -> extract owner/repo.
-    parsed = parse_repo_slug_from_remote(trimmed)
-    if parsed:
-        return parsed
-    # Otherwise treat it as an already-clean slug; just tidy it.
+
+    from_url = parse_repo_slug_from_remote(trimmed)
+    if from_url:
+        return from_url
+
+    # Not a URL, so treat it as an already-clean slug and just tidy it up.
     trimmed = trimmed.strip("/")
     if trimmed.endswith(".git"):
         trimmed = trimmed[:-4]
@@ -126,66 +214,75 @@ def normalize_repo_slug(value: str) -> str:
 
 
 def discover_repo_slug() -> str:
-    # NEKOSUNEAI_GITHUB_REPO is the current name; NOVA_GITHUB_REPO is read as a
-    # fallback so existing .env files from before the rename still work.
-    configured = (
-        os.getenv("NEKOSUNEAI_GITHUB_REPO", "").strip()
-        or os.getenv("NOVA_GITHUB_REPO", "").strip()
-    )
+    configured = _env_first(_REPO_ENV_NAMES)
     if configured:
         return normalize_repo_slug(configured)
 
     if not (ROOT_DIR / ".git").exists():
         return DEFAULT_GITHUB_REPO
 
-    git_executable = resolve_git_executable()
-    if not git_executable:
+    result = _run_git(["remote", "get-url", "origin"], _GIT_REMOTE_TIMEOUT)
+    if result is None or result.returncode != 0:
         return DEFAULT_GITHUB_REPO
 
-    try:
-        result = subprocess.run(
-            [git_executable, "remote", "get-url", "origin"],
-            cwd=str(ROOT_DIR),
-            capture_output=True,
-            check=False,
-            text=True,
-            timeout=5,
-        )
-    except Exception:
-        return DEFAULT_GITHUB_REPO
-
-    if result.returncode != 0:
-        return DEFAULT_GITHUB_REPO
-
-    slug = parse_repo_slug_from_remote(result.stdout.strip())
-    return slug or DEFAULT_GITHUB_REPO
-
-
-def parse_repo_slug_from_remote(remote_url: str) -> str | None:
-    trimmed = remote_url.strip()
-    if not trimmed:
-        return None
-
-    if trimmed.endswith(".git"):
-        trimmed = trimmed[:-4]
-
-    if "github.com/" in trimmed:
-        return trimmed.split("github.com/", 1)[1].strip("/")
-
-    if trimmed.startswith("git@github.com:"):
-        return trimmed.split("git@github.com:", 1)[1].strip("/")
-
-    return None
+    return parse_repo_slug_from_remote(result.stdout.strip()) or DEFAULT_GITHUB_REPO
 
 
 def get_branch_name() -> str:
-    # NEKOSUNEAI_GITHUB_BRANCH is the current name; NOVA_GITHUB_BRANCH is read
-    # as a fallback so existing .env files from before the rename still work.
-    configured = (
-        os.getenv("NEKOSUNEAI_GITHUB_BRANCH", "").strip()
-        or os.getenv("NOVA_GITHUB_BRANCH", "").strip()
+    return _env_first(_BRANCH_ENV_NAMES) or DEFAULT_GITHUB_BRANCH
+
+
+def is_git_worktree_dirty() -> bool:
+    """True when local changes exist - or when that cannot be established."""
+    if not (ROOT_DIR / ".git").exists():
+        return False
+
+    result = _run_git(["status", "--porcelain"], _GIT_STATUS_TIMEOUT)
+    if result is None or result.returncode != 0:
+        return True  # unknown state: assume dirty rather than risk overwriting
+    return bool(result.stdout.strip())
+
+
+# --------------------------------------------------------------------------
+# Settings
+# --------------------------------------------------------------------------
+
+
+def get_cache_window_seconds() -> int:
+    raw_value = os.getenv("AUTO_UPDATE_CACHE_SECONDS", "").strip()
+    if not raw_value:
+        return DEFAULT_UPDATE_CACHE_SECONDS
+    try:
+        return max(0, int(raw_value))
+    except ValueError:
+        return DEFAULT_UPDATE_CACHE_SECONDS
+
+
+def get_auto_update_check_enabled() -> bool:
+    return parse_bool(os.getenv("AUTO_UPDATE_CHECK"), DEFAULT_AUTO_UPDATE_CHECK)
+
+
+def get_auto_update_install_enabled() -> bool:
+    return parse_bool(os.getenv("AUTO_UPDATE_INSTALL"), DEFAULT_AUTO_UPDATE_INSTALL)
+
+
+def get_remote_version_url(repo_slug: str, branch: str) -> str:
+    return f"https://raw.githubusercontent.com/{repo_slug}/{branch}/VERSION"
+
+
+def get_remote_zip_url(repo_slug: str, branch: str) -> str:
+    return f"https://github.com/{repo_slug}/archive/refs/heads/{branch}.zip"
+
+
+# --------------------------------------------------------------------------
+# Check caching
+# --------------------------------------------------------------------------
+
+
+def format_timestamp(unix_seconds: float) -> str:
+    return datetime.fromtimestamp(unix_seconds).astimezone().isoformat(
+        timespec="seconds"
     )
-    return configured or DEFAULT_GITHUB_BRANCH
 
 
 def load_update_cache() -> dict[str, Any]:
@@ -203,41 +300,28 @@ def save_update_cache(payload: dict[str, Any]) -> None:
     )
 
 
-def get_cache_window_seconds() -> int:
-    raw_value = os.getenv("AUTO_UPDATE_CACHE_SECONDS", "").strip()
-    if not raw_value:
-        return DEFAULT_UPDATE_CACHE_SECONDS
+def _cache_is_usable(
+    cache: dict[str, Any], local_version: str, repo_slug: str, branch: str
+) -> bool:
+    """A cache entry counts only for the same target, and only while fresh."""
+    if (
+        cache.get("repo_slug") != repo_slug
+        or cache.get("branch") != branch
+        or cache.get("local_version") != local_version
+    ):
+        return False
 
-    try:
-        return max(0, int(raw_value))
-    except ValueError:
-        return DEFAULT_UPDATE_CACHE_SECONDS
+    checked_at_unix = cache.get("checked_at_unix")
+    remote_version = cache.get("remote_version")
+    if not isinstance(checked_at_unix, (int, float)):
+        return False
+    if not isinstance(remote_version, str) or not remote_version:
+        return False
 
-
-def get_auto_update_check_enabled() -> bool:
-    return parse_bool(
-        os.getenv("AUTO_UPDATE_CHECK"),
-        DEFAULT_AUTO_UPDATE_CHECK,
-    )
-
-
-def get_auto_update_install_enabled() -> bool:
-    return parse_bool(
-        os.getenv("AUTO_UPDATE_INSTALL"),
-        DEFAULT_AUTO_UPDATE_INSTALL,
-    )
-
-
-def get_remote_version_url(repo_slug: str, branch: str) -> str:
-    return f"https://raw.githubusercontent.com/{repo_slug}/{branch}/VERSION"
-
-
-def get_remote_zip_url(repo_slug: str, branch: str) -> str:
-    return f"https://github.com/{repo_slug}/archive/refs/heads/{branch}.zip"
-
-
-def format_timestamp(unix_seconds: float) -> str:
-    return datetime.fromtimestamp(unix_seconds).astimezone().isoformat(timespec="seconds")
+    window = get_cache_window_seconds()
+    if window <= 0:
+        return False
+    return time.time() - float(checked_at_unix) <= window
 
 
 def build_cached_status(
@@ -246,33 +330,15 @@ def build_cached_status(
     repo_slug: str,
     branch: str,
 ) -> UpdateStatus | None:
-    cache_matches = (
-        cache.get("repo_slug") == repo_slug
-        and cache.get("branch") == branch
-        and cache.get("local_version") == local_version
-    )
-    if not cache_matches:
+    if not _cache_is_usable(cache, local_version, repo_slug, branch):
         return None
 
-    checked_at_unix = cache.get("checked_at_unix")
-    remote_version = cache.get("remote_version")
-    if not isinstance(checked_at_unix, (int, float)):
-        return None
-    if not isinstance(remote_version, str) or not remote_version:
-        return None
-
-    cache_window_seconds = get_cache_window_seconds()
-    if cache_window_seconds <= 0:
-        return None
-    if time.time() - float(checked_at_unix) > cache_window_seconds:
-        return None
-
+    remote_version = cache["remote_version"]
     checked_at = cache.get("checked_at")
     return UpdateStatus(
         local_version=local_version,
         remote_version=remote_version,
-        update_available=parse_version_tuple(remote_version)
-        > parse_version_tuple(local_version),
+        update_available=_is_newer(remote_version, local_version),
         repo_slug=repo_slug,
         branch=branch,
         checked_at=checked_at if isinstance(checked_at, str) else None,
@@ -300,10 +366,15 @@ def write_update_cache(
     return checked_at
 
 
+# --------------------------------------------------------------------------
+# Checking
+# --------------------------------------------------------------------------
+
+
 def fetch_remote_version(
     repo_slug: str,
     branch: str,
-    timeout: float = 5.0,
+    timeout: float = _VERSION_FETCH_TIMEOUT,
 ) -> str:
     response = requests.get(
         get_remote_version_url(repo_slug, branch),
@@ -311,6 +382,7 @@ def fetch_remote_version(
         timeout=timeout,
     )
     response.raise_for_status()
+
     remote_version = response.text.strip()
     if not remote_version:
         raise RuntimeError("GitHub did not return a usable VERSION file.")
@@ -324,14 +396,14 @@ def check_for_updates(force: bool = False) -> UpdateStatus:
     local_version = read_local_version()
 
     if not force:
-        cached_status = build_cached_status(
+        cached = build_cached_status(
             load_update_cache(),
             local_version=local_version,
             repo_slug=repo_slug,
             branch=branch,
         )
-        if cached_status is not None:
-            return cached_status
+        if cached is not None:
+            return cached
 
     try:
         remote_version = fetch_remote_version(repo_slug, branch)
@@ -354,38 +426,16 @@ def check_for_updates(force: bool = False) -> UpdateStatus:
     return UpdateStatus(
         local_version=local_version,
         remote_version=remote_version,
-        update_available=parse_version_tuple(remote_version)
-        > parse_version_tuple(local_version),
+        update_available=_is_newer(remote_version, local_version),
         repo_slug=repo_slug,
         branch=branch,
         checked_at=checked_at,
     )
 
 
-def is_git_worktree_dirty() -> bool:
-    if not (ROOT_DIR / ".git").exists():
-        return False
-
-    git_executable = resolve_git_executable()
-    if not git_executable:
-        return True
-
-    try:
-        result = subprocess.run(
-            [git_executable, "status", "--porcelain"],
-            cwd=str(ROOT_DIR),
-            capture_output=True,
-            check=False,
-            text=True,
-            timeout=10,
-        )
-    except Exception:
-        return True
-
-    if result.returncode != 0:
-        return True
-
-    return bool(result.stdout.strip())
+# --------------------------------------------------------------------------
+# Applying
+# --------------------------------------------------------------------------
 
 
 def should_skip_update_path(relative_path: Path) -> bool:
@@ -400,12 +450,13 @@ def download_update_archive(repo_slug: str, branch: str, destination: Path) -> N
     response = requests.get(
         get_remote_zip_url(repo_slug, branch),
         headers=GITHUB_REQUEST_HEADERS,
-        timeout=30,
+        timeout=_ARCHIVE_FETCH_TIMEOUT,
         stream=True,
     )
     response.raise_for_status()
+
     with destination.open("wb") as zip_file:
-        for chunk in response.iter_content(chunk_size=1024 * 1024):
+        for chunk in response.iter_content(chunk_size=_ARCHIVE_CHUNK_BYTES):
             if chunk:
                 zip_file.write(chunk)
 
@@ -419,27 +470,34 @@ def _is_within(base: Path, target: Path) -> bool:
         return False
 
 
+def _reject_unsafe_members(archive: zipfile.ZipFile, extract_dir: Path) -> None:
+    """Validate every member before writing anything.
+
+    ``zipfile.extractall()`` honours ``../`` and absolute member names, so a
+    hostile archive could otherwise write anywhere on disk (zip-slip, the
+    CVE-2007-4559 class). The whole archive is refused on the first escaping
+    entry, rather than leaving a half-extracted tree behind.
+    """
+    for member in archive.namelist():
+        if not _is_within(extract_dir, extract_dir / member):
+            raise RuntimeError(
+                f"Refusing unsafe update archive: entry '{member}' escapes "
+                "the extraction directory."
+            )
+
+
 def extract_archive_root(zip_path: Path, extract_dir: Path) -> Path:
     extract_dir.mkdir(parents=True, exist_ok=True)
+
     with zipfile.ZipFile(zip_path, "r") as archive:
-        # Validate every member resolves *inside* extract_dir before writing a
-        # single byte. zipfile.extractall() follows ``../`` and absolute member
-        # names, so a malicious archive could otherwise overwrite files anywhere
-        # on disk (zip-slip / CVE-2007-4559 class). Reject the whole archive on
-        # the first escaping entry rather than extracting a partial tree.
-        for member in archive.namelist():
-            destination = extract_dir / member
-            if not _is_within(extract_dir, destination):
-                raise RuntimeError(
-                    f"Refusing unsafe update archive: entry '{member}' escapes "
-                    "the extraction directory."
-                )
+        _reject_unsafe_members(archive, extract_dir)
         archive.extractall(extract_dir)
 
-    children = [child for child in extract_dir.iterdir() if child.is_dir()]
-    if len(children) != 1:
+    # A GitHub branch zip contains exactly one top-level directory.
+    directories = [child for child in extract_dir.iterdir() if child.is_dir()]
+    if len(directories) != 1:
         raise RuntimeError("Downloaded update archive had an unexpected layout.")
-    return children[0]
+    return directories[0]
 
 
 def copy_update_tree(source_root: Path, destination_root: Path) -> None:
@@ -478,23 +536,26 @@ def apply_update() -> UpdateStatus:
     status = check_for_updates(force=True)
     if status.error:
         raise RuntimeError(f"Could not check GitHub for updates. {status.error}")
-
     if not status.update_available:
         return status
 
     if is_git_worktree_dirty():
         raise RuntimeError(
-            "This copy looks like a git checkout with local changes, so auto-update was skipped to avoid overwriting work."
+            "This copy looks like a git checkout with local changes, so auto-update "
+            "was skipped to avoid overwriting work."
         )
 
     with tempfile.TemporaryDirectory(prefix="nekosuneai-update-") as temp_dir:
         temp_path = Path(temp_dir)
         zip_path = temp_path / "update.zip"
+
         download_update_archive(status.repo_slug, status.branch, zip_path)
         extracted_root = extract_archive_root(zip_path, temp_path / "archive")
         copy_update_tree(extracted_root, ROOT_DIR)
 
     rerun_setup()
+
+    # Re-stamp the cache so the freshly written version is what we compare against.
     if status.remote_version:
         write_update_cache(
             local_version=status.remote_version,
@@ -505,8 +566,15 @@ def apply_update() -> UpdateStatus:
     return status
 
 
+# --------------------------------------------------------------------------
+# Command line
+# --------------------------------------------------------------------------
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="Check for or apply NekoSuneAI updates.")
+    parser = argparse.ArgumentParser(
+        description="Check for or apply NekoSuneAI updates."
+    )
     parser.add_argument(
         "--apply",
         action="store_true",
@@ -536,20 +604,22 @@ def main() -> None:
     args = build_parser().parse_args()
     load_dotenv()
 
-    if args.apply:
-        try:
-            status = apply_update()
-        except Exception as exc:
-            print(f"Update failed: {exc}")
-            raise SystemExit(1) from exc
-
-        if status.update_available:
-            print(f"NekoSuneAI updated from {status.local_version} to {status.remote_version}.")
-        else:
-            print(f"NekoSuneAI is already up to date at {status.local_version}.")
+    if not args.apply:
+        print_status(check_for_updates(force=args.force_check))
         return
 
-    print_status(check_for_updates(force=args.force_check))
+    try:
+        status = apply_update()
+    except Exception as exc:
+        print(f"Update failed: {exc}")
+        raise SystemExit(1) from exc
+
+    if status.update_available:
+        print(
+            f"NekoSuneAI updated from {status.local_version} to {status.remote_version}."
+        )
+    else:
+        print(f"NekoSuneAI is already up to date at {status.local_version}.")
 
 
 if __name__ == "__main__":

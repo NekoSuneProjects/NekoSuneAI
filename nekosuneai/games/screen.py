@@ -1,10 +1,11 @@
-"""Screen capture + optional vision captioning for the universal game driver.
+"""Screen sampling and optional captioning for the universal game driver.
 
-Captures the screen (mss or PIL), optionally downscales it, and asks a
-multimodal model for a compact scene description so the text LLM brain can
-decide actions. All deps are optional/lazy; if vision isn't configured the
-driver still runs with a minimal observation.
+Grabs the primary display, shrinks it to something a model will accept, and
+optionally asks a multimodal model what is on screen so the text-only brain has
+something to reason about. Every dependency here is lazy and optional: with no
+vision model configured the driver still runs, just with a thinner observation.
 """
+
 from __future__ import annotations
 
 import base64
@@ -15,70 +16,101 @@ import requests
 
 from ..config import Config
 
+_DEFAULT_MAX_WIDTH = 768
+_CAPTION_TIMEOUT_SECONDS = 90
+_DEFAULT_OLLAMA_ROOT = "http://127.0.0.1:11434"
+_NO_VISION_NOTICE = "(no vision model configured — playing without screen analysis)"
 
-def capture_png(max_width: int = 768) -> bytes | None:
-    """Grab the primary screen as PNG bytes, downscaled to max_width."""
-    img = None
-    try:
-        import mss  # type: ignore
-        from PIL import Image  # type: ignore
 
-        with mss.mss() as sct:
-            shot = sct.grab(sct.monitors[1])
-            img = Image.frombytes("RGB", shot.size, shot.bgra, "raw", "BGRX")
-    except Exception:
+def _grab_with_mss() -> Any:
+    """Fast path: mss blits the primary monitor without a round-trip through the WM."""
+    import mss  # type: ignore
+    from PIL import Image  # type: ignore
+
+    with mss.mss() as sct:
+        frame = sct.grab(sct.monitors[1])
+    return Image.frombytes("RGB", frame.size, frame.bgra, "raw", "BGRX")
+
+
+def _grab_with_pil() -> Any:
+    """Fallback for hosts without mss."""
+    from PIL import ImageGrab  # type: ignore
+
+    return ImageGrab.grab()
+
+
+def _grab_screen() -> Any:
+    for grab in (_grab_with_mss, _grab_with_pil):
         try:
-            from PIL import ImageGrab  # type: ignore
-
-            img = ImageGrab.grab()
+            return grab()
         except Exception:
-            return None
+            continue
+    return None
+
+
+def _shrink_to_width(image: Any, max_width: int) -> Any:
+    if image.width <= max_width:
+        return image
+    scale = max_width / float(image.width)
+    return image.resize((max_width, int(image.height * scale)))
+
+
+def capture_png(max_width: int = _DEFAULT_MAX_WIDTH) -> bytes | None:
+    """Return the primary display as PNG bytes, capped at ``max_width``."""
+    image = _grab_screen()
+    if image is None:
+        return None
 
     try:
-        if img.width > max_width:
-            ratio = max_width / float(img.width)
-            img = img.resize((max_width, int(img.height * ratio)))
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
+        buffer = io.BytesIO()
+        _shrink_to_width(image, max_width).save(buffer, format="PNG")
+        return buffer.getvalue()
     except Exception:
         return None
 
 
 def screen_size() -> tuple[int, int] | None:
     try:
-        from PIL import ImageGrab  # type: ignore
-
-        img = ImageGrab.grab()
-        return img.size
+        return _grab_with_pil().size
     except Exception:
         return None
 
 
 def _ollama_base(config: Config) -> str:
-    url = config.llm_api_url or "http://127.0.0.1:11434/api/chat"
+    """Strip an Ollama chat URL back to its origin."""
+    url = config.llm_api_url or f"{_DEFAULT_OLLAMA_ROOT}/api/chat"
     if "/api/" in url:
         return url.split("/api/")[0].rstrip("/")
-    return "http://127.0.0.1:11434"
+    return _DEFAULT_OLLAMA_ROOT
 
 
 def caption(config: Config, png_bytes: bytes, prompt: str) -> str:
-    """Describe a screenshot via a local Ollama vision model (e.g. moondream)."""
+    """Describe a screenshot using a local Ollama vision model such as moondream."""
     model = config.vision_model
     if not model or not png_bytes:
-        return "(no vision model configured — playing without screen analysis)"
-    b64 = base64.b64encode(png_bytes).decode("ascii")
-    # Vision models like moondream/llava run in Ollama, so always hit the local
-    # Ollama chat endpoint with the image, regardless of the chat LLM provider.
-    url = _ollama_base(config) + "/api/chat"
-    payload = {
+        return _NO_VISION_NOTICE
+
+    # Vision models (moondream, llava, ...) are served by Ollama, so this call
+    # goes to the local Ollama endpoint no matter which provider backs chat.
+    request = {
         "model": model,
-        "messages": [{"role": "user", "content": prompt, "images": [b64]}],
+        "messages": [
+            {
+                "role": "user",
+                "content": prompt,
+                "images": [base64.b64encode(png_bytes).decode("ascii")],
+            }
+        ],
         "stream": False,
     }
+
     try:
-        resp = requests.post(url, json=payload, timeout=90)
-        resp.raise_for_status()
-        return resp.json()["message"]["content"].strip()
+        response = requests.post(
+            _ollama_base(config) + "/api/chat",
+            json=request,
+            timeout=_CAPTION_TIMEOUT_SECONDS,
+        )
+        response.raise_for_status()
+        return response.json()["message"]["content"].strip()
     except Exception as exc:
         return f"(vision model unavailable: {exc})"
