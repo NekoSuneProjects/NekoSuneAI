@@ -1,7 +1,21 @@
+"""Runtime configuration, assembled from the environment.
+
+Everything the app can be tuned with lands in one ``Config`` built by
+:meth:`Config.from_env`. Two ideas run through the file:
+
+* **Aliases.** Users write ``chatgpt``, ``openai-compatible`` or ``ddg``; each
+  ``normalize_*`` maps a pile of spellings onto the single value the rest of
+  the code checks, driven by a table rather than a chain of comparisons.
+* **Auto-tune.** When it is on, the hardware profile from
+  :mod:`nekosuneai.performance` supplies model sizes and buffer depths and the
+  matching ``.env`` variables are ignored; when it is off, the env values win.
+"""
+
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from typing import TypeVar
 from urllib.parse import quote, urlparse
 
 from dotenv import load_dotenv
@@ -13,12 +27,37 @@ from .performance import (
     normalize_auto_tune_goal,
 )
 
+T = TypeVar("T")
+
+_TRUTHY_VALUES = {"1", "true", "yes", "on"}
+
+# canonical value -> every spelling that should resolve to it
+AliasTable = tuple[tuple[str, frozenset[str]], ...]
+
+
+def _alias(canonical: str, *spellings: str) -> tuple[str, frozenset[str]]:
+    return canonical, frozenset(spellings)
+
+
+def _match_alias(value: str | None, table: AliasTable, default: T) -> str | T:
+    """Resolve ``value`` through an alias table, falling back to ``default``."""
+    normalized = (value or "").strip().lower()
+    for canonical, spellings in table:
+        if normalized in spellings:
+            return canonical
+    return default
+
+
+# --------------------------------------------------------------------------
+# Environment parsing
+# --------------------------------------------------------------------------
+
 
 def parse_bool_env(name: str, default: bool) -> bool:
     value = os.getenv(name)
     if value is None:
         return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
+    return value.strip().lower() in _TRUTHY_VALUES
 
 
 def parse_optional_int_env(name: str) -> int | None:
@@ -32,126 +71,123 @@ def parse_optional_str_env(name: str) -> str | None:
     value = os.getenv(name)
     if value is None:
         return None
-    stripped = value.strip()
-    return stripped or None
+    return value.strip() or None
+
+
+# --------------------------------------------------------------------------
+# Alias tables
+# --------------------------------------------------------------------------
+
+_VOICE_MODE: AliasTable = (
+    _alias("voice", "voice", "mic", "microphone", "handsfree", "hands-free"),
+)
+_INPUT_MODES: AliasTable = _VOICE_MODE + (
+    _alias("text", "text", "typing", "keyboard"),
+)
+
+_STT_PROVIDERS: AliasTable = (
+    _alias("bridge", "bridge", "remote", "nekoai-bridge"),
+    _alias("google", "google", "web"),
+    _alias("vosk", "vosk", "local-lite", "local_light", "pi"),
+)
+
+_LLM_PROVIDERS: AliasTable = (
+    _alias(
+        "claude-code",
+        "claude", "claude-code", "claudecode", "claude-cli", "claude_code",
+        "anthropic-cli",
+    ),
+    _alias("codex", "codex", "codex-cli", "codex_cli", "openai-codex"),
+    _alias("cli", "cli", "custom-cli", "command", "shell"),
+    _alias(
+        "openai",
+        "openai", "chatgpt", "openai-compatible", "openai_compatible", "custom",
+        "custom-openai", "openrouter", "open-router", "lmstudio", "lm-studio",
+        "lm studio", "litellm",
+    ),
+)
+
+_WEB_SAFESEARCH: AliasTable = (
+    _alias("off", "off", "none", "disabled"),
+    _alias("strict", "strict", "high"),
+)
+
+_WEB_SEARCH_PROVIDERS: AliasTable = (
+    _alias("duckduckgo", "duckduckgo", "duckduckgo-search", "ddg", "ddgs"),
+    _alias("searxng", "searxng", "searx", "searx-ng"),
+    _alias("gateway", "gateway", "search-gateway", "openai-search"),
+)
+
+_MUSIC_PROVIDERS: AliasTable = (
+    _alias("youtube", "youtube", "youtube-music", "youtube_music", "yt", "ytmusic"),
+    _alias("soundcloud", "soundcloud", "sc"),
+    _alias("deezer", "deezer"),
+    _alias("spotify", "spotify"),
+)
+
+_SINGING_BACKENDS: AliasTable = (
+    _alias("local", "local", "xtts", "gtts"),
+    _alias("rvc", "rvc"),
+)
+
+_TTS_PROVIDERS: AliasTable = (
+    _alias("bridge", "bridge", "remote", "nekoai-bridge"),
+    _alias("gtts", "gtts", "google-tts", "google_tts", "google"),
+)
+
+_RAG_EMBEDDING_PROVIDERS: AliasTable = (
+    _alias("ollama", "ollama", "ollama-embed", "ollama_embeddings"),
+    _alias("openai", "openai", "openai-compatible", "api", "remote"),
+)
+
+# CLI providers identify themselves rather than naming a model.
+_CLI_PROVIDER_LABELS = {
+    "claude-code": "Claude Code (CLI)",
+    "codex": "Codex (CLI)",
+    "cli": "Custom CLI",
+}
 
 
 def normalize_input_mode(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized in {"voice", "mic", "microphone", "handsfree", "hands-free"}:
-        return "voice"
-    return "text"
+    """Anything that is not clearly a voice mode falls back to text."""
+    return _match_alias(value, _VOICE_MODE, "text")
+
+
+def parse_input_mode(argument: str) -> str | None:
+    """Like :func:`normalize_input_mode`, but an unknown mode is rejected."""
+    return _match_alias(argument, _INPUT_MODES, None)
 
 
 def normalize_stt_provider(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized in {"bridge", "remote", "nekoai-bridge"}:
-        return "bridge"
-    if normalized in {"google", "web"}:
-        return "google"
-    if normalized in {"vosk", "local-lite", "local_light", "pi"}:
-        return "vosk"
-    return "faster-whisper"
+    return _match_alias(value, _STT_PROVIDERS, "faster-whisper")
 
 
 def normalize_llm_provider(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized in {
-        "claude",
-        "claude-code",
-        "claudecode",
-        "claude-cli",
-        "claude_code",
-        "anthropic-cli",
-    }:
-        return "claude-code"
-    if normalized in {"codex", "codex-cli", "codex_cli", "openai-codex"}:
-        return "codex"
-    if normalized in {"cli", "custom-cli", "command", "shell"}:
-        return "cli"
-    if normalized in {
-        "openai",
-        "chatgpt",
-        "openai-compatible",
-        "openai_compatible",
-        "custom",
-        "custom-openai",
-        "openrouter",
-        "open-router",
-        "lmstudio",
-        "lm-studio",
-        "lm studio",
-        "litellm",
-    }:
-        return "openai"
-    return "ollama"
-
-
-def resolve_model_label(
-    provider: str,
-    explicit_model: str | None,
-    ollama_default: str,
-    cli_model: str | None,
-) -> str:
-    if provider in {"claude-code", "codex", "cli"}:
-        defaults = {
-            "claude-code": "Claude Code (CLI)",
-            "codex": "Codex (CLI)",
-            "cli": "Custom CLI",
-        }
-        return cli_model or defaults.get(provider, provider)
-    return explicit_model or ollama_default
+    return _match_alias(value, _LLM_PROVIDERS, "ollama")
 
 
 def normalize_web_safesearch(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized in {"off", "none", "disabled"}:
-        return "off"
-    if normalized in {"strict", "high"}:
-        return "strict"
-    return "moderate"
+    return _match_alias(value, _WEB_SAFESEARCH, "moderate")
 
 
 def normalize_web_search_provider(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized in {"duckduckgo", "duckduckgo-search", "ddg", "ddgs"}:
-        return "duckduckgo"
-    if normalized in {"searxng", "searx", "searx-ng"}:
-        return "searxng"
-    if normalized in {"gateway", "search-gateway", "openai-search"}:
-        return "gateway"
-    return "searxng"
+    return _match_alias(value, _WEB_SEARCH_PROVIDERS, "searxng")
 
 
 def normalize_music_provider(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized in {"youtube", "youtube-music", "youtube_music", "yt", "ytmusic"}:
-        return "youtube"
-    if normalized in {"soundcloud", "sc"}:
-        return "soundcloud"
-    if normalized in {"deezer"}:
-        return "deezer"
-    if normalized in {"spotify"}:
-        return "spotify"
-    return "soundcloud"
+    return _match_alias(value, _MUSIC_PROVIDERS, "soundcloud")
 
 
 def _normalize_singing_backend(value: str) -> str:
-    v = (value or "").strip().lower()
-    if v in {"local", "xtts", "gtts"}:
-        return "local"
-    if v == "rvc":
-        return "rvc"
-    return "cloud"
+    return _match_alias(value, _SINGING_BACKENDS, "cloud")
 
 
 def normalize_tts_provider(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized in {"bridge", "remote", "nekoai-bridge"}:
-        return "bridge"
-    if normalized in {"gtts", "google-tts", "google_tts", "google"}:
-        return "gtts"
-    return "xtts"
+    return _match_alias(value, _TTS_PROVIDERS, "xtts")
+
+
+def normalize_rag_embedding_provider(value: str) -> str:
+    return _match_alias(value, _RAG_EMBEDDING_PROVIDERS, "local")
 
 
 def normalize_audio_output(value: str | None) -> str:
@@ -161,48 +197,57 @@ def normalize_audio_output(value: str | None) -> str:
     return "speaker"
 
 
-def normalize_rag_embedding_provider(value: str) -> str:
-    normalized = value.strip().lower()
-    if normalized in {"ollama", "ollama-embed", "ollama_embeddings"}:
-        return "ollama"
-    if normalized in {"openai", "openai-compatible", "api", "remote"}:
-        return "openai"
-    return "local"
+def resolve_model_label(
+    provider: str,
+    explicit_model: str | None,
+    ollama_default: str,
+    cli_model: str | None,
+) -> str:
+    if provider in _CLI_PROVIDER_LABELS:
+        return cli_model or _CLI_PROVIDER_LABELS[provider]
+    return explicit_model or ollama_default
+
+
+# --------------------------------------------------------------------------
+# Endpoint URLs
+# --------------------------------------------------------------------------
+
+
+def _complete_endpoint(
+    candidate: str,
+    full_suffix: str,
+    partial_path: str | None = None,
+    partial_suffix: str = "",
+) -> str:
+    """Append the API path to a bare host, or finish a half-written one.
+
+    Users paste ``https://host``, ``https://host/v1`` or the complete endpoint;
+    only the first two need anything added to them.
+    """
+    path = urlparse(candidate).path.rstrip("/")
+    if not path:
+        return candidate.rstrip("/") + full_suffix
+    if partial_path is not None and path == partial_path:
+        return candidate.rstrip("/") + partial_suffix
+    return candidate
 
 
 def resolve_llm_api_url(provider: str, raw_url: str | None) -> str:
     if provider == "openai":
         candidate = (raw_url or "https://api.openai.com/v1/chat/completions").strip()
-        parsed = urlparse(candidate)
-        path = parsed.path.rstrip("/")
-        if not path:
-            return candidate.rstrip("/") + "/v1/chat/completions"
-        if path == "/v1":
-            return candidate.rstrip("/") + "/chat/completions"
-        if path.endswith("/chat/completions"):
-            return candidate
-        return candidate
+        return _complete_endpoint(
+            candidate, "/v1/chat/completions", "/v1", "/chat/completions"
+        )
 
     candidate = (raw_url or "http://127.0.0.1:11434/api/chat").strip()
-    parsed = urlparse(candidate)
-    path = parsed.path.rstrip("/")
-    if not path:
-        return candidate.rstrip("/") + "/api/chat"
-    if path == "/api":
-        return candidate.rstrip("/") + "/chat"
-    return candidate
+    return _complete_endpoint(candidate, "/api/chat", "/api", "/chat")
 
 
 def resolve_web_search_url(provider: str, raw_url: str | None) -> str:
     if provider == "searxng":
         candidate = (raw_url or "https://searxng.nekosunevr.co.uk/").strip()
-        parsed = urlparse(candidate)
-        path = parsed.path.rstrip("/")
-        if not path:
-            return candidate.rstrip("/") + "/search"
-        if path.endswith("/search"):
-            return candidate
-        return candidate
+        return _complete_endpoint(candidate, "/search")
+
     if provider == "gateway":
         candidate = (raw_url or "").strip().rstrip("/")
         if not candidate:
@@ -210,25 +255,13 @@ def resolve_web_search_url(provider: str, raw_url: str | None) -> str:
         if candidate.endswith("/v1/search"):
             return candidate
         return candidate + "/v1/search"
+
     return (raw_url or "").strip()
 
 
 def resolve_soundcloud_stream_endpoint(raw_url: str | None) -> str:
     candidate = (raw_url or "https://dl.nekosunevr.co.uk/api/stream").strip()
-    parsed = urlparse(candidate)
-    path = parsed.path.rstrip("/")
-    if not path:
-        return candidate.rstrip("/") + "/api/stream"
-    return candidate
-
-
-def parse_input_mode(argument: str) -> str | None:
-    normalized = argument.strip().lower()
-    if normalized in {"voice", "mic", "microphone", "handsfree", "hands-free"}:
-        return "voice"
-    if normalized in {"text", "typing", "keyboard"}:
-        return "text"
-    return None
+    return _complete_endpoint(candidate, "/api/stream")
 
 
 @dataclass

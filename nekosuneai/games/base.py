@@ -1,27 +1,34 @@
-"""Game driver contract.
+"""The contract every game integration implements.
 
-A ``GameDriver`` is the only game-specific piece. The ``GameAgent`` brain talks
-to it purely through this interface, so adding a new game (or a vision+keyboard
-"any game" driver later) means implementing this Protocol without touching the
-agent loop.
+Game-specific knowledge is confined to a driver. ``GameAgent`` reasons only
+against the Protocol declared here, so supporting another title - or a generic
+vision-plus-keyboard driver that plays anything on screen - is a matter of
+satisfying this interface rather than editing the agent loop.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Protocol, runtime_checkable
 
+__all__ = ["GameObservation", "GameCommand", "GameDriver"]
+
 
 @dataclass
 class GameObservation:
-    """A structured snapshot of the game world."""
+    """One sampled view of the world.
+
+    ``raw`` carries whatever the driver natively reports; ``text`` is the
+    condensed rendering handed to the language model and to narration.
+    """
 
     raw: dict[str, Any] = field(default_factory=dict)
-    text: str = ""  # compact human/LLM-readable summary
+    text: str = ""
 
 
 @dataclass
 class GameCommand:
-    """A high-level action the agent wants to perform."""
+    """An intent the agent wants carried out, named by ``verb``."""
 
     verb: str
     args: dict[str, Any] = field(default_factory=dict)
@@ -29,25 +36,40 @@ class GameCommand:
 
 @runtime_checkable
 class GameDriver(Protocol):
+    """Lifecycle, observation and actuation for a single game."""
+
     name: str
 
+    # -- lifecycle ---------------------------------------------------------
+
     def start(self) -> None:
-        """Launch / connect the game (e.g. spawn the Node bridge, join server)."""
-
-    def stop(self) -> None:
-        """Disconnect and release resources."""
-
-    def is_running(self) -> bool:
+        """Bring the game up: spawn a bridge process, attach, join a server."""
         ...
 
+    def stop(self) -> None:
+        """Tear the session down and free anything it holds."""
+        ...
+
+    def is_running(self) -> bool:
+        """Whether the game is currently attached and usable."""
+        ...
+
+    # -- observation -------------------------------------------------------
+
     def observe(self) -> GameObservation:
-        """Return the current world state."""
+        """Sample the world as it stands right now."""
+        ...
 
     def describe_state(self) -> str:
-        """Return a compact text description for the LLM and narration."""
+        """Summarise the world in prose short enough to prompt with."""
+        ...
+
+    # -- actuation ---------------------------------------------------------
 
     def act(self, command: GameCommand) -> dict[str, Any]:
-        """Execute a high-level command and return an outcome dict."""
+        """Carry out ``command`` and report the outcome."""
+        ...
 
     def available_verbs(self) -> list[str]:
-        """The high-level verbs this driver understands."""
+        """Every verb :meth:`act` accepts on this driver."""
+        ...
