@@ -23,6 +23,7 @@ streams.
 from __future__ import annotations
 
 import argparse
+import errno
 import base64
 import json
 import os
@@ -457,7 +458,7 @@ class PiProxyAgent:
             # Docker single-file bind mounts cannot be replaced with rename(2):
             # the mount point itself returns EBUSY. Fall back to writing the
             # mounted file in place so dashboard pairing can persist its token.
-            if exc.errno != 16:  # errno.EBUSY without another import
+            if exc.errno != errno.EBUSY:
                 raise
             self.config_path.write_text(rendered, "utf-8")
             try:
