@@ -767,12 +767,24 @@ class PiProxyWebStatusServer:
         if self._thread is not None and self._thread.is_alive():
             return
         self._httpd = _ThreadingHTTPServer((self.host, self.port), _Handler)
+        # Port 0 is useful in tests and for local development. Keep self.port
+        # in sync with the actual bound port so local_url() and the console
+        # banner never advertise :0.
+        self.port = int(self._httpd.server_address[1])
         self._httpd.owner = self.agent  # type: ignore[attr-defined]
         self._httpd.control_enabled = self.control_enabled  # type: ignore[attr-defined]
         self._httpd.control_pin = self.control_pin  # type: ignore[attr-defined]
         self._httpd.dispatch = self.dispatch  # type: ignore[attr-defined]
         self._thread = threading.Thread(target=self._httpd.serve_forever, daemon=True, name="pi-proxy-web-status")
         self._thread.start()
+        # This is intentionally printed after bind/start so Dockge/docker logs
+        # show the exact LAN URL to open instead of forcing the owner to guess
+        # the Pi address or remember the configured port.
+        print(
+            f"[Pi Proxy] Dashboard: {self.local_url()} "
+            f"(listening on {self.host}:{self.port})",
+            flush=True,
+        )
 
     def stop(self) -> None:
         if self._httpd is not None:

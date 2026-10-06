@@ -13,6 +13,7 @@ import urllib.request
 
 import pytest
 
+import nekosuneai.pi_proxy_web as pi_proxy_web
 from nekosuneai.pi_proxy_web import PiProxyWebStatusServer
 
 
@@ -110,6 +111,19 @@ def served():
 
     yield _start
     for server in servers:
+        server.stop()
+
+
+def test_start_prints_actual_dashboard_lan_url(monkeypatch, capsys):
+    monkeypatch.setattr(pi_proxy_web, "_local_ip", lambda: "192.0.2.44")
+    server = PiProxyWebStatusServer(FakeAgent(), port=0)
+    try:
+        server.start()
+        output = capsys.readouterr().out
+        assert server.port != 0
+        assert f"http://192.0.2.44:{server.port}/" in output
+        assert f"0.0.0.0:{server.port}" in output
+    finally:
         server.stop()
 
 

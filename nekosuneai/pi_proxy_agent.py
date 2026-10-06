@@ -543,7 +543,13 @@ class PiProxyAgent:
             self._capture_device = resolve_capture_device(
                 alsa_device=str(self.config.get("mic_alsa_device") or ""),
                 portaudio_name=portaudio_name,
-                prefer_kinect=bool(self.config.get("kinect_vision_enabled")),
+                # Microphone selection is independent from Kinect camera
+                # vision. After a host reinstall (for example Raspberry Pi OS
+                # -> Ubuntu) ALSA card numbering commonly changes and there
+                # may be several capture devices. If a Kinect 360 microphone
+                # array is present, prefer it by default unless the owner
+                # explicitly disables that preference or selects another mic.
+                prefer_kinect=bool(self.config.get("prefer_kinect_microphone", True)),
             )
         return self._capture_device
 
@@ -1189,6 +1195,7 @@ _ENV_OVERRIDE_KEYS: dict[str, tuple[str, Any]] = {
     "WEB_CONTROL_PIN": ("web_control_pin", str),
     "ALERT_SOUNDS_DIR": ("alert_sounds_dir", str),
     "MIC_ALSA_DEVICE": ("mic_alsa_device", str),
+    "PREFER_KINECT_MICROPHONE": ("prefer_kinect_microphone", _env_bool),
     "KINECT_VISION_ENABLED": ("kinect_vision_enabled", _env_bool),
     "KINECT_DEVICE_INDEX": ("kinect_device_index", int),
     "KINECT_VISION_INTERVAL_SECONDS": ("kinect_vision_interval_seconds", float),

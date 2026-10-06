@@ -152,6 +152,37 @@ def test_disabled_audio_blocks_a_wake_word_turn(agent, backend):
     assert backend.calls == []
 
 
+def test_kinect_microphone_is_preferred_by_default_even_when_camera_vision_is_off(agent, monkeypatch):
+    calls = []
+
+    def fake_resolve_capture_device(**kwargs):
+        calls.append(kwargs)
+        return "plughw:2,0"
+
+    monkeypatch.setattr("nekosuneai.pi_proxy_agent.resolve_capture_device", fake_resolve_capture_device)
+    agent._capture_device = None
+    agent.config.pop("prefer_kinect_microphone", None)
+    agent.config["kinect_vision_enabled"] = False
+
+    assert agent.capture_device() == "plughw:2,0"
+    assert calls[-1]["prefer_kinect"] is True
+
+
+def test_kinect_microphone_preference_can_be_disabled(agent, monkeypatch):
+    calls = []
+
+    def fake_resolve_capture_device(**kwargs):
+        calls.append(kwargs)
+        return ""
+
+    monkeypatch.setattr("nekosuneai.pi_proxy_agent.resolve_capture_device", fake_resolve_capture_device)
+    agent._capture_device = None
+    agent.config["prefer_kinect_microphone"] = False
+
+    assert agent.capture_device() == ""
+    assert calls[-1]["prefer_kinect"] is False
+
+
 def test_status_exposes_the_new_diagnostics(agent):
     status = agent.status()
     assert set(status["microphone"]) == {"alsa_device", "portaudio_name", "error"}

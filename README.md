@@ -76,8 +76,11 @@ the whole loop without saying the wake word.
 Command capture uses `arecord`. Which device it opens is resolved in this
 order: an explicit `mic_alsa_device` in the config, the `hw:X,Y` embedded in
 the wake-word listener's own resolved device name, a name match against
-`arecord -l`, a Kinect preference, then a single unambiguous capture card. If
-none of those settle it, the ALSA default is used.
+`arecord -l`, a Kinect preference, then a single unambiguous capture card. The
+Kinect preference is on by default (`prefer_kinect_microphone: true`) and is
+independent of Kinect camera vision, which matters after host reinstalls where
+ALSA card numbering changes. If none of those settle it, the ALSA default is
+used.
 
 Run `arecord -l` to see what the Pi has. If the wrong one is being picked —
 common on a Pi with onboard audio, a USB mic and a Bluetooth speaker all
@@ -258,7 +261,9 @@ with `Restart=on-failure`.
 ## Local status page
 
 If `web_status_enabled` is true in the config, a dashboard is served on
-`web_status_port` (default `8799`). It shows pairing state, Bluetooth link
+`web_status_port` (default `8799`). On startup the agent prints the exact LAN
+`http://IP:PORT/` address into its console/Docker logs so Dockge users can open
+it directly. It shows pairing state, Bluetooth link
 status, wake-word state and last transcript, the conversation so far, whether
 audio/music is playing, the resolved microphone, console/camera status and a
 recent command log. It also surfaces the failures that used to be invisible:
