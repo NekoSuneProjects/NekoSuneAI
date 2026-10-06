@@ -390,6 +390,28 @@ class TestPairingFromTheDashboard:
 
         assert unpaired._paired.is_set()
 
+    def test_pairing_persists_when_config_is_a_docker_bind_mount(self, unpaired, monkeypatch):
+        """Single-file Docker bind mounts reject atomic rename with EBUSY."""
+        import errno
+
+        original_replace = type(unpaired.config_path).replace
+
+        def busy_on_config(path, target):
+            if path == unpaired.config_path.with_suffix(unpaired.config_path.suffix + ".tmp"):
+                raise OSError(errno.EBUSY, "Device or resource busy")
+            return original_replace(path, target)
+
+        monkeypatch.setattr(type(unpaired.config_path), "replace", busy_on_config)
+
+        unpaired.pair_and_save(
+            f"http://127.0.0.1:{unpaired.backend_port}", "pair-123", "ABCD-EFGH",
+        )
+
+        saved = json.loads(unpaired.config_path.read_text(encoding="utf-8"))
+        assert saved["device_token"] == "fresh-token"
+        assert saved["server_url"] == f"http://127.0.0.1:{unpaired.backend_port}"
+        assert not unpaired.config_path.with_suffix(unpaired.config_path.suffix + ".tmp").exists()
+
     @pytest.mark.parametrize(
         ("server", "pairing_id", "code"),
         [
