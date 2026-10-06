@@ -448,9 +448,22 @@ class PiProxyAgent:
             stored = {}
         stored["server_url"] = self.config.get("server_url", "")
         stored["device_token"] = self.config.get("device_token", "")
+        rendered = json.dumps(stored, indent=2)
         tmp = self.config_path.with_suffix(self.config_path.suffix + ".tmp")
-        tmp.write_text(json.dumps(stored, indent=2), "utf-8")
-        tmp.replace(self.config_path)
+        tmp.write_text(rendered, "utf-8")
+        try:
+            tmp.replace(self.config_path)
+        except OSError as exc:
+            # Docker single-file bind mounts cannot be replaced with rename(2):
+            # the mount point itself returns EBUSY. Fall back to writing the
+            # mounted file in place so dashboard pairing can persist its token.
+            if exc.errno != 16:  # errno.EBUSY without another import
+                raise
+            self.config_path.write_text(rendered, "utf-8")
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
 
     def _headers(self) -> dict[str, str]:
         return {"X-Neko-Device-Token": self.token}
