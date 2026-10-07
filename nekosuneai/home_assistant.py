@@ -169,12 +169,22 @@ class HomeAssistantMqtt:
 
     def handle(self, text: str, room: str | None = None) -> str | None:
         # Keep the existing local MQTT resolver first because it knows the
-        # Neko node's current room. Anything it does not understand falls
-        # through to the generic Home Assistant API entity/service bridge.
-        local = self.devices.handle(text, room)
+        # Neko node's current room. A syntactically valid smart-home phrase can
+        # still refer to an entity that exists only in Home Assistant though,
+        # so "not found/unsupported locally" must fall through to the API.
+        try:
+            local = self.devices.handle(text, room)
+        except (ValueError, RuntimeError):
+            local = None
         if local is not None:
             return local
         return self.api.handle(text)
+
+    def resolve_device(self, description: str, room: str | None = None) -> dict:
+        try:
+            return self.devices.resolve(description, room)
+        except ValueError:
+            return self.api.resolve(description)
 
     def list_devices(self) -> list[dict]:
         devices = list(self.devices.list_devices())
