@@ -263,7 +263,7 @@ def serve(host: str, port: int, token: str | None = None) -> None:
         integration = getattr(api, "home_assistant", None)
         if integration is None:
             raise ValueError("smart-home discovery is not running")
-        device = integration.devices.resolve(description, room or getattr(api, "current_room", None))
+        device = integration.resolve_device(description, room or getattr(api, "current_room", None))
         return {
             "kind": "smart_home", "device_id": device["id"], "device_name": device.get("name"),
             "action": action, "value": value,
