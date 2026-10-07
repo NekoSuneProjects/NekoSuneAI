@@ -7,6 +7,7 @@ from typing import Callable
 
 from .config import Config
 from .smart_home import SmartHomeManager
+from .home_assistant_api import HomeAssistantApi
 
 
 class HomeAssistantMqtt:
@@ -25,8 +26,21 @@ class HomeAssistantMqtt:
         self.last_error = ""
         self._lock = threading.RLock()
         self.devices = SmartHomeManager(self._publish, notify)
+        self.api = HomeAssistantApi(
+            getattr(config, "home_assistant_url", "") or "",
+            getattr(config, "home_assistant_token", "") or "",
+            verify_tls=bool(getattr(config, "home_assistant_verify_tls", True)),
+            websocket_enabled=bool(getattr(config, "home_assistant_websocket_enabled", True)),
+        )
 
     def start(self) -> None:
+        # Direct HA API works independently of MQTT. A Home Assistant OS/
+        # Container user can therefore expose all of their existing entities
+        # without also configuring a broker.
+        self.api.start()
+        if self.api.connected:
+            self.connected = True
+
         if not self.config.home_assistant_mqtt_host:
             return
         import paho.mqtt.client as mqtt
@@ -57,8 +71,10 @@ class HomeAssistantMqtt:
             self.connected = False
 
     def stop(self) -> None:
+        self.api.stop()
         client = self.client
         if client is None:
+            self.connected = False
             return
         try:
             client.publish("nekosuneai/status", "offline", retain=True)
@@ -152,22 +168,66 @@ class HomeAssistantMqtt:
             self.client.publish("nekosuneai/state/status", state, retain=True)
 
     def handle(self, text: str, room: str | None = None) -> str | None:
-        return self.devices.handle(text, room)
+        # Keep the existing local MQTT resolver first because it knows the
+        # Neko node's current room. Anything it does not understand falls
+        # through to the generic Home Assistant API entity/service bridge.
+        local = self.devices.handle(text, room)
+        if local is not None:
+            return local
+        return self.api.handle(text)
 
     def list_devices(self) -> list[dict]:
-        return self.devices.list_devices()
+        devices = list(self.devices.list_devices())
+        devices.extend(self.api.list_entities())
+        return devices
 
     def set_aliases(self, device_id: str, aliases: list[str], room: str | None = None) -> dict:
         return self.devices.set_aliases(device_id, aliases, room)
 
     def command_device(self, device_id: str, action: str, value=None, confirmed: bool = False) -> str:
+        # Home Assistant API entity ids always contain the domain separator.
+        if "." in str(device_id) and self.api.configured:
+            service_map = {
+                "on": "turn_on", "off": "turn_off",
+                "open": "open_cover", "close": "close_cover",
+                "lock": "lock", "unlock": "unlock",
+                "play": "media_play", "pause": "media_pause", "stop": "media_stop",
+                "next": "media_next_track", "previous": "media_previous_track",
+                "start": "start", "return": "return_to_base",
+            }
+            entity = self.api.resolve(str(device_id))
+            domain = entity["domain"]
+            service = service_map.get(str(action).lower(), str(action).lower())
+            data = {}
+            if service == "set_temperature":
+                data["temperature"] = value
+            elif service == "set_cover_position":
+                data["position"] = int(value)
+            elif service == "volume_set":
+                data["volume_level"] = max(0.0, min(1.0, float(value)))
+            elif service == "select_source":
+                data["source"] = str(value)
+            elif service == "set_percentage":
+                data["percentage"] = int(value)
+            return self.api.call_service(str(device_id), service, data, confirmed=confirmed)
         return self.devices.command(device_id, action, value, confirmed=confirmed)
 
     def status(self) -> dict:
+        api_status = self.api.status()
+        mqtt_connected = bool(self.connected and self.client is not None)
+        connected = mqtt_connected or bool(api_status.get("connected"))
         return {
-            "configured": bool(self.config.home_assistant_mqtt_host),
-            "connected": self.connected,
-            "last_connected_epoch": self.last_connected_epoch,
-            "last_error": self.last_error,
-            "device_count": len(self.devices.list_devices()),
+            "configured": bool(self.config.home_assistant_mqtt_host) or bool(api_status.get("configured")),
+            "connected": connected,
+            "mqtt": {
+                "configured": bool(self.config.home_assistant_mqtt_host),
+                "connected": mqtt_connected,
+            },
+            "api": api_status,
+            "last_connected_epoch": max(
+                float(self.last_connected_epoch or 0),
+                float(api_status.get("last_connected_epoch") or 0),
+            ),
+            "last_error": self.last_error or str(api_status.get("last_error") or ""),
+            "device_count": len(self.list_devices()),
         }
