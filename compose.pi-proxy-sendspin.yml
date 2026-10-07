@@ -1,0 +1,54 @@
+services:
+  pi-proxy:
+    image: ghcr.io/nekosuneprojects/nekosuneai:piproxy-kinect-1.2.1
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      PULSE_SERVER: unix:/run/pulse/native
+      PULSE_COOKIE: /run/pulse-cookie
+      DBUS_SYSTEM_BUS_ADDRESS: unix:path=/run/dbus/system_bus_socket
+      KINECT_VISION_ENABLED: "true"
+      PREFER_KINECT_MICROPHONE: "true"
+    devices:
+      - /dev/snd:/dev/snd
+    device_cgroup_rules:
+      - 'c 189:* rwm'
+    volumes:
+      - /dev/bus/usb:/dev/bus/usb
+      - ./pi-proxy-agent.json:/data/pi-proxy-agent.json
+      - /run/dbus:/run/dbus:ro
+      - ${PULSE_RUNTIME_DIR:-/run/user/1000/pulse}:/run/pulse:ro
+      - ${PULSE_COOKIE_FILE:-/home/pi/.config/pulse/cookie}:/run/pulse-cookie:ro
+
+  sendspin:
+    build:
+      context: .
+      dockerfile: Dockerfile.pi-proxy-sendspin
+    image: nekosuneai-piproxy-sendspin:1.2.1
+    restart: unless-stopped
+    init: true
+    network_mode: host
+    depends_on:
+      - pi-proxy
+    environment:
+      PULSE_SERVER: unix:/run/pulse/native
+      PULSE_COOKIE: /run/pulse-cookie
+    volumes:
+      - ./sendspin-data:/data/sendspin
+      - ${PULSE_RUNTIME_DIR:-/run/user/1000/pulse}:/run/pulse:ro
+      - ${PULSE_COOKIE_FILE:-/home/pi/.config/pulse/cookie}:/run/pulse-cookie:ro
+    command:
+      - --settings-dir
+      - /data/sendspin
+      - --name
+      - ${SENDSPIN_NAME:-NekoSuneAI Pi Proxy}
+      - --manufacturer
+      - NekoSuneProjects
+      - --product-name
+      - NekoSuneAI Pi Proxy
+      - --hardware-volume
+      - "true"
