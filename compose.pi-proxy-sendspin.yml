@@ -46,6 +46,8 @@ services:
       - /data/sendspin
       - --name
       - ${SENDSPIN_NAME:-NekoSuneAI Pi Proxy}
+      - --port
+      - ${SENDSPIN_PORT:-8937}
       - --manufacturer
       - NekoSuneProjects
       - --product-name
