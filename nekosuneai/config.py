@@ -408,6 +408,10 @@ class Config:
     wake_word_cooldown_seconds: float
     wake_word_sound_enabled: bool
     wake_word_sound_path: str | None
+    home_assistant_url: str | None
+    home_assistant_token: str | None
+    home_assistant_verify_tls: bool
+    home_assistant_websocket_enabled: bool
     home_assistant_mqtt_host: str | None
     home_assistant_mqtt_port: int
     home_assistant_mqtt_username: str | None
@@ -758,6 +762,10 @@ class Config:
             wake_word_cooldown_seconds=max(1.0, float(os.getenv("WAKE_WORD_COOLDOWN_SECONDS", "5"))),
             wake_word_sound_enabled=parse_bool_env("WAKE_WORD_SOUND_ENABLED", True),
             wake_word_sound_path=parse_optional_str_env("WAKE_WORD_SOUND_PATH"),
+            home_assistant_url=parse_optional_str_env("HOME_ASSISTANT_URL") or parse_optional_str_env("HA_URL"),
+            home_assistant_token=parse_optional_str_env("HOME_ASSISTANT_TOKEN") or parse_optional_str_env("HA_TOKEN"),
+            home_assistant_verify_tls=parse_bool_env("HOME_ASSISTANT_VERIFY_TLS", True),
+            home_assistant_websocket_enabled=parse_bool_env("HOME_ASSISTANT_WEBSOCKET_ENABLED", True),
             home_assistant_mqtt_host=parse_optional_str_env("HA_MQTT_HOST"),
             home_assistant_mqtt_port=int(os.getenv("HA_MQTT_PORT", "1883")),
             home_assistant_mqtt_username=parse_optional_str_env("HA_MQTT_USERNAME"),
