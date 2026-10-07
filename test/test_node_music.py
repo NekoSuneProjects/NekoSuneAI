@@ -18,8 +18,12 @@ PI = {
 }
 
 
-def router(nodes=None, node_id=""):
-    return NodeMusicRouter(lambda: list(nodes if nodes is not None else [PI]), node_id=node_id)
+def router(nodes=None, node_id="", config=None):
+    return NodeMusicRouter(
+        lambda: list(nodes if nodes is not None else [PI]),
+        node_id=node_id,
+        config_provider=lambda: config,
+    )
 
 
 class Enqueued(list):
@@ -31,7 +35,7 @@ class Enqueued(list):
 @pytest.mark.parametrize(
     ("text", "capability", "arguments"),
     [
-        ("play lofi hip hop", "music.play", {"query": "lofi hip hop"}),
+        ("play lofi hip hop", "music.play", {"query": "lofi hip hop", "source": "youtube"}),
         ("stop the music", "music.stop", {}),
         ("pause the music", "music.pause", {}),
         ("resume the music", "music.resume", {}),
@@ -52,10 +56,10 @@ def test_play_is_routed_to_the_node_not_the_backend_player():
 
     reply = router().handle("play lofi hip hop", enqueue)
 
-    assert reply == "Playing lofi hip hop."
+    assert reply == "Playing lofi hip hop from YouTube."
     node_id, capability, arguments, kwargs = enqueue[0]
     assert (node_id, capability) == ("pi-living-room", "music.play")
-    assert arguments == {"query": "lofi hip hop"}
+    assert arguments == {"query": "lofi hip hop", "source": "youtube"}
     # Owner-initiated, so it does not sit waiting for a second confirmation.
     assert kwargs["confirmed"] is True
 
@@ -141,3 +145,66 @@ def test_an_older_node_missing_a_control_falls_back_to_the_backend():
         raise ValueError("node does not advertise music.skip")
 
     assert router().handle("skip this song", unsupported) is None
+
+
+def test_explicit_youtube_always_routes_to_pi_yt_dlp(monkeypatch):
+    class Config:
+        music_assistant_url = "http://ma.local:8095"
+        music_assistant_token = "token"
+        music_assistant_player_id = "living-room"
+        music_assistant_verify_tls = True
+
+    shared = router(config=Config())
+    monkeypatch.setattr(
+        "nekosuneai.node_music.MusicAssistantClient.play_query",
+        lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("Music Assistant should not be used")),
+    )
+
+    reply, commands = shared.plan("play GPF on YouTube")
+
+    assert reply == "Playing GPF from YouTube."
+    assert commands == [{
+        "capability": "music.play",
+        "arguments": {"query": "GPF", "source": "youtube"},
+    }]
+
+
+def test_music_assistant_is_preferred_and_yt_dlp_is_fallback(monkeypatch):
+    class Config:
+        music_assistant_url = "http://ma.local:8095"
+        music_assistant_token = "token"
+        music_assistant_player_id = "living-room"
+        music_assistant_verify_tls = True
+
+    shared = router(config=Config())
+    monkeypatch.setattr(
+        "nekosuneai.node_music.MusicAssistantClient.play_query",
+        lambda self, query: {"name": "Hardstyle Mix", "artist": "DJ Test"},
+    )
+
+    reply, commands = shared.plan("play hardstyle mix")
+    assert reply == "Playing Hardstyle Mix by DJ Test through Music Assistant."
+    assert commands == []
+
+    def fail(self, query):
+        raise RuntimeError("not found")
+    monkeypatch.setattr("nekosuneai.node_music.MusicAssistantClient.play_query", fail)
+    reply, commands = shared.plan("play another mix")
+    assert reply == "Playing another mix from YouTube."
+    assert commands[0]["arguments"] == {"query": "another mix", "source": "youtube"}
+
+
+def test_music_assistant_can_work_without_pi_node(monkeypatch):
+    class Config:
+        music_assistant_url = "http://ma.local:8095"
+        music_assistant_token = "token"
+        music_assistant_player_id = "living-room"
+        music_assistant_verify_tls = True
+
+    monkeypatch.setattr(
+        "nekosuneai.node_music.MusicAssistantClient.play_query",
+        lambda self, query: {"name": "Track", "artist": ""},
+    )
+
+    reply = router(nodes=[], config=Config()).handle("play track", Enqueued())
+    assert reply == "Playing Track through Music Assistant."
