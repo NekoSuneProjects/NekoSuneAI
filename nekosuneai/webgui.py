@@ -252,7 +252,11 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
         "label": "Media",
         "fields": [
             {"key": "music_provider_default", "label": "Music provider", "type": "select",
-             "options": ["soundcloud", "deezer", "spotify"]},
+             "options": ["music-assistant", "youtube", "soundcloud", "deezer", "spotify"]},
+            {"key": "music_assistant_url", "label": "Music Assistant URL", "type": "text"},
+            {"key": "music_assistant_token", "label": "Music Assistant long-lived token", "type": "password"},
+            {"key": "music_assistant_player_id", "label": "Music Assistant player / queue ID", "type": "text"},
+            {"key": "music_assistant_verify_tls", "label": "Verify Music Assistant TLS certificate", "type": "bool"},
             {"key": "soundcloud_stream_endpoint", "label": "Stream endpoint", "type": "text"},
             {"key": "thinking_sound_enabled", "label": "Play a sound during long waits", "type": "bool"},
             {"key": "thinking_sound_path", "label": "Thinking sound file or folder (random pick)", "type": "text"},
