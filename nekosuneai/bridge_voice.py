@@ -185,7 +185,11 @@ def synthesize(text: str, config: Config) -> Path:
         "language": config.tts_language,
         "voice": config.bridge_tts_voice,
         "rate": config.bridge_tts_rate,
-        "provider": "piper",
+        # tts-stream is the Edge neural route.  Sending provider="piper" here
+        # made a perfectly valid Edge request identify itself as the robot
+        # fallback provider, so Bridge deployments that honour provider picked
+        # Piper even though BRIDGE_TTS_ENGINE=edge-stream was configured.
+        "provider": "edge" if fast else "piper",
     }
     try:
         result = _request(config, payload, on_audio=receive_audio if fast else None)
