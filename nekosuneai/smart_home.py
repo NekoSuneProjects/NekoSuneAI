@@ -24,6 +24,20 @@ SUPPORTED_COMPONENTS = {"light", "switch", "fan", "cover", "lock", "climate", "s
 READ_ONLY_COMPONENTS = {"sensor", "binary_sensor"}
 SENSITIVE_ACTIONS = {"unlock", "open", "disarm"}
 
+_BASIC_RGB = {
+    "red": (255, 0, 0),
+    "green": (0, 255, 0),
+    "blue": (0, 0, 255),
+    "white": (255, 255, 255),
+    "warm white": (255, 214, 170),
+    "cool white": (201, 226, 255),
+    "yellow": (255, 255, 0),
+    "orange": (255, 128, 0),
+    "purple": (128, 0, 255),
+    "pink": (255, 64, 160),
+    "cyan": (0, 255, 255),
+}
+
 
 def _slug(value: str) -> str:
     return re.sub(r"[^a-z0-9_-]+", "-", value.strip().lower()).strip("-")
@@ -153,6 +167,13 @@ class SmartHomeManager:
                 "value_template": str(config.get("value_template") or ""),
                 "brightness_scale": max(1, int(config.get("brightness_scale", 255) or 255)),
                 "brightness_command_topic": self._expand_topic(config.get("brightness_command_topic") or config.get("bri_cmd_t"), topic, base_topic),
+                "rgb_command_topic": self._expand_topic(config.get("rgb_command_topic") or config.get("rgb_cmd_t"), topic, base_topic),
+                "color_temp_command_topic": self._expand_topic(config.get("color_temp_command_topic") or config.get("clr_temp_cmd_t"), topic, base_topic),
+                "position_command_topic": self._expand_topic(config.get("position_command_topic") or config.get("pos_cmd_t"), topic, base_topic),
+                "set_position_topic": self._expand_topic(config.get("set_position_topic"), topic, base_topic),
+                "temperature_command_topic": self._expand_topic(config.get("temperature_command_topic") or config.get("temp_cmd_t"), topic, base_topic),
+                "min_mireds": int(config.get("min_mireds", 153) or 153),
+                "max_mireds": int(config.get("max_mireds", 500) or 500),
                 "discovery_topic": topic,
                 "discovered_epoch": float(old.get("discovered_epoch") or now),
                 "last_seen_epoch": float(old.get("last_seen_epoch") or 0),
@@ -392,6 +413,40 @@ class SmartHomeManager:
                 scale = int(device.get("brightness_scale", 255))
                 payload = str(round(percent * scale / 100))
                 topic = str(device.get("brightness_command_topic") or topic)
+            elif action == "color":
+                color_name = " ".join(str(value or "").strip().lower().split())
+                rgb = _BASIC_RGB.get(color_name)
+                if rgb is None:
+                    match = re.fullmatch(r"(\d{1,3})\s*[, ]\s*(\d{1,3})\s*[, ]\s*(\d{1,3})", color_name)
+                    if match:
+                        rgb = tuple(max(0, min(255, int(x))) for x in match.groups())
+                if rgb is None:
+                    raise ValueError(f"unsupported light colour: {value}")
+                topic = str(device.get("rgb_command_topic") or "")
+                if not topic:
+                    raise ValueError(f"{device.get('name')} does not expose RGB colour control")
+                payload = ",".join(str(x) for x in rgb)
+            elif action == "color_temp":
+                kelvin = max(1000, min(10000, int(value)))
+                topic = str(device.get("color_temp_command_topic") or "")
+                if not topic:
+                    raise ValueError(f"{device.get('name')} does not expose colour-temperature control")
+                mired = round(1_000_000 / kelvin)
+                minimum = int(device.get("min_mireds", 153))
+                maximum = int(device.get("max_mireds", 500))
+                payload = str(max(minimum, min(maximum, mired)))
+            elif action == "position":
+                percent = max(0, min(100, int(value)))
+                topic = str(device.get("position_command_topic") or device.get("set_position_topic") or "")
+                if not topic:
+                    raise ValueError(f"{device.get('name')} does not expose position control")
+                payload = str(percent)
+            elif action == "temperature":
+                target = float(value)
+                topic = str(device.get("temperature_command_topic") or "")
+                if not topic:
+                    raise ValueError(f"{device.get('name')} does not expose target-temperature control")
+                payload = f"{target:g}"
             elif action in {"lock", "unlock", "open", "close"}:
                 payload = action.upper()
             else:
@@ -437,6 +492,23 @@ class SmartHomeManager:
         if brightness:
             device = self.resolve(brightness.group(1), room)
             return self.command(str(device["id"]), "brightness", int(brightness.group(2)))
+        colour = re.match(r"^(?:set|make|change) (?:the )?(.+?)(?: colour| color)? (?:to )?(red|green|blue|white|warm white|cool white|yellow|orange|purple|pink|cyan)$", cleaned)
+        if colour:
+            device = self.resolve(colour.group(1), room)
+            return self.command(str(device["id"]), "color", colour.group(2))
+        colour_temp = re.match(r"^(?:set|change) (?:the )?(.+?)(?: colour temperature| color temperature| temperature) (?:to )?(\d{4,5})\s*(?:k|kelvin)?$", cleaned)
+        if colour_temp:
+            device = self.resolve(colour_temp.group(1), room)
+            return self.command(str(device["id"]), "color_temp", int(colour_temp.group(2)))
+        position = re.match(r"^(?:set|move) (?:the )?(.+?)(?: position)? (?:to )?(\d{1,3})%$", cleaned)
+        if position:
+            device = self.resolve(position.group(1), room)
+            return self.command(str(device["id"]), "position", int(position.group(2)))
+        thermostat = re.match(r"^(?:set|change) (?:the )?(.+?) (?:to )?(\d{1,2}(?:\.\d+)?)\s*(?:degrees|degree|°c|c)?$", cleaned)
+        if thermostat:
+            device = self.resolve(thermostat.group(1), room)
+            if str(device.get("component")) == "climate":
+                return self.command(str(device["id"]), "temperature", float(thermostat.group(2)))
         switch = re.match(r"^(?:turn|switch) (?:the )?(.+?) (on|off)$", cleaned)
         if switch:
             device = self.resolve(switch.group(1), room)
