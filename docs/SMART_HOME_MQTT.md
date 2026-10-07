@@ -1,12 +1,57 @@
-# Local Smart Home with Home Assistant and MQTT
+# Local Smart Home with Home Assistant API and MQTT
 
-NekoSuneAI can discover and control local MQTT devices without requiring a
-cloud account. It understands standard Home Assistant MQTT discovery records
+NekoSuneAI can connect directly to a self-hosted Home Assistant instance and
+use Home Assistant as an integration hub. This works with Home Assistant OS,
+Container, Supervised and other installs that expose the standard API. Existing
+Xbox, TV, Chromecast, DLNA, vacuum, climate, light, cover, scene, script and
+other supported Home Assistant entities can therefore be controlled without
+writing a separate NekoSuneAI driver for each brand.
+
+MQTT remains optional and can run alongside the direct API. NekoSuneAI can
+discover and control local MQTT devices without requiring a cloud account. It
+understands standard Home Assistant MQTT discovery records
 and a small vendor-neutral Neko discovery format. All commands are restricted
 to topics declared by a discovered device; there is no arbitrary MQTT publish
 method exposed to chat.
 
-## Configuration
+## Direct Home Assistant API
+
+Create a **Long-Lived Access Token** from the Home Assistant user profile, then
+configure NekoSuneAI in **Settings → Wake Word & Home Assistant**, or use:
+
+```env
+HOME_ASSISTANT_URL=http://homeassistant.local:8123
+HOME_ASSISTANT_TOKEN=replace-with-long-lived-token
+HOME_ASSISTANT_VERIFY_TLS=true
+HOME_ASSISTANT_WEBSOCKET_ENABLED=true
+```
+
+The REST API is used for entity discovery and entity-scoped service calls.
+The WebSocket API subscribes to `state_changed` so Xbox/TV/media and other
+entity state stays current without repeatedly polling. The token is never
+returned by NekoSuneAI status endpoints.
+
+Natural examples include:
+
+```text
+turn on living room xbox
+what is living room xbox playing?
+pause on living room xbox
+launch Netflix on living room tv
+switch living room tv source to HDMI 2
+set living room tv volume to 35%
+press home on living room remote
+set bedroom blinds position to 40%
+set heating to 21 degrees
+start robot vacuum
+activate movie mode
+```
+
+NekoSuneAI only exposes an explicit allowlist of entity services. Arbitrary
+Home Assistant service calls/templates are not exposed to chat, and sensitive
+actions such as unlocking a lock still require confirmation.
+
+## Optional MQTT configuration
 
 ```env
 HA_MQTT_HOST=192.168.1.20
