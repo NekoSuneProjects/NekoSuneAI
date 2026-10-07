@@ -25,10 +25,7 @@ services:
       - ${PULSE_COOKIE_FILE:-/home/pi/.config/pulse/cookie}:/run/pulse-cookie:ro
 
   sendspin:
-    build:
-      context: .
-      dockerfile: Dockerfile.pi-proxy-sendspin
-    image: nekosuneai-piproxy-sendspin:1.2.1
+    image: ghcr.io/nekosuneprojects/nekosuneai:piproxy-sendspin-1.2.1
     restart: unless-stopped
     init: true
     network_mode: host
