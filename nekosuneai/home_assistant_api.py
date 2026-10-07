@@ -232,6 +232,16 @@ class HomeAssistantApi:
             raise ValueError(f"That Home Assistant entity name is ambiguous: {names}.")
         return best[0][1]
 
+    @staticmethod
+    def _canonical_source(entity: dict[str, Any], requested: str) -> str:
+        wanted = str(requested or "").strip()
+        source_list = (entity.get("attributes") or {}).get("source_list")
+        if isinstance(source_list, list):
+            for item in source_list:
+                if str(item).casefold() == wanted.casefold():
+                    return str(item)
+        return wanted
+
     def call_service(
         self,
         entity_id: str,
@@ -301,6 +311,45 @@ class HomeAssistantApi:
             if entity["domain"] in {"light", "switch", "input_boolean", "fan", "climate", "media_player", "remote", "automation"}:
                 return self.call_service(entity["entity_id"], "turn_on" if mode == "on" else "turn_off")
 
+        brightness = re.match(r"^(?:set|dim) (?:the )?(.+?)(?: brightness)? (?:to )?(\d{1,3})%?$", cleaned)
+        if brightness:
+            entity = self.resolve(brightness.group(1), "light")
+            return self.call_service(
+                entity["entity_id"], "turn_on",
+                {"brightness_pct": max(0, min(100, int(brightness.group(2))))},
+            )
+
+        colour = re.match(r"^(?:set|make|change) (?:the )?(.+?)(?: colour| color)? (?:to )?(red|green|blue|white|warm white|cool white|yellow|orange|purple|pink|cyan)$", cleaned)
+        if colour:
+            rgb = {
+                "red": [255, 0, 0], "green": [0, 255, 0], "blue": [0, 0, 255],
+                "white": [255, 255, 255], "warm white": [255, 214, 170],
+                "cool white": [201, 226, 255], "yellow": [255, 255, 0],
+                "orange": [255, 128, 0], "purple": [128, 0, 255],
+                "pink": [255, 64, 160], "cyan": [0, 255, 255],
+            }[colour.group(2)]
+            entity = self.resolve(colour.group(1), "light")
+            return self.call_service(entity["entity_id"], "turn_on", {"rgb_color": rgb})
+
+        colour_temp = re.match(r"^(?:set|change) (?:the )?(.+?)(?: colour temperature| color temperature) (?:to )?(\d{4,5})\s*(?:k|kelvin)?$", cleaned)
+        if colour_temp:
+            entity = self.resolve(colour_temp.group(1), "light")
+            return self.call_service(
+                entity["entity_id"], "turn_on",
+                {"color_temp_kelvin": max(1000, min(10000, int(colour_temp.group(2))))},
+            )
+
+        fan = re.match(r"^(?:set )?(?:the )?(.+?) fan (?:speed |percentage )?(?:to )?(\d{1,3})%$", cleaned)
+        if fan:
+            try:
+                entity = self.resolve(fan.group(1) + " fan", "fan")
+            except ValueError:
+                entity = self.resolve(fan.group(1), "fan")
+            return self.call_service(
+                entity["entity_id"], "set_percentage",
+                {"percentage": max(0, min(100, int(fan.group(2))))},
+            )
+
         # Media controls work for Xbox, TVs, Cast, DLNA, receivers, etc. as long
         # as Home Assistant exposes them as media_player entities.
         media = re.match(r"^(play|pause|stop|next|previous) (?:on )?(?:the )?(.+)$", cleaned)
@@ -321,12 +370,24 @@ class HomeAssistantApi:
         source = re.match(r"^(?:set|switch) (?:the )?(.+?) (?:source|input) (?:to )?(.+)$", cleaned)
         if source:
             entity = self.resolve(source.group(1), "media_player")
-            return self.call_service(entity["entity_id"], "select_source", {"source": source.group(2).strip()})
+            return self.call_service(
+                entity["entity_id"], "select_source",
+                {"source": self._canonical_source(entity, source.group(2).strip())},
+            )
 
         launch = re.match(r"^(?:launch|open|start) (.+?) (?:on|using) (?:the )?(.+)$", cleaned)
         if launch:
             entity = self.resolve(launch.group(2), "media_player")
-            return self.call_service(entity["entity_id"], "select_source", {"source": launch.group(1).strip()})
+            return self.call_service(
+                entity["entity_id"], "select_source",
+                {"source": self._canonical_source(entity, launch.group(1).strip())},
+            )
+
+        remote = re.match(r"^(?:press|send) (.+?) (?:on|to) (?:the )?(.+?)(?: remote)?$", cleaned)
+        if remote:
+            entity = self.resolve(remote.group(2), "remote")
+            command = remote.group(1).strip()
+            return self.call_service(entity["entity_id"], "send_command", {"command": command})
 
         # Covers, locks and climate.
         cover = re.match(r"^(open|close) (?:the )?(.+)$", cleaned)
