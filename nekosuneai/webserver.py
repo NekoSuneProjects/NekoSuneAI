@@ -175,7 +175,10 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     node_media = NodeMediaService(api)
     ws_hub = WebSocketHub()
     from .node_music import NodeMusicRouter
-    node_music = NodeMusicRouter(peripheral_nodes.list_nodes)
+    node_music = NodeMusicRouter(
+        peripheral_nodes.list_nodes,
+        config_provider=lambda: getattr(api, "config", None),
+    )
     from .node_converse import NodeConverseService
     node_converse = NodeConverseService(api, peripheral_nodes, node_media, node_music)
 
