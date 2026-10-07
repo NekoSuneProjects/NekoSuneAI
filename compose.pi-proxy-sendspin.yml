@@ -49,5 +49,7 @@ services:
       - NekoSuneProjects
       - --product-name
       - NekoSuneAI Pi Proxy
+      - --audio-device
+      - ${SENDSPIN_AUDIO_DEVICE:-pulse}
       - --hardware-volume
       - "true"
