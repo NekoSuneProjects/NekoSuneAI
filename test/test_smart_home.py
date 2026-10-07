@@ -49,6 +49,50 @@ def test_home_assistant_discovery_aliases_rooms_and_commands(tmp_path):
     assert manager.handle("turn on my light", room="galley") == "Sent on to Ceiling Light."
 
 
+
+
+def test_alice_style_light_colour_cover_position_and_climate(tmp_path):
+    published = []
+    manager = SmartHomeManager(
+        lambda topic, payload, retain=False: published.append((topic, payload, retain)),
+        storage_path=tmp_path / "devices.json",
+    )
+    manager.discover(
+        "homeassistant/light/house/living/config",
+        json.dumps({
+            "unique_id": "living_light", "name": "Living Light", "room": "lounge",
+            "command_topic": "house/light/set", "rgb_command_topic": "house/light/rgb",
+            "color_temp_command_topic": "house/light/temp",
+        }),
+    )
+    manager.discover(
+        "homeassistant/cover/house/blinds/config",
+        json.dumps({
+            "unique_id": "blinds", "name": "Blinds", "room": "lounge",
+            "command_topic": "house/blinds/set", "position_command_topic": "house/blinds/position",
+        }),
+    )
+    manager.discover(
+        "homeassistant/climate/house/heating/config",
+        json.dumps({
+            "unique_id": "heating", "name": "Heating", "room": "lounge",
+            "command_topic": "house/heating/set", "temperature_command_topic": "house/heating/target",
+        }),
+    )
+
+    manager.handle("make living light purple", room="lounge")
+    assert published[-1] == ("house/light/rgb", "128,0,255", False)
+
+    manager.handle("set living light colour temperature to 3000 kelvin", room="lounge")
+    assert published[-1] == ("house/light/temp", "333", False)
+
+    manager.handle("set blinds position to 50%", room="lounge")
+    assert published[-1] == ("house/blinds/position", "50", False)
+
+    manager.handle("set heating to 21 degrees", room="lounge")
+    assert published[-1] == ("house/heating/target", "21", False)
+
+
 def test_generic_discovery_state_battery_prediction_and_cost(tmp_path):
     notices = []
     manager = SmartHomeManager(
