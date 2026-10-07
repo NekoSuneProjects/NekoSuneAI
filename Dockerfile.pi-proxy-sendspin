@@ -1,0 +1,23 @@
+FROM python:3.12-slim-bookworm
+
+ARG SENDSPIN_VERSION=""
+LABEL org.opencontainers.image.title="NekoSuneAI Pi Proxy Sendspin Player" \
+      org.opencontainers.image.description="Sendspin player sidecar for NekoSuneAI Pi Proxy Bluetooth audio"
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates libportaudio2 pulseaudio-utils ffmpeg \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN if [ -n "$SENDSPIN_VERSION" ]; then \
+      pip install --no-cache-dir "sendspin==$SENDSPIN_VERSION"; \
+    else \
+      pip install --no-cache-dir sendspin; \
+    fi
+
+RUN mkdir -p /data/sendspin
+
+ENTRYPOINT ["sendspin", "daemon"]
+CMD ["--settings-dir", "/data/sendspin", "--name", "NekoSuneAI Pi Proxy", "--manufacturer", "NekoSuneProjects", "--product-name", "NekoSuneAI Pi Proxy", "--hardware-volume", "true"]
