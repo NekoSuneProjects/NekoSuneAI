@@ -230,7 +230,11 @@ APP_SETTINGS_SCHEMA: dict[str, dict[str, Any]] = {
             {"key": "wake_word_cooldown_seconds", "label": "Cooldown after each command (seconds)", "type": "float"},
             {"key": "wake_word_sound_enabled", "label": "Play acknowledgement sound after wake word", "type": "bool"},
             {"key": "wake_word_sound_path", "label": "Wake acknowledgement sound file", "type": "text"},
-            {"key": "home_assistant_mqtt_host", "label": "Home Assistant MQTT host", "type": "text"},
+            {"key": "home_assistant_url", "label": "Home Assistant URL", "type": "text"},
+            {"key": "home_assistant_token", "label": "Home Assistant long-lived access token", "type": "password"},
+            {"key": "home_assistant_verify_tls", "label": "Verify Home Assistant TLS certificate", "type": "bool"},
+            {"key": "home_assistant_websocket_enabled", "label": "Live Home Assistant state updates (WebSocket)", "type": "bool"},
+            {"key": "home_assistant_mqtt_host", "label": "Home Assistant MQTT host (optional)", "type": "text"},
             {"key": "home_assistant_mqtt_port", "label": "MQTT port", "type": "int"},
             {"key": "home_assistant_mqtt_username", "label": "MQTT username", "type": "text"},
             {"key": "home_assistant_mqtt_password", "label": "MQTT password", "type": "password"},
@@ -516,7 +520,12 @@ class Api:
     def get_integration_health(self) -> dict[str, Any]:
         if not self.config:
             return {"overall": "unavailable", "problem_count": 1, "checked_epoch": time.time(), "items": [{"name": "Application", "status": "unavailable", "detail": "Still initializing"}]}
-        connected = bool(getattr(self.home_assistant, "connected", False))
+        connected = False
+        if self.home_assistant is not None:
+            try:
+                connected = bool(self.home_assistant.status().get("connected"))
+            except Exception:
+                connected = bool(getattr(self.home_assistant, "connected", False))
         client=getattr(self.home_assistant,"client",None)
         if client is not None and not connected:
             try:connected=bool(client.is_connected())
