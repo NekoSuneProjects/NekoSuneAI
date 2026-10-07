@@ -82,9 +82,28 @@ jobs:
           docker run --rm --platform linux/arm64 --entrypoint python nekosuneai-piproxy-smoke:arm64 \
             -c "import sounddevice, openwakeword; import nekosuneai.pi_proxy_agent; print('arm64 Pi Proxy imports OK')"
 
+      - name: Local Kinect smoke build linux/arm64
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker buildx build \
+            --platform linux/arm64 \
+            --load \
+            --tag nekosuneai-piproxy-kinect-smoke:arm64 \
+            --file Dockerfile.pi-proxy-kinect \
+            --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
+            --cache-from type=gha,scope=piproxy-kinect-arm64 \
+            --cache-to type=gha,mode=max,scope=piproxy-kinect-arm64 \
+            .
+
+          test "$(docker image inspect nekosuneai-piproxy-kinect-smoke:arm64 --format '{{.Architecture}}')" = "arm64"
+
+          docker run --rm --platform linux/arm64 --entrypoint python nekosuneai-piproxy-kinect-smoke:arm64 \
+            -c "import cv2, ctypes, ctypes.util; import nekosuneai.kinect_vision_patch; assert ctypes.util.find_library('freenect'); assert ctypes.util.find_library('freenect_sync'); print('arm64 Kinect Pi Proxy imports OK')"
+
       - name: Clean local smoke images
         if: always()
-        run: docker image rm -f nekosuneai-piproxy-smoke:amd64 nekosuneai-piproxy-smoke:arm64 2>/dev/null || true
+        run: docker image rm -f nekosuneai-piproxy-smoke:amd64 nekosuneai-piproxy-smoke:arm64 nekosuneai-piproxy-kinect-smoke:arm64 2>/dev/null || true
 
   publish:
     needs: smoke
@@ -113,6 +132,13 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           flavor: latest=false
           tags: type=raw,value=piproxy-${{ steps.version.outputs.version }}
+
+      - uses: docker/metadata-action@v5
+        id: meta_kinect
+        with:
+          images: ghcr.io/${{ github.repository }}
+          flavor: latest=false
+          tags: type=raw,value=piproxy-kinect-${{ steps.version.outputs.version }}
       - name: Publish Pi Proxy image
         uses: docker/build-push-action@v6
         with:
@@ -126,5 +152,22 @@ jobs:
           cache-from: |
             type=gha,scope=piproxy-amd64
             type=gha,scope=piproxy-arm64
+          provenance: true
+          sbom: true
+
+      - name: Publish Kinect Pi Proxy image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile.pi-proxy-kinect
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta_kinect.outputs.tags }}
+          labels: ${{ steps.meta_kinect.outputs.labels }}
+          build-args: APP_VERSION=${{ steps.version.outputs.version }}
+          cache-from: |
+            type=gha,scope=piproxy-kinect-amd64
+            type=gha,scope=piproxy-kinect-arm64
+          cache-to: type=gha,mode=max,scope=piproxy-kinect-release
           provenance: true
           sbom: true
