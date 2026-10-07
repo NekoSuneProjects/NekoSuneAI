@@ -1,3 +1,4 @@
+import time
 from types import SimpleNamespace
 
 from nekosuneai.home_assistant_api import HomeAssistantApi
@@ -103,6 +104,7 @@ def test_home_assistant_wrapper_works_without_mqtt(monkeypatch):
         "media_player.xbox": _entity("media_player.xbox", "on", "Xbox"),
     }
     integration.api.connected = True
+    integration.api._last_sync = time.time()
 
     assert integration.status()["configured"] is True
     assert integration.status()["connected"] is True
