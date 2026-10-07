@@ -8,7 +8,9 @@ LABEL org.opencontainers.image.title="NekoSuneAI Pi Proxy Kinect" \
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
-    NEKOSUNEAI_KINECT_IMAGE=1
+    NEKOSUNEAI_KINECT_IMAGE=1 \
+    KINECT_VISION_ENABLED=true \
+    PREFER_KINECT_MICROPHONE=true
 
 # Kinect RGB/depth uses libfreenect over raw USB.  The microphone is a separate
 # ALSA device and is intentionally handled by the host (kinect-audio-setup +
