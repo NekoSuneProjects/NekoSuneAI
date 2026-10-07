@@ -8,7 +8,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates libportaudio2 pulseaudio-utils ffmpeg \
+    ca-certificates libportaudio2 libasound2-plugins alsa-utils pulseaudio-utils ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 
 RUN if [ -n "$SENDSPIN_VERSION" ]; then \
@@ -16,6 +16,17 @@ RUN if [ -n "$SENDSPIN_VERSION" ]; then \
     else \
       pip install --no-cache-dir sendspin; \
     fi
+
+# PortAudio's ALSA backend can use this virtual device to send audio into the
+# host PulseAudio/PipeWire server exposed through PULSE_SERVER. This is what
+# lets a containerized Sendspin client play through the Pi's Bluetooth Echo
+# even though that Bluetooth sink is not a physical /dev/snd card.
+RUN printf '%s\n' \
+    'pcm.pulse { type pulse }' \
+    'ctl.pulse { type pulse }' \
+    'pcm.!default { type pulse }' \
+    'ctl.!default { type pulse }' \
+    > /etc/asound.conf
 
 RUN mkdir -p /data/sendspin
 
