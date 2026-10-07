@@ -16,10 +16,11 @@ concurrency:
 jobs:
   smoke:
     name: Pi Proxy smoke test amd64 + arm64
-    if: github.ref == 'refs/heads/build/pi-proxy-release'
     runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: build/pi-proxy-release
 
       - name: Read version
         id: version
@@ -75,10 +76,11 @@ jobs:
 
   publish:
     needs: smoke
-    if: github.ref == 'refs/heads/build/pi-proxy-release'
     runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: build/pi-proxy-release
 
       - name: Read version
         id: version
