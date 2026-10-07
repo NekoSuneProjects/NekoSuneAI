@@ -123,6 +123,7 @@ _MUSIC_PROVIDERS: AliasTable = (
     _alias("soundcloud", "soundcloud", "sc"),
     _alias("deezer", "deezer"),
     _alias("spotify", "spotify"),
+    _alias("music-assistant", "music-assistant", "music assistant", "ma"),
 )
 
 _SINGING_BACKENDS: AliasTable = (
@@ -314,6 +315,10 @@ class Config:
     web_search_api_key: str | None
     music_provider_default: str
     soundcloud_stream_endpoint: str
+    music_assistant_url: str | None
+    music_assistant_token: str | None
+    music_assistant_player_id: str | None
+    music_assistant_verify_tls: bool
     voice_enabled: bool
     input_mode: str
     stt_provider: str
@@ -646,6 +651,10 @@ class Config:
             web_search_api_key=parse_optional_str_env("WEB_SEARCH_API_KEY"),
             music_provider_default=music_provider_default,
             soundcloud_stream_endpoint=soundcloud_stream_endpoint,
+            music_assistant_url=parse_optional_str_env("MUSIC_ASSISTANT_URL"),
+            music_assistant_token=parse_optional_str_env("MUSIC_ASSISTANT_TOKEN"),
+            music_assistant_player_id=parse_optional_str_env("MUSIC_ASSISTANT_PLAYER_ID"),
+            music_assistant_verify_tls=parse_bool_env("MUSIC_ASSISTANT_VERIFY_TLS", True),
             voice_enabled=parse_bool_env("VOICE_ENABLED", False),
             input_mode=normalize_input_mode(os.getenv("INPUT_MODE", "voice")),
             stt_provider=normalize_stt_provider(
