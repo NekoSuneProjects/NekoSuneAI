@@ -160,6 +160,51 @@ class LocalAudioPlayer:
 
         threading.Thread(target=_cleanup, daemon=True, name="pi-proxy-audio-cleanup").start()
 
+    def play_audio_bytes(self, raw: bytes, content_type: str = "audio/wav") -> None:
+        """Play backend TTS bytes using the codec they actually contain.
+
+        Edge TTS returns MP3 (audio/mpeg).  Treating those bytes as a .wav and
+        handing them to aplay/paplay is what made Pi Proxy decide the real TTS
+        had failed and immediately speak the same line through espeak-ng.
+        """
+        kind = str(content_type or "").lower()
+        looks_wav = raw[:4] == b"RIFF" and raw[8:12] == b"WAVE"
+        if "wav" in kind or looks_wav:
+            return self.play_wav_bytes(raw)
+
+        is_mp3 = "mpeg" in kind or "mp3" in kind or raw[:3] == b"ID3" or (
+            len(raw) >= 2 and raw[0] == 0xFF and (raw[1] & 0xE0) == 0xE0
+        )
+        if not is_mp3:
+            raise RuntimeError(f"unsupported TTS audio content type: {content_type or 'unknown'}")
+
+        ffplay = shutil.which("ffplay")
+        if not ffplay:
+            raise RuntimeError("ffplay is required to play Edge TTS MP3 audio on Pi Proxy")
+
+        fd, path = tempfile.mkstemp(suffix=".mp3")
+        with os.fdopen(fd, "wb") as handle:
+            handle.write(raw)
+        with self._lock:
+            self._stop_locked()
+            self._proc = subprocess.Popen(
+                [ffplay, "-nodisp", "-autoexit", "-loglevel", "error", path],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+            proc = self._proc
+
+        def _cleanup() -> None:
+            try:
+                proc.wait()
+            except Exception:
+                pass
+            try:
+                os.unlink(path)
+            except OSError:
+                pass
+
+        threading.Thread(target=_cleanup, daemon=True, name="pi-proxy-audio-cleanup").start()
+
 
 class PiProxyAgent:
     def __init__(self, config: dict[str, Any], config_path: Path | None = None) -> None:
@@ -620,8 +665,9 @@ class PiProxyAgent:
                 if not isinstance(encoded, str) or not encoded:
                     raise RuntimeError("backend returned no TTS audio")
                 raw = base64.b64decode(encoded, validate=True)
-                self.player.play_wav_bytes(raw)
-                return {"ok": True, "speaking": True}
+                content_type = str(result.get("content_type") or "audio/wav")
+                self.player.play_audio_bytes(raw, content_type)
+                return {"ok": True, "speaking": True, "content_type": content_type}
             except Exception as exc:
                 # The backend's own TTS failed (down, network blip, etc.) --
                 # fall back to local espeak-ng rather than dropping the line
@@ -745,7 +791,10 @@ class PiProxyAgent:
                 result = self._media_request("tts", text=reply[:1500])
                 encoded = result.get("audio_base64", "")
                 if isinstance(encoded, str) and encoded:
-                    self.player.play_wav_bytes(base64.b64decode(encoded, validate=True))
+                    self.player.play_audio_bytes(
+                        base64.b64decode(encoded, validate=True),
+                        str(result.get("content_type") or "audio/wav"),
+                    )
                     spoken = True
             except Exception as exc:
                 self.command_log.append(f"{time.strftime('%H:%M:%S')}  queued reply TTS failed: {exc}"[:200])
@@ -782,7 +831,10 @@ class PiProxyAgent:
             spoken = False
             if isinstance(encoded, str) and encoded:
                 try:
-                    self.player.play_wav_bytes(base64.b64decode(encoded, validate=True))
+                    self.player.play_audio_bytes(
+                        base64.b64decode(encoded, validate=True),
+                        str(result.get("content_type") or "audio/wav"),
+                    )
                     spoken = True
                 except Exception as exc:
                     self.command_log.append(f"{time.strftime('%H:%M:%S')}  reply playback failed: {exc}"[:200])
