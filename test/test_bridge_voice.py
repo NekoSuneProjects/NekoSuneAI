@@ -86,6 +86,7 @@ class BridgeVoiceTests(unittest.TestCase):
             output = bridge_voice.synthesize("hello", config)
         self.assertEqual(output.suffix, ".wav")
         self.assertEqual(calls[0]["type"], "tts-stream")
+        self.assertEqual(calls[0]["provider"], "edge")
         self.assertEqual(calls[1]["type"], "tts")
         self.assertEqual(calls[1]["provider"], "piper")
         self.assertNotIn("voice", calls[1])
