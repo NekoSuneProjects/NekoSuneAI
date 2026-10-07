@@ -37,6 +37,7 @@ from typing import Any
 
 from .device_turn import run_turn
 from .node_music import NodeMusicRouter
+from .mood_state import load_mood, update_from_interaction
 
 # Delivered through the ordinary command queue as a second copy of the reply,
 # so a turn survives losing its HTTP response. A converse request runs the
@@ -167,6 +168,7 @@ class NodeConverseService:
 
     def _queue_reply(
         self, node_id: str, turn_id: str, reply: str, commands: list[dict[str, Any]],
+        emotion: str = "neutral", gesture: str = "idle",
     ) -> None:
         """Leave a copy of the reply on the node's command queue.
 
@@ -191,7 +193,10 @@ class NodeConverseService:
                 return  # an older node that does not advertise it
             self.nodes.enqueue(
                 node_id, REPLY_CAPABILITY,
-                {"turn_id": turn_id, "text": reply[:4000], "commands": commands},
+                {
+                    "turn_id": turn_id, "text": reply[:4000], "commands": commands,
+                    "emotion": emotion, "gesture": gesture,
+                },
                 confirmed=True, requested_by="assistant-converse",
             )
         except Exception:
@@ -257,12 +262,18 @@ class NodeConverseService:
         routed = self._music_commands(node_id, text)
         if routed is not None:
             reply, commands = routed
+            # Music/control turns bypass the normal chat pipeline, so update
+            # affect here as well or the VRM would remain frozen for those.
+            mood = update_from_interaction(text)
         else:
             # Attribute the turn to the device in the backend dashboard, so a
             # question asked in the living room does not read as one typed at
             # the backend.
             reply = self._generate_reply(text, speaker=self._node_name(node_id))
             commands = []
+            # run_turn() goes through the normal pipeline, which already updates
+            # mood. Read the resulting state instead of updating it twice.
+            mood = load_mood()
         if not reply:
             reply = "Sorry, I didn't catch that."
 
@@ -270,10 +281,23 @@ class NodeConverseService:
         # below as the same answer it may already have received inline, and
         # speak it once rather than twice.
         turn_id = secrets.token_hex(8)
+        emotion = str(mood.expression() or "neutral")
+        gesture = str(mood.gesture() or "idle")
+
+        # A Pi-initiated conversation is still the same companion speaking.
+        # Mirror its affect onto every dashboard/OBS VRM client rather than
+        # leaving the avatar standing motionless while the Pi audio talks.
+        try:
+            self.api._queue_web_event({"type": "avatar_emotion", "value": emotion})
+            self.api._queue_web_event({"type": "avatar_gesture", "value": gesture})
+        except Exception:
+            pass
+
         result: dict[str, Any] = {
             "ok": True, "turn_id": turn_id, "reply": reply[:4000], "commands": commands,
+            "emotion": emotion, "gesture": gesture,
         }
-        self._queue_reply(node_id, turn_id, reply, commands)
+        self._queue_reply(node_id, turn_id, reply, commands, emotion, gesture)
 
         # The node asks for audio explicitly. It falls back to its own local
         # espeak-ng when this is absent, so a TTS failure must degrade the
