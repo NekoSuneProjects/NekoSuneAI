@@ -1024,6 +1024,21 @@ class PiProxyAgent:
         wake_status = self.wakeword.status()
         wake_status["last_transcript"] = self.wake_last_transcript
         wake_status["last_transcript_at"] = self.wake_last_transcript_at
+        capture_devices = alsa_capture_devices()
+        kinect_mics = [item for item in capture_devices if item.get("is_kinect")]
+        kinect_audio_hint = ""
+        if bool(self.config.get("prefer_kinect_microphone", True)) and not kinect_mics:
+            kinect_audio_hint = (
+                "No Kinect ALSA microphone is visible. On the Pi host install/run "
+                "kinect-audio-setup so the Xbox 360 Kinect audio firmware is loaded, "
+                "then unplug/replug or power-cycle the Kinect."
+            )
+        if "host is down" in str(self.mic_error).lower():
+            kinect_audio_hint = (
+                "ALSA reported 'Host is down'. The Kinect 360 microphone firmware "
+                "is probably not loaded on the Pi host; run kinect-audio-setup on "
+                "the host, then reconnect/power-cycle the Kinect."
+            )
         return {
             "epoch": time.time(),
             "node_id": self.node_id,
@@ -1053,6 +1068,9 @@ class PiProxyAgent:
                 "alsa_device": self.capture_device() or "(ALSA default)",
                 "portaudio_name": getattr(self.wakeword, "device_name", "") or "",
                 "error": self.mic_error,
+                "capture_devices": capture_devices,
+                "kinect_detected": bool(kinect_mics),
+                "kinect_hint": kinect_audio_hint,
             },
             "alert_sounds": {"dir": str(self.sounds_dir), "error": self.alert_error},
             "control_enabled": bool(self.config.get("web_control_enabled", True)),
