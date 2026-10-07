@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   smoke:
-    name: Local smoke test amd64 + arm64
+    name: Pi Proxy smoke test amd64 + arm64
     if: github.ref == 'refs/heads/build/pi-proxy-release'
     runs-on: [self-hosted, Linux, X64]
     steps:
@@ -33,14 +33,7 @@ jobs:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
 
-      # Sequential, single job -- not a matrix. There is only one self-hosted
-      # [Linux, X64] runner; a matrix strategy schedules amd64 and arm64 as
-      # two separate jobs that both want that one runner, so one leg (usually
-      # the fast amd64 build) just queues forever behind the much slower
-      # QEMU-emulated arm64 build instead of actually running. One job with
-      # two steps avoids that entirely -- same layout as Docker's own
-      # release.yml smoke_test job.
-      - name: Local smoke build linux/amd64
+      - name: Smoke build linux/amd64
         shell: bash
         run: |
           set -euo pipefail
@@ -53,15 +46,12 @@ jobs:
             --cache-from type=gha,scope=piproxy-amd64 \
             --cache-to type=gha,mode=max,scope=piproxy-amd64 \
             .
-
           test "$(docker image inspect nekosuneai-piproxy-smoke:amd64 --format '{{.Architecture}}')" = "amd64"
-
           docker run --rm --platform linux/amd64 nekosuneai-piproxy-smoke:amd64 --help
-
           docker run --rm --platform linux/amd64 --entrypoint python nekosuneai-piproxy-smoke:amd64 \
             -c "import sounddevice, openwakeword; import nekosuneai.pi_proxy_agent; print('amd64 Pi Proxy imports OK')"
 
-      - name: Local smoke build linux/arm64
+      - name: Smoke build linux/arm64
         shell: bash
         run: |
           set -euo pipefail
@@ -74,52 +64,14 @@ jobs:
             --cache-from type=gha,scope=piproxy-arm64 \
             --cache-to type=gha,mode=max,scope=piproxy-arm64 \
             .
-
           test "$(docker image inspect nekosuneai-piproxy-smoke:arm64 --format '{{.Architecture}}')" = "arm64"
-
           docker run --rm --platform linux/arm64 nekosuneai-piproxy-smoke:arm64 --help
-
           docker run --rm --platform linux/arm64 --entrypoint python nekosuneai-piproxy-smoke:arm64 \
             -c "import sounddevice, openwakeword; import nekosuneai.pi_proxy_agent; print('arm64 Pi Proxy imports OK')"
 
-      - name: Local Kinect smoke build linux/arm64
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker buildx build \
-            --platform linux/arm64 \
-            --load \
-            --tag nekosuneai-piproxy-kinect-smoke:arm64 \
-            --file Dockerfile.pi-proxy-kinect \
-            --build-arg APP_VERSION=${{ steps.version.outputs.version }} \
-            --cache-from type=gha,scope=piproxy-kinect-arm64 \
-            --cache-to type=gha,mode=max,scope=piproxy-kinect-arm64 \
-            .
-
-          test "$(docker image inspect nekosuneai-piproxy-kinect-smoke:arm64 --format '{{.Architecture}}')" = "arm64"
-
-          docker run --rm --platform linux/arm64 --entrypoint python nekosuneai-piproxy-kinect-smoke:arm64 \
-            -c "import cv2, ctypes, ctypes.util; import nekosuneai.kinect_vision_patch; assert ctypes.util.find_library('freenect'); assert ctypes.util.find_library('freenect_sync'); print('arm64 Kinect Pi Proxy imports OK')"
-
-      - name: Local Sendspin smoke build linux/arm64
-        shell: bash
-        run: |
-          set -euo pipefail
-          docker buildx build \
-            --platform linux/arm64 \
-            --load \
-            --tag nekosuneai-piproxy-sendspin-smoke:arm64 \
-            --file Dockerfile.pi-proxy-sendspin \
-            --cache-from type=gha,scope=piproxy-sendspin-arm64 \
-            --cache-to type=gha,mode=max,scope=piproxy-sendspin-arm64 \
-            .
-
-          test "$(docker image inspect nekosuneai-piproxy-sendspin-smoke:arm64 --format '{{.Architecture}}')" = "arm64"
-          docker run --rm --platform linux/arm64 --entrypoint sendspin nekosuneai-piproxy-sendspin-smoke:arm64 --help >/dev/null
-
-      - name: Clean local smoke images
+      - name: Cleanup smoke images
         if: always()
-        run: docker image rm -f nekosuneai-piproxy-smoke:amd64 nekosuneai-piproxy-smoke:arm64 nekosuneai-piproxy-kinect-smoke:arm64 nekosuneai-piproxy-sendspin-smoke:arm64 2>/dev/null || true
+        run: docker image rm -f nekosuneai-piproxy-smoke:amd64 nekosuneai-piproxy-smoke:arm64 2>/dev/null || true
 
   publish:
     needs: smoke
@@ -127,6 +79,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     steps:
       - uses: actions/checkout@v4
+
       - name: Read version
         id: version
         shell: bash
@@ -135,6 +88,7 @@ jobs:
           version="$(tr -d '\r\n' < VERSION)"
           [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]
           echo "version=$version" >> "$GITHUB_OUTPUT"
+
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
@@ -142,6 +96,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
       - uses: docker/metadata-action@v5
         id: meta
         with:
@@ -149,19 +104,6 @@ jobs:
           flavor: latest=false
           tags: type=raw,value=piproxy-${{ steps.version.outputs.version }}
 
-      - uses: docker/metadata-action@v5
-        id: meta_kinect
-        with:
-          images: ghcr.io/${{ github.repository }}
-          flavor: latest=false
-          tags: type=raw,value=piproxy-kinect-${{ steps.version.outputs.version }}
-
-      - uses: docker/metadata-action@v5
-        id: meta_sendspin
-        with:
-          images: ghcr.io/${{ github.repository }}
-          flavor: latest=false
-          tags: type=raw,value=piproxy-sendspin-${{ steps.version.outputs.version }}
       - name: Publish Pi Proxy image
         uses: docker/build-push-action@v6
         with:
@@ -175,38 +117,6 @@ jobs:
           cache-from: |
             type=gha,scope=piproxy-amd64
             type=gha,scope=piproxy-arm64
-          provenance: true
-          sbom: true
-
-      - name: Publish Kinect Pi Proxy image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.pi-proxy-kinect
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta_kinect.outputs.tags }}
-          labels: ${{ steps.meta_kinect.outputs.labels }}
-          build-args: APP_VERSION=${{ steps.version.outputs.version }}
-          cache-from: |
-            type=gha,scope=piproxy-kinect-amd64
-            type=gha,scope=piproxy-kinect-arm64
-          cache-to: type=gha,mode=max,scope=piproxy-kinect-release
-          provenance: true
-          sbom: true
-
-      - name: Publish Sendspin Pi Proxy sidecar image
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: Dockerfile.pi-proxy-sendspin
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta_sendspin.outputs.tags }}
-          labels: ${{ steps.meta_sendspin.outputs.labels }}
-          cache-from: |
-            type=gha,scope=piproxy-sendspin-amd64
-            type=gha,scope=piproxy-sendspin-arm64
-          cache-to: type=gha,mode=max,scope=piproxy-sendspin-release
+          cache-to: type=gha,mode=max,scope=piproxy-release
           provenance: true
           sbom: true
