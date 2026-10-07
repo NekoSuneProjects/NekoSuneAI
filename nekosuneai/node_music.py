@@ -231,13 +231,17 @@ class NodeMusicRouter:
         or this was not a music request -- in both cases the caller falls back
         to the backend's own player.
         """
-        node = self.target_node()
-        if node is None:
-            return None
         planned = self.plan(text)
         if planned is None:
             return None
         reply, commands = planned
+        # Music Assistant commands are executed directly by plan() and return
+        # no Pi commands. They must work even when no Pi Proxy is online.
+        if not commands:
+            return reply
+        node = self.target_node()
+        if node is None:
+            return None
         node_id = str(node.get("node_id"))
         for command in commands:
             try:
