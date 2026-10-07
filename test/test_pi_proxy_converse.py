@@ -115,6 +115,26 @@ def test_turn_is_recorded_for_the_dashboard(agent):
     assert status["conversation"] and status["last_reply"] == "Playing lofi hip hop."
 
 
+def test_edge_mp3_reply_is_played_as_mpeg_without_robot_fallback(agent, backend):
+    edge_audio = b"ID3-edge-audio"
+    backend.responses["/api/nodes/converse"] = {
+        "ok": True,
+        "reply": "Hello from Edge.",
+        "audio_base64": base64.b64encode(edge_audio).decode("ascii"),
+        "content_type": "audio/mpeg",
+        "commands": [],
+    }
+    played = []
+    fallback = []
+    agent.player.play_audio_bytes = lambda raw, content_type="audio/wav": played.append((raw, content_type))
+    agent._speak_local_fallback = fallback.append
+
+    agent.converse("hello")
+
+    assert played == [(edge_audio, "audio/mpeg")]
+    assert fallback == []
+
+
 def test_missing_reply_audio_falls_back_to_the_local_voice(agent, backend):
     """A backend TTS failure must degrade to espeak-ng, not to silence."""
     backend.responses["/api/nodes/converse"] = {
