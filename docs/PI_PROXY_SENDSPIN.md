@@ -138,3 +138,50 @@ NekoSuneAI supports both paths:
 Music Assistant unavailable/no match
     -> YouTube yt-dlp fallback on Pi Proxy
 ```
+
+
+## Fix: "Default audio device not found"
+
+The Sendspin sidecar is configured to use the ALSA `pulse` virtual device,
+which forwards audio into the host PulseAudio/PipeWire server and therefore to
+the same Bluetooth Echo sink used by Pi Proxy.
+
+After updating the image, verify the host first:
+
+```bash
+pactl info
+pactl get-default-sink
+pactl list short sinks
+```
+
+Then verify the Pulse runtime directory that is being mounted:
+
+```bash
+echo "$XDG_RUNTIME_DIR"
+ls -la "${XDG_RUNTIME_DIR:-/run/user/1000}/pulse"
+```
+
+If your host Pulse socket is not under `/run/user/1000/pulse`, set these in
+the stack `.env`:
+
+```env
+PULSE_RUNTIME_DIR=/run/user/YOUR_UID/pulse
+PULSE_COOKIE_FILE=/home/YOUR_USER/.config/pulse/cookie
+SENDSPIN_AUDIO_DEVICE=pulse
+```
+
+Then recreate the sidecar:
+
+```bash
+docker compose -f compose.pi-proxy-sendspin.yml pull
+docker compose -f compose.pi-proxy-sendspin.yml up -d --force-recreate sendspin
+docker compose -f compose.pi-proxy-sendspin.yml logs -f sendspin
+```
+
+You can also test the audio device directly inside the container:
+
+```bash
+docker compose -f compose.pi-proxy-sendspin.yml run --rm --entrypoint sendspin sendspin audio-devices list
+```
+
+The output should contain the raw ALSA device `pulse`.
