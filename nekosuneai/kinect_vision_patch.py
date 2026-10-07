@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import ctypes
 import ctypes.util
+import os
+import shutil
+import subprocess
 import threading
 import time
 from typing import Any, Callable
@@ -216,12 +219,47 @@ class KinectVisionService:
             return ""
         return self._last_context
 
+    def _usb_summary(self) -> dict[str, Any]:
+        """Small hardware diagnostic exposed on the Pi Proxy status page."""
+        usb_mounted = os.path.isdir("/dev/bus/usb")
+        rows: list[str] = []
+        if shutil.which("lsusb"):
+            try:
+                result = subprocess.run(
+                    ["lsusb"], capture_output=True, text=True, timeout=5, check=False,
+                )
+                rows = [
+                    line.strip() for line in result.stdout.splitlines()
+                    if "045e:" in line.lower()
+                    or "kinect" in line.lower()
+                    or "xbox nui" in line.lower()
+                ][:12]
+            except Exception:
+                rows = []
+        return {
+            "usb_bus_mounted": usb_mounted,
+            "microsoft_usb_devices": rows,
+            "freenect_library": ctypes.util.find_library("freenect") or "",
+            "freenect_sync_library": ctypes.util.find_library("freenect_sync") or "",
+        }
+
     def status(self) -> dict[str, Any]:
         s = self._settings()
-        try:
-            visible_devices = self._device_count() if s["enabled"] else 0
-        except Exception:
-            visible_devices = 0
+        visible_devices = 0
+        probe_error = ""
+        if s["enabled"]:
+            try:
+                visible_devices = self._device_count()
+            except Exception as exc:
+                probe_error = str(exc)
+        diagnostics = self._usb_summary()
+        error = self._last_error or probe_error
+        if s["enabled"] and not diagnostics["freenect_library"]:
+            error = "libfreenect is not installed in this Pi Proxy image."
+        elif s["enabled"] and not diagnostics["freenect_sync_library"]:
+            error = "libfreenect_sync is not installed in this Pi Proxy image."
+        elif s["enabled"] and not diagnostics["usb_bus_mounted"]:
+            error = "/dev/bus/usb is not mounted into the Pi Proxy container."
         return {
             "enabled": s["enabled"],
             "running": self._running,
@@ -229,7 +267,8 @@ class KinectVisionService:
             "visible_devices": visible_devices,
             "last_frame_age_seconds": None if not self._last_frame_at else round(time.time()-self._last_frame_at, 1),
             "has_context": bool(self.context()),
-            "error": self._last_error,
+            "error": error,
+            "diagnostics": diagnostics,
         }
 
 # The original Docker-backend version of this module also had an
