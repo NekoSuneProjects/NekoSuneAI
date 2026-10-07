@@ -1,0 +1,38 @@
+FROM python:3.11-slim-bookworm
+
+ARG APP_VERSION=1.2.1
+LABEL org.opencontainers.image.title="NekoSuneAI Pi Proxy Kinect" \
+      org.opencontainers.image.version="${APP_VERSION}" \
+      org.opencontainers.image.description="Pi Proxy with Xbox 360 Kinect RGB/vision support"
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONPATH=/app \
+    NEKOSUNEAI_KINECT_IMAGE=1
+
+# Kinect RGB/depth uses libfreenect over raw USB.  The microphone is a separate
+# ALSA device and is intentionally handled by the host (kinect-audio-setup +
+# /dev/snd bind mount), because udev/firmware loading belongs on the Pi host.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates ffmpeg alsa-utils pulseaudio-utils bluez espeak-ng \
+    libportaudio2 libgomp1 \
+    libfreenect0.5 libfreenect-bin libusb-1.0-0 usbutils \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY requirements-pi-proxy.txt requirements-vision-lite.txt ./
+# openWakeWord/TFLite and OpenCV are both happy on NumPy 1.26; keep the base
+# image's NumPy<2 ABI guarantee while installing the optional Kinect vision set.
+RUN pip install --no-cache-dir "numpy>=1.26,<2" \
+    -r requirements-pi-proxy.txt \
+    -r requirements-vision-lite.txt
+
+COPY nekosuneai/ ./nekosuneai/
+COPY VERSION ./VERSION
+COPY config/pi-proxy-agent.example.json /app/pi-proxy-agent.example.json
+RUN mkdir -p /data
+
+WORKDIR /data
+EXPOSE 8799
+ENTRYPOINT ["python", "-m", "nekosuneai.pi_proxy_agent"]
+CMD ["--config", "/data/pi-proxy-agent.json"]
