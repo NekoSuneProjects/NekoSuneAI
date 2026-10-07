@@ -15,6 +15,22 @@ Prefer local/offline control where practical and make cloud/account integrations
 - [x] Whisper/night mode — whisper to Neko and have her answer quietly.
 - [x] Intelligent interruption priorities — emergency > important > normal > optional.
 - [x] Don't-interrupt mode — delay non-critical announcements while conversation/media is detected.
+### Alice-style assistant parity
+
+- [x] Room-aware smart-home voice control through Home Assistant/MQTT.
+- [x] Light brightness, RGB colour and colour-temperature voice commands.
+- [x] Blind/cover percentage positioning.
+- [x] Thermostat target-temperature voice commands.
+- [x] Phone-accessible NekoSuneAI dashboard and paired Android nodes.
+- [x] Named routines/scenes and natural-language automation creation.
+- [ ] Smart-glass/privacy-window integration profile (opacity/privacy presets through Home Assistant/MQTT when hardware exposes a controllable entity).
+- [ ] Arrival/departure geofencing from an explicitly paired phone for routines such as “boil the kettle before I get home”.
+- [ ] Appliance capability profiles (kettle, coffee maker, heater, air purifier, humidifier, robot vacuum) with safe device-specific phrases.
+- [ ] Follow-me conversation/audio between room Pi nodes and the paired phone.
+- [ ] Broader multilingual intent aliases so common smart-home commands work naturally beyond English.
+- [ ] Optional Spotify Connect / Cast / DLNA playback targets while keeping local/self-hosted music available.
+- [ ] Household/guest profiles with per-device permissions for shared homes.
+
 ### Matter / smart-home devices
 
 - [ ] Matter controller and local device discovery/control.
