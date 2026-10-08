@@ -16,7 +16,7 @@ concurrency:
 jobs:
   smoke:
     name: Pi Proxy smoke test amd64 + arm64
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, neko-build]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,7 +76,7 @@ jobs:
 
   publish:
     needs: smoke
-    runs-on: [self-hosted, Linux, X64]
+    runs-on: [self-hosted, neko-build]
     steps:
       - uses: actions/checkout@v4
         with:
