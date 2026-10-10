@@ -40,6 +40,27 @@ class TestBridge(unittest.TestCase):
         self.worker.once()
         self.assertFalse(self.worker.session_id)
 
+    def test_disney_tutorial_plan_is_session_bound(self):
+        package = "com.superplaystudios.disneysolitairedreams"
+        self.worker.allowed.add(package)
+        self.device.list_packages.return_value = [package]
+        self.device.foreground_package.return_value = package
+        self.worker.execute("game.session.start", {
+            "session_id": "disney-session", "game_id": package,
+            "expires_epoch": time.time() + 10,
+        })
+        with self.assertRaises(PermissionError):
+            self.worker.execute("game.disney.plan", {
+                "session_id": "wrong", "scene": "wild_card_hint"})
+        response = self.worker.execute("game.disney.plan", {
+            "session_id": "disney-session", "scene": "wild_card_hint",
+            "wild_button": {"kind": "wild_card", "x": 1700, "y": 760,
+                            "confidence": 0.99, "highlighted": True, "count": 1},
+        })
+        self.assertEqual(response["execution"], "proposal_only")
+        self.assertEqual(response["proposal"]["action"], "tap")
+        self.device.tap.assert_not_called()
+
     def test_expired_session_disarms(self):
         self.start()
         self.worker.session_deadline = 0
