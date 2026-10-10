@@ -91,3 +91,38 @@ image. Dockerfile changes require rebuilding/publishing that tag or
 using a newer tag, while the Compose command change takes effect when
 the container is recreated. The default ALSA mapping exists in the
 already-published Dockerfile.
+
+
+## PipeWire mixing with Pi Proxy
+
+Sendspin is a Music Assistant playback endpoint. It is **not** a generic
+audio-input mixer for Pi Proxy TTS and alerts. Both containers instead send
+their audio to the host PipeWire-Pulse session. PipeWire mixes independent
+streams (Music Assistant via Sendspin, Pi Proxy TTS/chimes, etc.) on the same
+Echo Dot Bluetooth speaker; overlapping sounds are expected unless you enable
+ducking/priority policy separately.
+
+Both Compose configurations set `PULSE_SERVER=unix:/run/pulse/native` and
+`PULSE_SINK` to the Echo Dot sink discovered on this host, currently
+`bluez_output.7C_61_66_3E_5E_9C.1`. Change `PULSE_SINK` in the environment
+if the Bluetooth adapter/sink name changes. The Pi Proxy sets
+`SDL_AUDIODRIVER=pulseaudio` so its ffplay music and MP3 voice paths
+use the PulseAudio server as well.
+
+## Music Assistant protocol compatibility
+
+The Sendspin Docker image uses a pinned Sendspin 7.5.0 dependency family,
+and extends the older aiosendspin supported-command enum for
+`seek` and `seek_relative` at image **build time**. No runtime
+`docker exec ... pip install` or manual patch is required. The Docker build
+fails if the compatibility patch cannot be imported.
+
+To update the running image after GitHub Actions successfully publishes it,
+pull the new image and recreate only the Sendspin service. Keep the
+`--url ws://192.168.1.136:8927/sendspin` option from your **working**
+unified Compose deployment: the standalone example here still defaults
+to local/advertised server mode.
+
+Keep Sendspin configured with `--hardware-volume false` and PortAudio's
+`default` device. Do **not** switch to `--audio-device pulse` or
+upgrade `aiosendspin` to major version 9 independently of Sendspin 7.5.0.
