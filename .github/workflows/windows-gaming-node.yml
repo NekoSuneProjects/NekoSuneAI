@@ -13,6 +13,7 @@ on:
       - 'nekosuneai/hidmaestro_client.py'
       - 'nekosuneai/windows_gaming_agent.py'
       - 'tools/hidmaestro-bridge/**'
+      - 'test/test_hidmaestro_client.py'
       - '.github/workflows/windows-gaming-node.yml'
 
 permissions:
@@ -46,6 +47,9 @@ jobs:
         shell: pwsh
         run: |
           python -c "import nekosuneai; import nekosuneai.windows_gaming_agent; print('Windows Gaming Node imports OK (HIDMaestro sidecar optional)')"
+
+      - name: HIDMaestro optional backend unit tests
+        run: python -m unittest discover -s test -p test_hidmaestro_client.py -v
 
       - name: Build standalone GUI EXE
         shell: pwsh
