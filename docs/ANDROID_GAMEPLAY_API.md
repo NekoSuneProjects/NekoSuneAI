@@ -15,6 +15,8 @@ Authenticated dashboard APIs (dashboard cookie or token):
 | POST | `/api/game/android/resume` | Resume approved game input |
 | POST | `/api/game/android/stop` | Stop session and disarm inputs |
 | POST | `/api/game/android/emergency-stop` | Send scoped `game.input.stop` even if browser lost its session ID |
+| POST | `/api/game/android/autoplay` | Queue an owner-approved goal to the existing Android autonomous runtime (opt-in worker configuration required) |
+| POST | `/api/game/android/autoplay-status` | Queue a request for the Android runtime state |
 
 These APIs require dashboard authentication and use the existing per-node capability approval. Send `confirmed: true` **only when the owner explicitly approves that action** and the node's configured policy permits it. Action commands receive a short expiry; input is verified again on the Android agent.
 
@@ -31,3 +33,5 @@ Example payloads:
 **Known limitations**: the first controller uses process-memory session bookkeeping. Restarting Main loses session records (the node will stop its own input when its bounded session expires). Commands are queued, not synchronously executed, so `ok:true` means *queued*, not *gameplay succeeded*. There is no streaming preview, live dashboard game page, automatic LLM action generation or durable result ledger yet. Do not deploy as unattended gameplay. Persisted session ledger, device acknowledgement checks, and end-to-end device testing are required before production.
 
 The first manual dashboard page is `/android-games.html` on the Main server. It needs authenticated browser access. Session recovery works only while the same Main process still holds the session state. An emergency stop still respects the registry capability policy: a node owner can deny the capability. For safety, ensure `game.input.stop` is explicitly allowed for your paired Android node.
+
+Autoplay is experimental and requires the Android worker to be started with locally configured `--autoplay-model-url` and `--autoplay-model`, and the `game.autoplay.start` permission to be owner-approved. The Android runtime—not the Main API—still performs actual Ollama gameplay decisions. Main sends a bounded goal through a queued command, not direct raw ADB input. A queued command is not proof that the worker accepted or finished it.
