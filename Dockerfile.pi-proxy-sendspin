@@ -33,6 +33,11 @@ for entry in ('SEEK', 'SEEK_RELATIVE'):
     if line not in content:
         content = content.replace('    SWITCH = "switch"', '    SWITCH = "switch"\n' + line)
 path.write_text(content)
+# Verify that the patched module still imports and contains both commands.
+assert '    SEEK = "seek"' in content
+assert '    SEEK_RELATIVE = "seek_relative"' in content
+import importlib
+importlib.reload(types)
 PY
 
 # Route PortAudio's default ALSA output to the Pi host's PulseAudio /
