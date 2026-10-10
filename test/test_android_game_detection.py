@@ -5,6 +5,28 @@ from nekosuneai.android_gameplay.game_detection import detect_foreground, identi
 
 
 class GameDetectionTests(unittest.TestCase):
+    def test_other_supported_android_games(self):
+        expected = {
+            "com.moonactive.coinmaster": "Coin Master",
+            "com.superplaystudios.disneysolitairedreams": "Disney Solitaire",
+            "com.superplaystudios.dicedreams": "Dice Dreams",
+        }
+        for package, title in expected.items():
+            with self.subTest(package=package):
+                game = identify_game(package, [package])
+                self.assertEqual(game["game_name"], title)
+                self.assertEqual(game["game_id"], package)
+                self.assertTrue(game["known_game"])
+                self.assertTrue(game["playing"])
+
+    def test_original_coin_master_is_distinct_from_board_adventure(self):
+        original = identify_game("com.moonactive.coinmaster",
+                                 ["com.moonactive.coinmaster"])
+        board = identify_game("com.moonactive.cmboard",
+                              ["com.moonactive.cmboard"])
+        self.assertNotEqual(original["game_id"], board["game_id"])
+        self.assertNotEqual(original["game_name"], board["game_name"])
+
     def test_board_adventure(self):
         game = identify_game("com.moonactive.cmboard", ["com.moonactive.cmboard"])
         self.assertEqual(game["game_name"], "Coin Master – Board Adventure")
