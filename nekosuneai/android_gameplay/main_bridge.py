@@ -24,6 +24,8 @@ PACKAGE_RE = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$")
 CAPABILITIES = {
     "game.devices": {"kind": "read"},
     "game.detect": {"kind": "read"},
+    "game.profile": {"kind": "read"},
+    "game.navigation.plan": {"kind": "read"},
     "game.observe": {"kind": "read"},
     "game.action": {"kind": "write"},
     "game.session.start": {"kind": "write"},
