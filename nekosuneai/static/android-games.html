@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NekoSuneAI · Android Gameplay</title>
+<style>
+:root{color-scheme:dark;font-family:system-ui,sans-serif;background:#07110c;color:#e8fff0}
+*{box-sizing:border-box}body{margin:0 auto;max-width:950px;padding:26px 16px}
+a{color:#80f2a6}h1{margin:0 0 8px}p,small{color:#b2cabb}
+.panel{border:1px solid #25573b;border-radius:16px;background:#102018;padding:19px;margin:16px 0}
+label{display:block;margin:11px 0 5px}select,input,button{font:inherit;border:1px solid #33734c;border-radius:9px;background:#08170e;color:#e8fff0;padding:10px;max-width:100%}
+input{width:100%}button{cursor:pointer;background:#17482d;margin:7px 6px 7px 0}button:disabled{opacity:.35;cursor:not-allowed}
+button.danger{background:#6c222d;border-color:#ad4853}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+#status{white-space:pre-wrap;font-family:ui-monospace,monospace;min-height:60px}
+</style></head>
+<body><a href="/">← NekoSuneAI Main</a>
+<h1>Android Gameplay</h1>
+<p>Control approved Android game agents on your network. Commands are queued to the paired device. This preview does not yet show live video or autonomous AI actions.</p>
+<section class="panel">
+<label for="node">Paired Android game agent</label><select id="node"></select>
+<button id="refresh">Refresh devices</button>
+<div class="grid">
+<div><label for="game">Android package ID</label><input id="game" placeholder="com.example.game" autocomplete="off"></div>
+<div><label for="duration">Session seconds (1–3600)</label><input id="duration" type="number" min="1" max="3600" value="300"></div>
+<div><label for="budget">Action budget (1–500)</label><input id="budget" type="number" min="1" max="500" value="50"></div>
+</div>
+<label><input id="confirmed" type="checkbox" style="width:auto"> I approve the selected game's control commands</label>
+<div><button id="start">Start selected game</button><button id="observe">Request observation</button><button id="pause">Pause</button><button id="resume">Resume</button><button id="stop" class="danger">Stop</button></div>
+</section>
+<section class="panel">
+<h2>Manual game input</h2>
+<p>Only input to the selected, running game is allowed. Tap coordinates are Android screenshot pixels, not Windows desktop pixels.</p>
+<div class="grid"><div><label for="x">X</label><input id="x" type="number" min="0" value="300"></div><div><label for="y">Y</label><input id="y" type="number" min="0" value="400"></div></div>
+<button id="tap">Tap</button><button id="back">Android Back</button>
+</section>
+<section class="panel"><h2>Session status</h2><div id="status" role="status" aria-live="polite">Select a paired Android agent to begin.</div></section>
+<script>
+(() => {
+"use strict";
+const $ = id => document.getElementById(id);
+const token = new URLSearchParams(location.search).get("token") || "";
+let sessionId = "", selectedNode = "";
+function report(message) { $("status").textContent = typeof message === "string" ? message : JSON.stringify(message,null,2); }
+async function api(path, body) {
+  const headers = {"Accept":"application/json"};
+  if(token) headers["X-Neko-Token"] = token;
+  if(body) headers["Content-Type"] = "application/json";
+  const res = await fetch(path, {method:body ? "POST" : "GET",headers,
+    credentials:"same-origin",body:body ? JSON.stringify(body) : undefined});
+  const data = await res.json();
+  if(!res.ok) throw new Error(data.error || "HTTP " + res.status);
+  return data;
+}
+async function refresh(){
+  const data=await api("/api/game/android/devices");
+  const select=$("node");select.replaceChildren();
+  for(const n of data.devices || []){
+    const option=document.createElement("option");
+    option.value=n.node_id;option.textContent=(n.name || n.node_id)+" · "+(n.online?"Online":"Offline");
+    option.disabled=!n.online;select.appendChild(option);
+  }
+  if(!select.options.length)report("No paired Android agents found. Pair an android-gaming worker from Nodes & Routines.");
+  else report("Select an online Android device and its package.");
+}
+async function send(op,payload={}){
+  const node_id=$("node").value;
+  if(!node_id)throw new Error("Select an online paired Android agent");
+  if(!["start"].includes(op) && !sessionId)throw new Error("Start an Android game session first");
+  if(op==="start" && !$("confirmed").checked)throw new Error("Check the approval box before starting");
+  const body={node_id,confirmed:$("confirmed").checked,...payload};
+  if(op!=="start")body.session_id=sessionId;
+  const response=await api("/api/game/android/"+op,body);
+  if(op==="start"){sessionId=response.session.session_id;selectedNode=node_id;}
+  if(op==="stop"){sessionId="";selectedNode="";}
+  report(response);
+}
+$("node").addEventListener("change",()=>{if(selectedNode && $("node").value!==selectedNode)report("Stop the existing session before changing devices.");});
+$("refresh").onclick=()=>refresh().catch(e=>report(e.message));
+$("start").onclick=()=>send("start",{game_id:$("game").value.trim(),duration_seconds:Number($("duration").value),max_actions:Number($("budget").value)}).catch(e=>report(e.message));
+for(const op of ["observe","pause","resume","stop"])$(op).onclick=()=>send(op,op==="observe"?{analyze:false}:{}).catch(e=>report(e.message));
+$("tap").onclick=()=>send("action",{action:{type:"tap",x:Number($("x").value),y:Number($("y").value)}}).catch(e=>report(e.message));
+$("back").onclick=()=>send("action",{action:{type:"back"}}).catch(e=>report(e.message));
+refresh().catch(e=>report("Cannot load devices: "+e.message));
+})();
+</script></body></html>
