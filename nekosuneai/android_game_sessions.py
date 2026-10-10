@@ -11,7 +11,7 @@ import time
 
 _PACKAGE = re.compile(r"^[A-Za-z0-9_]+(?:[.][A-Za-z0-9_]+)+$")
 _ACTIONS = frozenset(("tap", "swipe", "back"))
-_OPERATIONS = frozenset(("start", "observe", "action", "stop", "pause", "resume"))
+_OPERATIONS = frozenset(("start", "observe", "action", "stop", "pause", "resume", "emergency-stop"))
 
 
 class AndroidGameSessions:
@@ -23,6 +23,15 @@ class AndroidGameSessions:
     def devices(self):
         return [node for node in self.registry.list_nodes()
                 if node.get("node_type") == "android-gaming"]
+
+    def status(self, node_id):
+        with self.lock:
+            self._get_node(node_id)
+            session = self.sessions.get(node_id)
+            if session and session["expires_epoch"] <= time.time():
+                self.sessions.pop(node_id, None)
+                session = None
+            return dict(session) if session else None
 
     def _get_node(self, node_id):
         node = next((item for item in self.devices()
@@ -39,6 +48,13 @@ class AndroidGameSessions:
             self._get_node(node_id)
             now = time.time()
             session = self.sessions.get(node_id)
+            if operation == "emergency-stop":
+                queued = self.registry.enqueue(
+                    node_id, "game.input.stop", {},
+                    confirmed=True, requested_by="android-game-emergency-stop")
+                self.sessions.pop(node_id, None)
+                return {"ok": True, "operation": operation, "command": queued,
+                        "session": None}
             if operation == "start":
                 if session and session["expires_epoch"] > now:
                     raise ValueError("This Android node already has a session")
