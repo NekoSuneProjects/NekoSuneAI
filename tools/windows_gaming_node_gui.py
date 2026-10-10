@@ -382,6 +382,10 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         self.nav_buttons: dict[str, tk.Button] = {}
         for key, label, glyph in (("setup", "Setup & Pair", "●"), ("gaming", "Gaming Node", "▶"), ("media", "Audio & Vision", "AV"), ("vrchat", "VRChat / OSC", "OSC"), ("worldmap", "VRChat / World Map", "WM"), ("about", "Status", "◆")):
             button = tk.Button(sidebar, text=f"  {glyph}   {label}", anchor="w", relief="flat", bd=0, bg="#0d131a", fg=MUTED, activebackground="#161f29", activeforeground=TEXT, font=("Segoe UI", 10, "bold"), padx=14, pady=12, cursor="hand2", command=lambda page=key: self._show_page(page))
+            if key == "vrchat":
+                tk.Label(sidebar, text="VRCHAT", bg="#0d131a", fg="#66788a", font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=24, pady=(10, 2))
+            elif key == "gaming":
+                tk.Label(sidebar, text="GAMING", bg="#0d131a", fg="#66788a", font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=24, pady=(10, 2))
             button.pack(fill="x", padx=12, pady=3)
             self.nav_buttons[key] = button
 
@@ -517,7 +521,10 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         row.pack(fill="x", padx=22, pady=5)
         ttk.Label(row, text="Compute", style="Body.TLabel").pack(side="left")
         ttk.Combobox(row, textvariable=self.vision_provider_var, state="readonly", values=("auto", "cpu", "directml", "cuda"), width=16).pack(side="left", padx=12)
-        self._field(local, "YOLOv8 ONNX file", self.vision_model_var, 1)
+        model_row = ttk.Frame(local, style="Card.TFrame")
+        model_row.pack(fill="x", padx=22, pady=5)
+        ttk.Label(model_row, text="YOLOv8 ONNX file", style="Body.TLabel").pack(side="left")
+        ttk.Entry(model_row, textvariable=self.vision_model_var, style="Modern.TEntry").pack(side="left", fill="x", expand=True, padx=12)
         ttk.Button(local, text="Save vision settings", command=self.save, style="Secondary.TButton").pack(anchor="e", padx=22, pady=12)
 
         live = self._card(page, "Live status", "The node only executes approved gaming capabilities.")
