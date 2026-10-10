@@ -1,0 +1,38 @@
+name: Android gaming Main API
+
+on:
+  push:
+    branches: [feat/android-gameplay-session-api]
+  pull_request:
+    paths:
+      - 'nekosuneai/android_game_sessions.py'
+      - 'nekosuneai/android_gameplay/**'
+      - 'requirements-android-gameplay.txt'
+      - 'test/test_main_bridge.py'
+      - 'test/test_android_lan_status.py'
+      - 'test/test_android_game_detection.py'
+      - 'test/test_original_coinmaster.py'
+      - 'test/test_disney_solitaire.py'
+      - 'test/test_paired_autoplay.py'
+      - 'test/test_android_game_sessions.py'
+      - '.github/workflows/android-game-sessions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sessions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Android engine dependencies
+        run: python -m pip install -r requirements-android-gameplay.txt
+      - name: Compile
+        run: python -m compileall -q nekosuneai/android_game_sessions.py test/test_android_game_sessions.py
+      - name: Session controller tests
+        run: python -m unittest discover -s test -p test_android_lan_status.py -v && python -m unittest discover -s test -p test_disney_solitaire.py -v && python -m unittest discover -s test -p test_original_coinmaster.py -v && python -m unittest discover -s test -p test_android_game_detection.py -v && python -m unittest discover -s test -p test_android_game_sessions.py -v && python -m unittest discover -s test -p test_main_bridge.py -v && python -m unittest discover -s test -p test_paired_autoplay.py -v
