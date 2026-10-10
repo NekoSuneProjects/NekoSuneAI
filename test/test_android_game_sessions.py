@@ -32,6 +32,17 @@ class AndroidSessionsTest(unittest.TestCase):
                                          "game_id": "com.example.game",
                                          "duration_seconds": 300})
 
+    def test_emergency_stop_without_session_id(self):
+        self.start()
+        stopped = self.api.command("emergency-stop", {"node_id": "android-1"})
+        self.assertEqual(stopped["command"]["capability"], "game.input.stop")
+        self.assertIsNone(stopped["session"])
+
+    def test_status_recovers_active_session(self):
+        session = self.start()["session"]
+        self.assertEqual(self.api.status("android-1")["session_id"],
+                         session["session_id"])
+
     def test_devices_exclude_windows(self):
         self.assertEqual([n["node_id"] for n in self.api.devices()], ["android-1"])
 
