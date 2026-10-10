@@ -161,6 +161,20 @@ class AndroidGameWorker:
             if not isinstance(expiry, (int, float)) or not time.time() < expiry <= time.time() + 30:
                 raise PermissionError("Autoplay start is expired or missing deadline")
             return self.autoplay.start(args.get("goal", ""))
+        if capability == "game.profile":
+            if self.device.foreground_package() != "com.moonactive.coinmaster":
+                raise PermissionError("Original Coin Master must be foreground")
+            from .original_coinmaster import scene_help
+            return scene_help()
+        if capability == "game.navigation.plan":
+            self._active()
+            if self.package != "com.moonactive.coinmaster":
+                raise PermissionError("Original Coin Master session required")
+            from .original_coinmaster import navigation_plan
+            frame = self.device.screenshot()
+            height, width = frame.shape[:2]
+            return navigation_plan(str(args.get("current_scene", "unknown")),
+                                   str(args.get("destination", "")), width, height)
         if capability == "game.detect":
             return detect_foreground(self.device, self.allowed)
         if capability == "game.devices":
