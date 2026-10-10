@@ -39,6 +39,22 @@ class AndroidToolTests(unittest.TestCase):
                     install_platform_tools(d)
             self.assertFalse((Path(d) / "outside").exists())
 
+    def test_model_source_is_pinned_to_spotlab_commit(self):
+        from nekosuneai.windows_android_tools import YOLO_URL, YOLO_SHA256
+        self.assertIn("/SpotLab/YOLOv8Detection/resolve/3005c6751fb19cdeb6b10c066185908faf66a097/yolov8n.onnx", YOLO_URL)
+        self.assertEqual(YOLO_SHA256, "dd48a79dd7fec8ca25fde4eca742ff7bca23b27e2e903eb23bc1d9f83a459bd2")
+
+    def test_https_model_redirect_requires_digest_verification(self):
+        from nekosuneai.windows_android_tools import _download
+        import io
+        class RedirectedResponse(io.BytesIO):
+            def geturl(self):
+                return "https://signed-model-bucket.s3.amazonaws.com/model.onnx?token=temporary"
+        with tempfile.TemporaryDirectory() as d:
+            with patch("nekosuneai.windows_android_tools.urllib.request.urlopen", return_value=RedirectedResponse(b"model-data")):
+                digest = _download("https://huggingface.co/SpotLab/YOLOv8Detection/resolve/main/yolov8n.onnx", Path(d) / "download", 1024)
+            self.assertEqual(digest, hashlib.sha256(b"model-data").hexdigest())
+
     def test_yolo_checksum_required(self):
         with tempfile.TemporaryDirectory() as d:
             def fake_download(_url, path, _limit):
