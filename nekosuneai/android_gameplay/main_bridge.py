@@ -292,8 +292,11 @@ class AndroidGameWorker:
     def once(self):
         if not self.token:
             raise RuntimeError("Pair before polling")
-        if self.session_id and time.monotonic() >= self.session_deadline:
-            self._disarm()
+        if self.session_id:
+            if (time.monotonic() >= self.session_deadline or
+                    self.actions_used >= self.max_actions or
+                    self.device.foreground_package() != self.package):
+                self._disarm()
         state = {
             "platform": "android", "game_running": bool(self.session_id),
             "game_id": self.package, "session_id": self.session_id,
@@ -347,7 +350,7 @@ class AndroidGameWorker:
         while not self.stop_event.is_set():
             try:
                 self.once()
-            except (requests.RequestException, OSError, ValueError):
+            except (requests.RequestException, OSError, ValueError, RuntimeError):
                 self._disarm()
                 self.stop_event.wait(3)
 
