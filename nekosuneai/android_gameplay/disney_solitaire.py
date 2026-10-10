@@ -13,6 +13,10 @@ def classify_scene(texts):
     text = (" ".join(str(t) for t in texts) if not isinstance(texts, str) else texts).lower()
     if any(phrase in text for phrase in ("special offer", "limited offer", "purchase", "buy now", "no ads", "remove ads", "£", "$", "€", "usd", "gbp", "eur")):
         return "payment_popup"
+    if "wild card matches any card" in text and "complete your streak" in text:
+        return "wild_card_hint"
+    if "extra cards" in text and "run out" in text:
+        return "extra_cards_hint"
     if "tap anywhere to collect" in text and "you did it" in text:
         return "reward"
     if "need stars?" in text:
@@ -94,7 +98,44 @@ def payment_close_action(close_buttons, width, height):
             "requires_fresh_observation": True}
 
 
-def propose_action(scene, *, foundation_rank=None, exposed_cards=(), screen_width=0, screen_height=0, close_buttons=()):
+def tutorial_button_action(button, width, height, kind):
+    """Suggest only a verified, highlighted tutorial button in its safe area.
+
+    Each button must have a fresh, positive detector result, not just the OCR
+    instruction or hardcoded pixels from a particular emulator resolution.
+    """
+    if type(width) is not int or type(height) is not int or width < 400 or height < 250:
+        return {"action": "wait", "reason": "No verified screen dimensions"}
+    if not isinstance(button, dict):
+        return {"action": "wait", "reason": "Tutorial button not observed"}
+    if str(button.get("kind", "")).lower() != kind:
+        return {"action": "wait", "reason": "Wrong tutorial button type"}
+    x, y = button.get("x"), button.get("y")
+    confidence = button.get("confidence")
+    if (type(x) is not int or type(y) is not int or
+            type(confidence) not in (int, float) or not 0.9 <= confidence <= 1.0 or
+            button.get("highlighted") is not True or
+            not (0 <= x < width and height * 0.64 <= y < height * 0.96)):
+        return {"action": "wait", "reason": "Tutorial button is not safely identified"}
+    if kind == "wild_card":
+        # Must be available and on the right edge, not an ad/offer.
+        if type(button.get("count")) is not int or button["count"] <= 0 or x < width * 0.78:
+            return {"action": "wait", "reason": "No available confirmed WILD card"}
+    elif kind == "extra_cards":
+        if not width * 0.35 <= x <= width * 0.65 or button.get("free") is not True:
+            return {"action": "wait", "reason": "Extra cards are not confirmed free"}
+    else:
+        return {"action": "wait", "reason": "Unsupported tutorial action"}
+    return {"action": "tap", "x": x, "y": y, "requires_fresh_observation": True,
+            "reason": "Use confirmed free tutorial " + kind}
+
+
+def propose_action(scene, *, foundation_rank=None, exposed_cards=(), screen_width=0, screen_height=0,
+                   close_buttons=(), extra_cards_button=None, wild_button=None):
+    if scene == "extra_cards_hint":
+        return tutorial_button_action(extra_cards_button, screen_width, screen_height, "extra_cards")
+    if scene == "wild_card_hint":
+        return tutorial_button_action(wild_button, screen_width, screen_height, "wild_card")
     if scene == "payment_popup":
         return payment_close_action(close_buttons, screen_width, screen_height)
     if scene == "board":
@@ -112,5 +153,6 @@ def profile():
     return {"package_id": PACKAGE, "game_name": "Disney Solitaire",
             "orientation": "landscape", "gameplay": "tripeaks",
             "supported_scenes": ["board", "tutorial", "reward", "level_start",
-                                 "scene_progress", "stars_help", "payment_popup", "unknown"],
+                                 "scene_progress", "stars_help", "payment_popup",
+                                 "extra_cards_hint", "wild_card_hint", "unknown"],
             "purchases_enabled": False, "blind_auto_play": False}
