@@ -4,6 +4,9 @@ No arbitrary ADB/shell commands or input to unpaired targets. Commands are
 queued through the existing capability registry so per-node policy applies.
 """
 from __future__ import annotations
+import json
+import os
+from pathlib import Path
 import re
 import secrets
 import threading
@@ -15,10 +18,32 @@ _OPERATIONS = frozenset(("start", "observe", "action", "stop", "pause", "resume"
 
 
 class AndroidGameSessions:
-    def __init__(self, registry):
+    def __init__(self, registry, state_file=None):
         self.registry = registry
         self.lock = threading.RLock()
+        self.state_file = Path(state_file) if state_file else None
         self.sessions = {}
+        if self.state_file and self.state_file.exists():
+            try:
+                saved = json.loads(self.state_file.read_text(encoding='utf-8'))
+                if isinstance(saved, dict):
+                    self.sessions = {str(k): v for k, v in saved.items()
+                                     if isinstance(v, dict) and
+                                     type(v.get('expires_epoch')) in (int, float) and
+                                     v['expires_epoch'] > time.time() and
+                                     isinstance(v.get('session_id'), str)}
+            except (OSError, ValueError, TypeError):
+                self.sessions = {}
+
+    def _persist(self):
+        if self.state_file is None:
+            return
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        temp = self.state_file.with_name(self.state_file.name + '.tmp')
+        temp.write_text(json.dumps(self.sessions), encoding='utf-8')
+        if os.name != 'nt':
+            os.chmod(temp, 0o600)
+        os.replace(temp, self.state_file)
 
     def devices(self):
         return [node for node in self.registry.list_nodes()
@@ -31,6 +56,7 @@ class AndroidGameSessions:
             if session and session["expires_epoch"] <= time.time():
                 self.sessions.pop(node_id, None)
                 session = None
+                self._persist()
             if not session:
                 return None
             node = self._get_node(node_id)
@@ -68,6 +94,7 @@ class AndroidGameSessions:
                     node_id, "game.input.stop", {},
                     confirmed=True, requested_by="android-game-emergency-stop")
                 self.sessions.pop(node_id, None)
+                self._persist()
                 return {"ok": True, "operation": operation, "command": queued,
                         "session": None}
             if operation == "start":
@@ -139,5 +166,6 @@ class AndroidGameSessions:
                 self.sessions.pop(node_id, None)
             elif operation == "action":
                 session["actions_queued"] += 1
+            self._persist()
             return {"ok": True, "operation": operation, "command": queued,
                     "session": self.sessions.get(node_id)}
