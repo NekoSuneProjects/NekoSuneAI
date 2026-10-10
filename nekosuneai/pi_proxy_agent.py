@@ -41,6 +41,7 @@ from typing import Any
 
 import requests
 
+from .android_lan_discovery import AndroidLanDiscovery
 from .alert_sounds import ensure_default_alert_sounds
 from .alsa_devices import alsa_capture_devices, resolve_capture_device
 from .bluetooth_watchdog import BluetoothSpeakerWatchdog
@@ -209,6 +210,7 @@ class LocalAudioPlayer:
 class PiProxyAgent:
     def __init__(self, config: dict[str, Any], config_path: Path | None = None) -> None:
         self.config = config
+        self.android_lan = AndroidLanDiscovery(config)
         # Known so pairing can persist the device token itself. Without it the
         # only way to pair was the command line, which means a second Pi needs
         # a terminal session rather than just its own dashboard.
@@ -384,6 +386,8 @@ class PiProxyAgent:
             "console.command": {"kind": "write"},
             "camera.status": {"kind": "read"},
             "camera.snapshot": {"kind": "write"},
+            "game.devices": {"kind": "read"},
+            "game.device_status": {"kind": "read"},
         }
 
     def _on_bluetooth_event(self, message: str) -> None:
@@ -648,6 +652,10 @@ class PiProxyAgent:
                 pass
 
     def _dispatch(self, capability: str, args: dict[str, Any]) -> dict[str, Any]:
+        if capability == "game.devices":
+            return {"devices": self.android_lan.inventory()}
+        if capability == "game.device_status":
+            return self.android_lan.status(str(args.get("device_id", "")))
         if capability == "bluetooth.status":
             return self.bt.status()
         if capability == "bluetooth.reconnect":
@@ -999,6 +1007,7 @@ class PiProxyAgent:
     def _telemetry(self) -> dict[str, Any]:
         state: dict[str, Any] = {
             "input_disabled": self._disabled.is_set(),
+            "android_game_devices": self.android_lan.inventory(),
             "bluetooth": self.bt.status(),
             "audio_speaking": self.player.is_playing(),
             "music_playing": self.music.is_playing(),
