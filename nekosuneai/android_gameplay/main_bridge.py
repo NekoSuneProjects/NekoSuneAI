@@ -393,6 +393,9 @@ def main():
     parser.add_argument("--node-id", default="android-gameplay-1")
     parser.add_argument("--allow-package", action="append", required=True)
     parser.add_argument("--device-serial", default="")
+    parser.add_argument("--lan-status-host", default="127.0.0.1")
+    parser.add_argument("--lan-status-port", type=int, default=8765)
+    parser.add_argument("--lan-status-token-file", default="")
     parser.add_argument("--token-file", default=".android-game-node-token")
     parser.add_argument("--state-file", default=".android-game-node-state.json")
     parser.add_argument("--autoplay-model-url", default="")
@@ -416,6 +419,11 @@ def main():
             handle.write(token + "\n")
     if not worker.token:
         parser.error("Pair using --pairing-id/--pairing-code or supply --token-file")
+    if args.lan_status_token_file:
+        from .lan_status import serve_status
+        secret = Path(args.lan_status_token_file).read_text(encoding="utf-8").strip()
+        serve_status(worker, host=args.lan_status_host,
+                     port=args.lan_status_port, token=secret)
     signal.signal(signal.SIGTERM, lambda *_: worker.stop())
     signal.signal(signal.SIGINT, lambda *_: worker.stop())
     worker.serve()
