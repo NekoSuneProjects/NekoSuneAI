@@ -34,8 +34,9 @@ if ($EnablePiStatus) {
     $secretPath = Join-Path $root '.windows-android-lan-token'
     if (!(Test-Path $secretPath)) {
         $randomBytes = New-Object byte[] 32
-        [Security.Cryptography.RandomNumberGenerator]::Fill($randomBytes)
-        [IO.File]::WriteAllText($secretPath, [Convert]::ToHexString($randomBytes))
+        $rng = [Security.Cryptography.RandomNumberGenerator]::Create()
+        try { $rng.GetBytes($randomBytes) } finally { $rng.Dispose() }
+        [IO.File]::WriteAllText($secretPath, ([BitConverter]::ToString($randomBytes) -replace '-', ''))
     }
     $arguments += @('--lan-status-host','0.0.0.0','--lan-status-port',"$StatusPort",
                     '--lan-status-token-file',$secretPath)
