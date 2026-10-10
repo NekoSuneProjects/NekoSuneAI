@@ -34,7 +34,8 @@
     {
       "id": "android-gameplay-1",
       "ip": "192.168.1.100",
-      "port": 8765
+      "port": 8765,
+      "token": "REPLACE_WITH_THE_SAME_32_PLUS_CHARACTER_SECRET_AS_WINDOWS"
     }
   ]
 }
