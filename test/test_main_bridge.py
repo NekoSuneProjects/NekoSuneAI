@@ -23,6 +23,23 @@ class TestBridge(unittest.TestCase):
         })
 
 
+    def test_heartbeat_disarms_when_game_loses_focus(self):
+        self.start()
+        self.device.foreground_package.return_value = "com.other.app"
+        self.worker._post = Mock(return_value={"commands": []})
+        self.worker.once()
+        self.assertFalse(self.worker.session_id)
+        heartbeat = self.worker._post.call_args_list[0]
+        self.assertEqual(heartbeat.args[0], "/api/nodes/heartbeat")
+        self.assertFalse(heartbeat.args[1]["state"]["game_running"])
+
+    def test_heartbeat_disarms_after_budget(self):
+        self.start()
+        self.worker.actions_used = self.worker.max_actions
+        self.worker._post = Mock(return_value={"commands": []})
+        self.worker.once()
+        self.assertFalse(self.worker.session_id)
+
     def test_expired_session_disarms(self):
         self.start()
         self.worker.session_deadline = 0
