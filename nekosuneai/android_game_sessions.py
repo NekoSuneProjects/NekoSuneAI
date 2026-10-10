@@ -51,7 +51,8 @@ class AndroidGameSessions:
                     raise ValueError("Invalid session limits")
                 session_id = secrets.token_urlsafe(24)
                 args = {"session_id": session_id, "game_id": game_id,
-                        "duration_seconds": duration, "max_actions": max_actions}
+                        "duration_seconds": duration, "max_actions": max_actions,
+                        "expires_epoch": now + 10}
                 capability = "game.session.start"
                 next_session = {"session_id": session_id, "game_id": game_id,
                                 "expires_epoch": now + duration,
