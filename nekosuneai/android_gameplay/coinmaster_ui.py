@@ -1,4 +1,4 @@
-"""Conservative screen-specific observations for Coin Master's portrait UI."""
+"""Conservative screen-specific observations for Coin Master - Board Adventure ONLY.\nNot compatible with original Coin Master; call only for com.moonactive.cmboard."""
 import re
 from decimal import Decimal
 
