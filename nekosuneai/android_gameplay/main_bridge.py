@@ -27,6 +27,7 @@ CAPABILITIES = {
     "game.profile": {"kind": "read"},
     "game.disney.profile": {"kind": "read"},
     "game.disney.moves": {"kind": "read"},
+    "game.disney.plan": {"kind": "read"},
     "game.navigation.plan": {"kind": "read"},
     "game.observe": {"kind": "read"},
     "game.action": {"kind": "write"},
@@ -170,6 +171,31 @@ class AndroidGameWorker:
                 raise PermissionError("Disney Solitaire must be foreground")
             from .disney_solitaire import profile
             return profile()
+        if capability == "game.disney.plan":
+            self._active()
+            if self.package != "com.superplaystudios.disneysolitairedreams":
+                raise PermissionError("Disney Solitaire session required")
+            if args.get("session_id") != self.session_id:
+                raise PermissionError("Disney Solitaire planning session mismatch")
+            from .disney_solitaire import propose_action
+            frame = self.device.screenshot()
+            height, width = frame.shape[:2]
+            # All recognition inputs must be supplied by the vision pipeline.
+            # Never infer highlights or free entitlement from package alone.
+            scene = str(args.get("scene") or "unknown")
+            exposed = args.get("exposed_cards", [])
+            if not isinstance(exposed, list) or len(exposed) > 60:
+                raise ValueError("Invalid observed card list")
+            buttons = args.get("close_buttons", [])
+            if not isinstance(buttons, list) or len(buttons) > 12:
+                raise ValueError("Invalid observed close buttons")
+            return {"scene": scene, "proposal": propose_action(
+                scene, foundation_rank=args.get("foundation_rank"),
+                exposed_cards=exposed, screen_width=width,
+                screen_height=height, close_buttons=buttons,
+                extra_cards_button=args.get("extra_cards_button"),
+                wild_button=args.get("wild_button")),
+                "execution": "proposal_only", "fresh_vision_required": True}
         if capability == "game.disney.moves":
             self._active()
             if self.package != "com.superplaystudios.disneysolitairedreams":
