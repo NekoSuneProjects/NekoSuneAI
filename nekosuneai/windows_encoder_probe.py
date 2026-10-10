@@ -24,9 +24,9 @@ def probe_encoders(ffmpeg=None):
             return {"available": [], "preferred": None,
                     "reason": "FFmpeg encoder listing failed"}
         available = [codec for codec in CANDIDATES
-                     if any(line.split()[-1] == codec
+                     if any(len(parts) >= 2 and parts[1] == codec
                             for line in output.stdout.splitlines()
-                            if len(line.split()) == 2)]
+                            if (parts := line.split()))]
         return {"available": available,
                 "preferred": available[0] if available else None,
                 "reason": "An advertised encoder still requires runtime initialization"}
