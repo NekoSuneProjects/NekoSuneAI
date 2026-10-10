@@ -1,6 +1,6 @@
 FROM python:3.12-slim-bookworm
 
-ARG SENDSPIN_VERSION=""
+ARG SENDSPIN_VERSION="7.5.0"
 LABEL org.opencontainers.image.title="NekoSuneAI Pi Proxy Sendspin Player" \
       org.opencontainers.image.description="Standalone Sendspin player sidecar for NekoSuneAI Pi Proxy Bluetooth audio"
 
@@ -16,6 +16,24 @@ RUN if [ -n "$SENDSPIN_VERSION" ]; then \
     else \
       pip install --no-cache-dir sendspin; \
     fi
+
+# Music Assistant can advertise seek/seek_relative commands newer than the
+# enum shipped by aiosendspin 6.0.5 (used by Sendspin 7.5.0).
+# Extend only the supported command enum without upgrading aiosendspin to an
+# incompatible major version.
+RUN python - <<'PY'
+from pathlib import Path
+import aiosendspin.models.types as types
+path = Path(types.__file__)
+content = path.read_text()
+if '    SWITCH = "switch"' not in content:
+    raise RuntimeError(f"Cannot locate supported commands enum in {path}")
+for entry in ('SEEK', 'SEEK_RELATIVE'):
+    line = f'    {entry} = "{entry.lower()}"'
+    if line not in content:
+        content = content.replace('    SWITCH = "switch"', '    SWITCH = "switch"\\n' + line)
+path.write_text(content)
+PY
 
 # Route PortAudio's default ALSA output to the Pi host's PulseAudio /
 # PipeWire-Pulse session via the socket mounted by Docker Compose.
