@@ -311,6 +311,8 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         self.game_var.set(self.config_data.get("selected_game", ""))
         self._init_media_controls()
         self._init_world_map_controls()
+        self.vrchat_world_confirmed_var = tk.BooleanVar(value=False)
+        self.vrchat_world_status_var = tk.StringVar(value="Observe only. Confirm Among Us world before capturing.")
         self.verify_tls_var = tk.BooleanVar(value=bool(self.config_data.get("verify_tls", True)))
         self.web_status_enabled_var = tk.BooleanVar(value=bool(self.config_data.get("web_status_enabled", False)))
         self.web_status_port_var = tk.IntVar(value=int(self.config_data.get("web_status_port", 8799)))
@@ -387,7 +389,7 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         tk.Label(brand, text="WINDOWS GAMING NODE", bg="#0d131a", fg=ACCENT, font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(2, 0))
 
         self.nav_buttons: dict[str, tk.Button] = {}
-        for key, label, glyph in (("setup", "Setup & Pair", "●"), ("gaming", "Gaming Node", "▶"), ("media", "Audio & Vision", "AV"), ("vrchat", "VRChat / OSC", "OSC"), ("worldmap", "VRChat / World Map", "WM"), ("about", "Status", "◆")):
+        for key, label, glyph in (("setup", "Setup & Pair", "●"), ("gaming", "Gaming Node", "▶"), ("media", "Audio & Vision", "AV"), ("vrchat", "VRChat / OSC", "OSC"), ("vrchatworld", "VRChat / World Games", "AI"), ("worldmap", "VRChat / World Map", "WM"), ("about", "Status", "◆")):
             button = tk.Button(sidebar, text=f"  {glyph}   {label}", anchor="w", relief="flat", bd=0, bg="#0d131a", fg=MUTED, activebackground="#161f29", activeforeground=TEXT, font=("Segoe UI", 10, "bold"), padx=14, pady=12, cursor="hand2", command=lambda page=key: self._show_page(page))
             if key == "vrchat":
                 tk.Label(sidebar, text="VRCHAT", bg="#0d131a", fg="#66788a", font=("Segoe UI", 8, "bold")).pack(anchor="w", padx=24, pady=(10, 2))
@@ -423,6 +425,7 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         self._build_gaming_page()
         self._build_media_page()
         self._build_vrchat_page()
+        self._build_vrchat_world_page()
         self._build_world_map_page()
         self._build_status_page()
 
@@ -494,6 +497,51 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         ttk.Entry(code_fields, textvariable=self.pairing_code_var).grid(row=1, column=1, sticky="ew", padx=8)
         self.code_pair_button = ttk.Button(code_fields, text="Pair with code", command=lambda: self.pair(use_code=True), style="Secondary.TButton")
         self.code_pair_button.grid(row=1, column=2)
+
+    def _build_vrchat_world_page(self) -> None:
+        page = ttk.Frame(self.page_host, style="App.TFrame")
+        self.pages["vrchatworld"] = page
+        panel = self._card(page, "VRChat World Gameplay — Among Us",
+                           "Observe scene cues, navigation and interaction opportunities. No movement, clicking or speech.")
+        ttk.Checkbutton(panel, text="I confirm VRChat is currently in the Among Us world",
+                        variable=self.vrchat_world_confirmed_var, style="Modern.TCheckbutton").pack(anchor="w", padx=22, pady=8)
+        controls = ttk.Frame(panel, style="Card.TFrame")
+        controls.pack(fill="x", padx=22, pady=10)
+        ttk.Button(controls, text="Observe current frame", command=self.observe_vrchat_world,
+                   style="Primary.TButton").pack(side="left")
+        ttk.Button(controls, text="Show learned memory", command=self.show_vrchat_world_memory,
+                   style="Secondary.TButton").pack(side="left", padx=10)
+        ttk.Label(panel, textvariable=self.vrchat_world_status_var, style="Muted.TLabel",
+                  wraplength=680).pack(anchor="w", padx=22, pady=12)
+
+    def _among_us_observer(self):
+        from nekosuneai.vrchat_world_learning import AmongUsObserver
+        return AmongUsObserver(BASE_DIR / "data" / "vrchat-world-memory" / "among-us.json")
+
+    def observe_vrchat_world(self) -> None:
+        if not self.vrchat_world_confirmed_var.get():
+            self.vrchat_world_status_var.set("Confirm Among Us before observing. No input sent.")
+            return
+        agent = self.agent
+        if not agent or getattr(agent, "profile", None) is None or agent.profile.platform != "vrchat":
+            self.vrchat_world_status_var.set("Start the VRChat Windows game profile first.")
+            return
+        self.vrchat_world_status_var.set("Capturing foreground VRChat frame...")
+        def worker():
+            try:
+                frame = agent.vision.capture(detailed=False)
+                result = self._among_us_observer().observe(frame, world_confirmed=True)
+                msg = (f"Among Us: {result['stage']}; samples: {result['samples']}; actions: 0"
+                       if result["ok"] else result["reason"])
+            except Exception as exc:
+                msg = "Observation failed: " + str(exc)[:160]
+            self.after(0, lambda value=msg: self.vrchat_world_status_var.set(value))
+        threading.Thread(target=worker, daemon=True).start()
+
+    def show_vrchat_world_memory(self) -> None:
+        stats = self._among_us_observer().summary()
+        self.vrchat_world_status_var.set(
+            f"Among Us: {stats['samples']} samples; stages: {stats['stage_counts']}; observe only.")
 
     def _build_gaming_page(self) -> None:
         page = ttk.Frame(self.page_host, style="App.TFrame")
