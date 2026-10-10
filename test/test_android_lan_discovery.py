@@ -22,6 +22,18 @@ class AndroidLanTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             AndroidLanDiscovery({"game_lan_devices": [device, device]})
 
+    def test_cached_status_and_batch_probe(self):
+        discovery = AndroidLanDiscovery({"game_lan_enabled": True,
+            "game_lan_probe_cache_seconds": 30,
+            "game_lan_devices": [{"id": "android-1", "ip": "127.0.0.1", "port": 8765}]})
+        with patch("nekosuneai.android_lan_discovery.socket.create_connection") as connect:
+            first = discovery.status("android-1")
+            second = discovery.status("android-1")
+            all_devices = discovery.statuses()
+        self.assertTrue(first["reachable"])
+        self.assertEqual(first, second)
+        self.assertEqual(all_devices, [first])
+        connect.assert_called_once()
     def test_known_device_reachability(self):
         discovery = AndroidLanDiscovery({"game_lan_enabled": True,
             "game_lan_devices": [{"id": "android-1", "ip": "127.0.0.1", "port": 8765}]})
