@@ -10,6 +10,8 @@ class AndroidLanDiscovery:
     def __init__(self, config):
         self.enabled = bool(config.get("game_lan_enabled", False))
         self.targets = {}
+        self._cache = {}
+        self.cache_seconds = max(1, min(60, int(config.get('game_lan_probe_cache_seconds', 10))))
         for item in config.get("game_lan_devices", []):
             ident = str(item.get("id", "")).strip()
             if not ident or not ident.replace("-", "").replace("_", "").isalnum():
@@ -36,10 +38,19 @@ class AndroidLanDiscovery:
         if device_id not in self.targets:
             raise PermissionError("Unknown or disallowed game device")
         address, port = self.targets[device_id]
-        started = time.monotonic()
+        now = time.monotonic()
+        cached = self._cache.get(device_id)
+        if cached and now - cached[0] < self.cache_seconds:
+            return dict(cached[1])
+        started = now
         try:
             with socket.create_connection((address, port), timeout=1.5):
-                return {"id": device_id, "reachable": True,
-                        "latency_ms": round((time.monotonic() - started) * 1000)}
+                result = {"id": device_id, "reachable": True,
+                          "latency_ms": round((time.monotonic() - started) * 1000)}
         except OSError:
-            return {"id": device_id, "reachable": False}
+            result = {"id": device_id, "reachable": False}
+        self._cache[device_id] = (time.monotonic(), result)
+        return dict(result)
+
+    def statuses(self):
+        return [self.status(device_id) for device_id in self.targets] if self.enabled else []
