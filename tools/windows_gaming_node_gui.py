@@ -3,6 +3,7 @@ from __future__ import annotations
 import ipaddress
 import json
 import re
+import shutil
 import subprocess
 import socket
 import sys
@@ -614,7 +615,12 @@ class App(MediaControls, WorldMapControls, tk.Tk):
             serial = self.android_serial_var.get().strip()
             if not re.fullmatch(r"[A-Za-z0-9._:-]{1,100}", serial):
                 raise ValueError("Invalid ADB serial")
-            command = [sys.executable if not getattr(sys, "frozen", False) else "python",
+            python_exe = shutil.which("python") or shutil.which("py")
+            if not python_exe:
+                raise RuntimeError("Install Python 3.11 and Android gameplay dependencies to run BlueStacks worker.")
+            if not shutil.which("adb"):
+                raise RuntimeError("Install Android platform-tools and enable ADB in BlueStacks.")
+            command = [python_exe,
                        "-m", "nekosuneai.android_gameplay.main_bridge",
                        "--server", self.server_var.get().strip(), "--node-id",
                        self.node_var.get().strip() + "-android", "--device-serial", serial,
