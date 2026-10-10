@@ -17,6 +17,8 @@ RUN if [ -n "$SENDSPIN_VERSION" ]; then \
       pip install --no-cache-dir sendspin; \
     fi
 
+# Route PortAudio's default ALSA output to the Pi host's PulseAudio /
+# PipeWire-Pulse session via the socket mounted by Docker Compose.
 RUN printf '%s\n' \
     'pcm.pulse { type pulse }' \
     'ctl.pulse { type pulse }' \
@@ -27,4 +29,6 @@ RUN printf '%s\n' \
 RUN mkdir -p /data/sendspin
 
 ENTRYPOINT ["sendspin", "daemon"]
-CMD ["--settings-dir", "/data/sendspin", "--name", "NekoSuneAI Pi Proxy", "--manufacturer", "NekoSuneProjects", "--product-name", "NekoSuneAI Pi Proxy", "--audio-device", "pulse", "--hardware-volume", "true"]
+# Let Sendspin select the default output rather than failing while trying
+# to resolve the ALSA plugin name "pulse" as an explicit PortAudio device.
+CMD ["--settings-dir", "/data/sendspin", "--name", "NekoSuneAI Pi Proxy", "--manufacturer", "NekoSuneProjects", "--product-name", "NekoSuneAI Pi Proxy", "--hardware-volume", "false"]
