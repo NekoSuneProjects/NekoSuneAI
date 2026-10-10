@@ -9,6 +9,7 @@ on:
       - 'nekosuneai/android_gameplay/**'
       - 'requirements-android-gameplay.txt'
       - 'test/test_main_bridge.py'
+      - 'test/test_android_game_detection.py'
       - 'test/test_paired_autoplay.py'
       - 'test/test_android_game_sessions.py'
       - '.github/workflows/android-game-sessions.yml'
@@ -31,4 +32,4 @@ jobs:
       - name: Compile
         run: python -m compileall -q nekosuneai/android_game_sessions.py test/test_android_game_sessions.py
       - name: Session controller tests
-        run: python -m unittest discover -s test -p test_android_game_sessions.py -v && python -m unittest discover -s test -p test_main_bridge.py -v && python -m unittest discover -s test -p test_paired_autoplay.py -v
+        run: python -m unittest discover -s test -p test_android_game_detection.py -v && python -m unittest discover -s test -p test_android_game_sessions.py -v && python -m unittest discover -s test -p test_main_bridge.py -v && python -m unittest discover -s test -p test_paired_autoplay.py -v
