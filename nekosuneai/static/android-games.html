@@ -27,7 +27,13 @@ button.danger{background:#6c222d;border-color:#ad4853}
 <div><button id="start">Start selected game</button><button id="recover">Recover session</button><button id="observe">Request observation</button><button id="pause">Pause</button><button id="resume">Resume</button><button id="stop" class="danger">Stop</button><button id="emergency" class="danger">Emergency stop</button></div>
 </section>
 <section class="panel">
-<h2>Manual game input</h2>
+<h2>Autonomous Android gameplay (experimental)</h2>
+<p>Requires the Android worker to be started with a trusted Ollama endpoint and explicit game.autoplay.start approval. Main queues the goal; the existing Android runtime makes decisions using the configured model.</p>
+<label for="goal">Game goal (up to 500 characters)</label>
+<input id="goal" maxlength="500" value="Make progress using free actions only. Stop before purchases." autocomplete="off">
+<button id="autoplay">Start supervised autoplay</button>
+<button id="autoplay-status">Check autoplay status</button>
+<hr><h2>Manual game input</h2>
 <p>Only input to the selected, running game is allowed. Tap coordinates are Android screenshot pixels, not Windows desktop pixels.</p>
 <div class="grid"><div><label for="x">X</label><input id="x" type="number" min="0" value="300"></div><div><label for="y">Y</label><input id="y" type="number" min="0" value="400"></div></div>
 <button id="tap">Tap</button><button id="back">Android Back</button>
@@ -100,6 +106,8 @@ $("emergency").onclick=async()=>{
 };
 $("start").onclick=()=>send("start",{game_id:$("game").value.trim(),duration_seconds:Number($("duration").value),max_actions:Number($("budget").value)}).catch(e=>report(e.message));
 for(const op of ["observe","pause","resume","stop"])$(op).onclick=()=>send(op,op==="observe"?{analyze:false}:{}).catch(e=>report(e.message));
+$("autoplay").onclick=()=>send("autoplay",{goal:$("goal").value.trim()}).catch(e=>report(e.message));
+$("autoplay-status").onclick=()=>send("autoplay-status").catch(e=>report(e.message));
 $("tap").onclick=()=>send("action",{action:{type:"tap",x:Number($("x").value),y:Number($("y").value)}}).catch(e=>report(e.message));
 $("back").onclick=()=>send("action",{action:{type:"back"}}).catch(e=>report(e.message));
 refresh().catch(e=>report("Cannot load devices: "+e.message));
