@@ -388,6 +388,7 @@ class PiProxyAgent:
             "camera.snapshot": {"kind": "write"},
             "game.devices": {"kind": "read"},
             "game.device_status": {"kind": "read"},
+            "game.all_device_status": {"kind": "read"},
         }
 
     def _on_bluetooth_event(self, message: str) -> None:
@@ -654,6 +655,8 @@ class PiProxyAgent:
     def _dispatch(self, capability: str, args: dict[str, Any]) -> dict[str, Any]:
         if capability == "game.devices":
             return {"devices": self.android_lan.inventory()}
+        if capability == "game.all_device_status":
+            return {"devices": self.android_lan.statuses()}
         if capability == "game.device_status":
             return self.android_lan.status(str(args.get("device_id", "")))
         if capability == "bluetooth.status":
