@@ -15,6 +15,7 @@ on:
       - 'nekosuneai/local_vision_fallback.py'
       - 'tools/windows_gaming_node_gui.py'
       - 'test/test_local_vision_fallback.py'
+      - 'requirements-windows-local-vision.txt'
       - 'tools/hidmaestro-bridge/**'
       - 'test/test_hidmaestro_client.py'
       - '.github/workflows/windows-gaming-node.yml'
@@ -90,6 +91,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$root/tools" | Out-Null
           Copy-Item tools/start_windows_android_fallback.ps1 "$root/tools/"
           Copy-Item requirements-windows-android-fallback.txt "$root/"
+          Copy-Item requirements-windows-local-vision.txt "$root/"
           Copy-Item docs/HIDMAESTRO_WINDOWS_SETUP.md "$root/"
           Copy-Item tools/hidmaestro-bridge "$root/tools/hidmaestro-bridge" -Recurse
 
