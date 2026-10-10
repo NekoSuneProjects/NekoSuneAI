@@ -94,6 +94,41 @@ class DisneySolitaireTests(unittest.TestCase):
         self.assertEqual(propose_action("payment_popup", screen_width=1591,
                          screen_height=929)["action"], "wait")
 
+    def test_coins_bonus_collect(self):
+        self.assertEqual(classify_scene("Your Coins Bonus is ready! COLLECT"), "coins_bonus_ready")
+        button = {"kind": "coins_bonus_collect", "x": 789, "y": 780,
+                  "confidence": 0.99, "highlighted": True}
+        self.assertEqual(propose_action("coins_bonus_ready", screen_width=1591,
+            screen_height=929, collect_button=button)["action"], "tap")
+        self.assertEqual(propose_action("coins_bonus_ready", screen_width=1591,
+            screen_height=929, collect_button={**button, "confidence": 0.5})["action"], "wait")
+
+    def test_sweepstakes_notice_close_only(self):
+        self.assertEqual(classify_scene("FORTUNE SWEEPSTAKES HAS ENDED"), "dismissible_notice")
+        x = {"label": "X", "x": 1487, "y": 89, "confidence": 0.99}
+        self.assertEqual(propose_action("dismissible_notice", screen_width=1591,
+            screen_height=929, close_buttons=[x])["action"], "tap")
+        self.assertEqual(propose_action("dismissible_notice", screen_width=1591,
+            screen_height=929, close_buttons=[x, x])["action"], "wait")
+
+    def test_scene_completion_claim_requires_visual_button(self):
+        self.assertEqual(classify_scene("SCENE COMPLETE! TAP TO COLLECT"), "scene_complete_collect")
+        self.assertEqual(propose_action("scene_complete_collect", screen_width=1591,
+            screen_height=929)["action"], "wait")
+        button = {"kind": "scene_complete_collect", "x": 790, "y": 844,
+                  "confidence": 0.99, "highlighted": True}
+        self.assertEqual(propose_action("scene_complete_collect", screen_width=1591,
+            screen_height=929, collect_button=button)["action"], "tap")
+
+    def test_lobby_badge_to_claim_or_upgrade(self):
+        self.assertEqual(classify_scene("SCENE 1 Next Bonus 58:10"), "lobby")
+        tile = {"kind": "scene_tile", "x": 112, "y": 814,
+                "confidence": 0.98, "highlighted": True, "badge_count": 1}
+        self.assertEqual(propose_action("lobby", screen_width=1591,
+            screen_height=929, scene_tile_button=tile)["action"], "tap")
+        self.assertEqual(propose_action("lobby", screen_width=1591,
+            screen_height=929, scene_tile_button={**tile, "badge_count": 0})["action"], "wait")
+
     def test_no_blind_moves(self):
         self.assertEqual(propose_action("unknown")["action"], "wait")
         self.assertEqual(propose_action("board", foundation_rank="5")["action"], "wait")
