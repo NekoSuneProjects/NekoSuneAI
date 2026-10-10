@@ -349,7 +349,23 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         style.configure("Secondary.TButton", background="#1b2530", foreground=TEXT, bordercolor=BORDER, padding=(14, 9))
         style.configure("Danger.TButton", background="#3a1820", foreground="#ff9aa6", borderwidth=0, padding=(14, 9), font=("Segoe UI", 10, "bold"))
         style.configure("Modern.TCheckbutton", background=PANEL_2, foreground=TEXT, indicatorcolor=INPUT_BG)
-        style.map("Modern.TCheckbutton", indicatorcolor=[("selected", ACCENT)])
+        style.map("Modern.TCheckbutton",
+                  background=[("disabled", PANEL_2), ("active", PANEL_2), ("!active", PANEL_2)],
+                  foreground=[("disabled", MUTED), ("active", TEXT), ("!active", TEXT)],
+                  indicatorcolor=[("disabled", "#334155"), ("selected", ACCENT), ("active", INPUT_BG), ("!active", INPUT_BG)])
+        style.map("Secondary.TButton",
+                  background=[("pressed", "#263747"), ("active", "#263747"), ("!active", "#1b2530")],
+                  foreground=[("disabled", MUTED), ("active", TEXT), ("!active", TEXT)])
+        style.map("Danger.TButton",
+                  background=[("pressed", "#55222c"), ("active", "#55222c"), ("!active", "#3a1820")],
+                  foreground=[("disabled", MUTED), ("active", "#ff9aa6"), ("!active", "#ff9aa6")])
+        style.map("Primary.TButton",
+                  foreground=[("disabled", MUTED), ("active", TEXT), ("!active", TEXT)])
+        style.map("Modern.TCombobox",
+                  fieldbackground=[("readonly", INPUT_BG), ("active", INPUT_BG)],
+                  background=[("readonly", INPUT_BG), ("active", INPUT_BG)],
+                  foreground=[("disabled", MUTED), ("readonly", TEXT), ("active", TEXT)])
+
         # Base defaults for every one of these widget classes, so any ttk
         # widget created without an explicit style= (e.g. in node_media_gui.py)
         # still matches the dark theme instead of falling back to clam's
