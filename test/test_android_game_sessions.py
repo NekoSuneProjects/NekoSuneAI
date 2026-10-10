@@ -32,6 +32,16 @@ class AndroidSessionsTest(unittest.TestCase):
                                          "game_id": "com.example.game",
                                          "duration_seconds": 300})
 
+    def test_autoplay_requires_goal(self):
+        sid = self.start()["session"]["session_id"]
+        with self.assertRaises(ValueError):
+            self.api.command("autoplay", {"node_id": "android-1",
+                        "session_id": sid, "goal": ""})
+        response = self.api.command("autoplay", {"node_id": "android-1",
+                    "session_id": sid, "goal": "Play safely"})
+        self.assertEqual(response["command"]["capability"], "game.autoplay.start")
+        self.assertGreater(response["command"]["arguments"]["expires_epoch"], time.time())
+
     def test_emergency_stop_without_session_id(self):
         self.start()
         stopped = self.api.command("emergency-stop", {"node_id": "android-1"})
