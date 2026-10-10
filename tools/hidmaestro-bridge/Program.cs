@@ -6,7 +6,7 @@ using HIDMaestro;
 if (args.Length != 1 || args[0] is not ("xbox360" or "dualshock4")) return 2;
 using var ctx = new HMContext();
 ctx.LoadDefaultProfiles();
-var profile = ctx.GetProfile(args[0] == "xbox360" ? "xbox-360-wired" : "dualshock-4-usb")
+var profile = ctx.GetProfile(args[0] == "xbox360" ? "xbox-360-wired" : "dualshock-4-v2")
     ?? throw new InvalidOperationException("Required HIDMaestro controller profile not found");
 using var controller = ctx.CreateController(profile);
 var held = new HashSet<HMButton>();
@@ -15,8 +15,8 @@ string[] names = ["left_x", "left_y", "right_x", "right_y", "left_trigger", "rig
 var map = new Dictionary<string, string> {
     ["a"]="A", ["b"]="B", ["x"]="X", ["y"]="Y",
     ["left_shoulder"]="LeftBumper", ["right_shoulder"]="RightBumper",
-    ["back"]="Back", ["start"]="Start", ["left_thumb"]="LeftThumb",
-    ["right_thumb"]="RightThumb"
+    ["back"]="Back", ["start"]="Start", ["left_thumb"]="LeftStick",
+    ["right_thumb"]="RightStick"
 };
 var directions = new HashSet<string>();
 void Submit() {
