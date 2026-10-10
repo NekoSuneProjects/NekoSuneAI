@@ -1,0 +1,27 @@
+name: PiProxy Android LAN checks
+on:
+  push:
+    branches:
+      - feat/piproxy-android-lan-bridge
+  pull_request:
+    paths:
+      - 'nekosuneai/android_lan_discovery.py'
+      - 'nekosuneai/pi_proxy_agent.py'
+      - 'test/test_android_lan_discovery.py'
+      - '.github/workflows/piproxy-android-lan.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android-lan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile
+        run: python -m compileall -q nekosuneai/android_lan_discovery.py nekosuneai/pi_proxy_agent.py test/test_android_lan_discovery.py
+      - name: Run discovery tests
+        run: python -m unittest discover -s test -p test_android_lan_discovery.py -v
