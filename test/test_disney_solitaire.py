@@ -57,6 +57,43 @@ class DisneySolitaireTests(unittest.TestCase):
         self.assertTrue(action["requires_fresh_observation"])
         self.assertNotIn("purchase", action)
 
+    def test_extra_cards_tutorial_requires_free_verified_button(self):
+        self.assertEqual(classify_scene("You can get extra cards if you run out!"),
+                         "extra_cards_hint")
+        button = {"kind": "extra_cards", "x": 745, "y": 773,
+                  "confidence": 0.98, "highlighted": True, "free": True}
+        action = propose_action("extra_cards_hint", screen_width=1591,
+                                screen_height=929, extra_cards_button=button)
+        self.assertEqual(action["action"], "tap")
+        self.assertEqual((action["x"], action["y"]), (745, 773))
+        self.assertEqual(propose_action("extra_cards_hint", screen_width=1591,
+                         screen_height=929,
+                         extra_cards_button={**button, "free": False})["action"], "wait")
+        self.assertEqual(propose_action("extra_cards_hint", screen_width=1591,
+                         screen_height=929)["action"], "wait")
+
+    def test_wild_tutorial_requires_available_highlighted_card(self):
+        self.assertEqual(classify_scene(
+            "Wild Card matches any card, complete your streak!"), "wild_card_hint")
+        button = {"kind": "wild_card", "x": 1457, "y": 761,
+                  "confidence": 0.99, "highlighted": True, "count": 1}
+        action = propose_action("wild_card_hint", screen_width=1591,
+                                screen_height=929, wild_button=button)
+        self.assertEqual(action["action"], "tap")
+        self.assertEqual((action["x"], action["y"]), (1457, 761))
+        for invalid in ({**button, "count": 0},
+                        {**button, "highlighted": False},
+                        {**button, "confidence": 0.5}):
+            self.assertEqual(propose_action(
+                "wild_card_hint", screen_width=1591,
+                screen_height=929, wild_button=invalid)["action"], "wait")
+
+    def test_purchase_popup_has_priority_over_tutorial(self):
+        text = "Buy now £2.99! Wild Card matches any card, complete your streak!"
+        self.assertEqual(classify_scene(text), "payment_popup")
+        self.assertEqual(propose_action("payment_popup", screen_width=1591,
+                         screen_height=929)["action"], "wait")
+
     def test_no_blind_moves(self):
         self.assertEqual(propose_action("unknown")["action"], "wait")
         self.assertEqual(propose_action("board", foundation_rank="5")["action"], "wait")
