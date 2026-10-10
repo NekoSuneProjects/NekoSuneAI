@@ -65,7 +65,18 @@ async function refresh(){
     option.disabled=!n.online;select.appendChild(option);
   }
   if(!select.options.length)report("No paired Android agents found. Pair an android-gaming worker from Nodes & Routines.");
-  else report("Select an online Android device and its package.");
+  else {
+    const active=select.options[select.selectedIndex];
+    const node=(data.devices || []).find(n=>n.node_id===active?.value);
+    const detected=node?.state?.detected_game;
+    if(detected?.known_game){
+      $("game").value=detected.package_id;
+      report("Foreground game: "+detected.game_name+"\nPackage: "+detected.package_id+
+             "\nApproved: "+(detected.approved?"Yes":"No"));
+    }else if(detected?.package_id){
+      report("Foreground app: "+detected.package_id+" (not a recognised game profile)");
+    }else report("Select an online Android device and its package.");
+  }
 }
 async function send(op,payload={}){
   const node_id=$("node").value;
