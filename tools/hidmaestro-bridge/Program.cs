@@ -30,7 +30,7 @@ void Submit() {
     string hat = (vertical, horizontal) switch {
         (-1,0)=>"North",(-1,1)=>"NorthEast",(0,1)=>"East",
         (1,1)=>"SouthEast",(1,0)=>"South",(1,-1)=>"SouthWest",
-        (0,-1)=>"West",(-1,-1)=>"NorthWest",_=>"Neutral"
+        (0,-1)=>"West",(-1,-1)=>"NorthWest",_=>"None"
     };
     var state = new HMGamepadState {
         Buttons = buttons,
