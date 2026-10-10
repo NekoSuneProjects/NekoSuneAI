@@ -216,6 +216,9 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     # one open, instead of waiting for its next poll. The queue is still
     # written first, so nothing is lost if the push fails or the device is
     # offline -- this only removes the wait.
+    from .android_game_sessions import AndroidGameSessions
+    android_game_sessions = AndroidGameSessions(peripheral_nodes)
+
     original_enqueue = peripheral_nodes.enqueue
 
     def enqueue_and_push(node_id, capability, arguments=None, **kwargs):
@@ -724,6 +727,12 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                         str(payload.get("name", "New device")), int(payload.get("ttl_seconds", 300))
                     ))
 
+                if parsed.path.startswith("/api/game/android/"):
+                    if not self._dashboard_authorized():
+                        return self._json(401, {"error": "unauthorized"})
+                    operation = parsed.path.rsplit("/", 1)[-1]
+                    return self._json(200, android_game_sessions.command(operation, payload))
+
                 if parsed.path == "/api/nodes/command":
                     if not self._dashboard_authorized():
                         return self._json(401, {"error": "unauthorized"})
@@ -917,6 +926,10 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 return
             if parsed.path == "/api/pairing/status":
                 return self._json(200, pairing.status(query.get("request_id", [""])[0], query.get("device_id", [""])[0]))
+            if parsed.path == "/api/game/android/devices":
+                if not self._dashboard_authorized():
+                    return self._json(401, {"error": "unauthorized"})
+                return self._json(200, {"devices": android_game_sessions.devices()})
             if parsed.path == "/api/nodes":
                 if not self._dashboard_authorized():
                     return self._json(401, {"error": "unauthorized"})
