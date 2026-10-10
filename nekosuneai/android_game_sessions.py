@@ -31,7 +31,21 @@ class AndroidGameSessions:
             if session and session["expires_epoch"] <= time.time():
                 self.sessions.pop(node_id, None)
                 session = None
-            return dict(session) if session else None
+            if not session:
+                return None
+            node = self._get_node(node_id)
+            state = node.get("state") or {}
+            result = dict(session)
+            result["device_session_id"] = state.get("session_id") or None
+            result["device_input_disabled"] = state.get("input_disabled", True)
+            result["device_autoplay"] = state.get("autoplay") or {"status": "unknown"}
+            result["device_command_result"] = state.get("last_command_result") or {}
+            result["device_confirmed"] = state.get("session_id") == session["session_id"]
+            result["phase"] = "active" if result["device_confirmed"] else "awaiting-device"
+            receipt = result["device_command_result"]
+            if not result["device_confirmed"] and receipt.get("command_id") == session.get("start_command_id") and receipt.get("ok") is False:
+                result["phase"] = "start-rejected"
+            return result
 
     def _get_node(self, node_id):
         node = next((item for item in self.devices()
@@ -118,6 +132,7 @@ class AndroidGameSessions:
                                            confirmed=payload.get("confirmed") is True,
                                            requested_by="android-game-dashboard")
             if operation == "start":
+                next_session["start_command_id"] = queued["id"]
                 self.sessions[node_id] = next_session
             elif operation == "stop":
                 self.sessions.pop(node_id, None)
