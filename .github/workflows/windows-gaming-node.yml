@@ -8,6 +8,14 @@ name: Windows Gaming Node
 # silent/skippable in a hosted runner.
 on:
   workflow_dispatch:
+  push:
+    branches: [build/windows-gaming-node-release]
+    paths:
+      - 'nekosuneai/android_gameplay/**'
+      - 'tools/start_windows_android_fallback.ps1'
+      - 'requirements-windows-android-fallback.txt'
+      - 'NekoSuneAI-Windows-Gaming-Node.spec'
+      - '.github/workflows/windows-gaming-node.yml'
 
 permissions:
   contents: write
@@ -66,6 +74,12 @@ jobs:
           Copy-Item docs/GAME_SKILLS_AND_REMOTE_PLAY.md "$root/GAME_SKILLS_AND_REMOTE_PLAY.md"
           Copy-Item docs/WINDOWS_MEDIA_AND_VRCHAT.md "$root/WINDOWS_MEDIA_AND_VRCHAT.md"
           Copy-Item game-skills "$root/game-skills" -Recurse
+          New-Item -ItemType Directory -Force -Path "$root/nekosuneai" | Out-Null
+          Copy-Item nekosuneai/__init__.py "$root/nekosuneai/__init__.py"
+          Copy-Item nekosuneai/android_gameplay "$root/nekosuneai/android_gameplay" -Recurse
+          New-Item -ItemType Directory -Force -Path "$root/tools" | Out-Null
+          Copy-Item tools/start_windows_android_fallback.ps1 "$root/tools/"
+          Copy-Item requirements-windows-android-fallback.txt "$root/"
 
           @'
           NekoSuneAI Windows Gaming Node
@@ -79,6 +93,7 @@ jobs:
           - local device-token storage
           - game / Xbox Remote Play / PlayStation Remote Play profile selection
           - start/stop status for the Windows Gaming Node
+          - optional BlueStacks Android worker via tools/start_windows_android_fallback.ps1
 
           No CLI arguments are required for normal setup.
 
@@ -106,7 +121,7 @@ jobs:
           body: |
             Windows Gaming Node GUI build for NekoSuneAI.
 
-            Includes graphical server setup, pairing, device-token storage, profile selection and start/stop controls.
+            Includes graphical server setup, pairing, device-token storage, profile selection and start/stop controls. Includes optional BlueStacks Android companion launcher and source modules (run with Python/ADB).
 
             Virtual controller support is bundled, but ViGEmBus must be installed on the target Windows gaming PC.
           files: release/*.zip
