@@ -14,6 +14,39 @@ Let the backend operate approved games on devices reachable from the owner's LAN
 - Android gameplay repository: `agent/device.py` ADB screenshot/tap/swipe/key/launch operations; `agent/runtime.py` safe action validation, OCR/YOLO and local game loop; distinct game memory and configuration.
 - Windows branch: owns Windows game capture/inputs and skill profiles, not Docker or PiProxy.
 
+## User-selectable gameplay modes
+
+Main exposes **exactly two primary gameplay modes** in the dashboard and session API. The owner selects one mode, then an eligible device and game. The mode determines which separate runtime is used; it is not inferred from the game title.
+
+| Selection | Runtime/source of truth | Execution | Transport |
+| --- | --- | --- | --- |
+| **Android Gameplay** (`android`) | `NekoSuneProjects/nekosuneai-android-ai-gameplay`, branch `main` | Android agent controls BlueStacks, ReDroid, Android emulator, or approved physical Android device through locally validated ADB actions | Authenticated game agent outbound connection to Main, optionally discovered/relayed through PiProxy |
+| **Windows Gameplay** (`windows`) | `NekoSuneProjects/NekoSuneAI`, branch `build/windows-gaming-node-release` | Windows gaming agent captures the selected window/game and executes local game skills and input; existing Windows gameplay code remains on that branch | Existing paired Windows gaming node directly to Main; PiProxy is optional for LAN rendezvous, not a required hop |
+
+The `build/pi-proxy-release` branch stays a LAN/console/audio proxy, never a second gameplay runtime. Both modes share Main's session supervisor, permissions, selected-device binding, AI model, vision processing, optional media transcoding, dashboard supervision and stop system. They maintain separate capture, game-skill, input and OS-specific execution code. Support multiple registered devices but require explicit choice of target; no implicit arbitrary-device fallback.
+
+### Proposed UI
+
+`Play Games` → mode selector **Android Gameplay** / **Windows Gameplay** → paired device selector → installed/running game selector → goal and safety settings → **Start Playing** / **Pause** / **Stop** → live preview and actions log.
+
+Only devices compatible with the selected mode should appear. Changing mode during a running session first stops that session and clears pending input; a new session is explicitly started for the next mode.
+
+### Proposed API shape (new endpoint; not implemented yet)
+
+`POST /api/game/sessions` with `{"mode":"android","device_id":"android-worker-1","game_id":"com.example.game","goal":"Finish the tutorial"}`, or `{"mode":"windows","device_id":"windows-game-node-1","game_id":"approved-windows-game","goal":"Play tutorial"}`. The backend validates `mode` against a fixed enum and checks that the device's paired `node_type`/capabilities agree before dispatching. Return session ID, chosen mode/device and initial status. Never switch execution agents within a session.
+
+`GET /api/game/devices?mode=android|windows` returns only eligible paired/approved game agents. `POST /api/game/sessions/{id}/stop` is routed to the actual execution agent, with a local kill switch. An optional PiProxy relay is a transport mechanism, not a third mode.
+
+### Cross-product acceptance
+
+- [ ] The dashboard offers both explicit modes and filtered device/game selectors.
+- [ ] Android mode runs *only* the Android gameplay repository's ADB/vision/action runtime.
+- [ ] Windows mode runs *only* the Windows branch's game skill/capture/action runtime.
+- [ ] Main provides common model/orchestration, observation/video handling and logs for either mode.
+- [ ] PiProxy may discover/relay an allowlisted LAN target, without doing gameplay logic itself.
+- [ ] Mode switching, revoked pairing, wrong device type, local stop, and expired commands fail closed.
+- [ ] Each runtime has separate build/tests and branch-specific PR; a Main-only PR cannot claim end-to-end mode support.
+
 ## Route selection
 
 Preferred: each Android/Windows game agent pairs directly with Main using outbound HTTPS, even if it is on the LAN. PiProxy discovers local targets (explicit owner-approved IP/port/device ID) and advertises their presence; it can relay frames/commands when direct outbound connectivity is unavailable. It must never become a general-purpose TCP tunnel or arbitrary network proxy.
