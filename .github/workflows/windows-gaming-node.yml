@@ -20,6 +20,8 @@ on:
       - 'test/test_windows_encoder_probe.py'
       - 'nekosuneai/windows_android_tools.py'
       - 'test/test_windows_android_tools.py'
+      - 'nekosuneai/vrchat_world_learning.py'
+      - 'test/test_vrchat_world_learning.py'
       - 'tools/hidmaestro-bridge/**'
       - 'test/test_hidmaestro_client.py'
       - '.github/workflows/windows-gaming-node.yml'
@@ -68,6 +70,13 @@ jobs:
           python -m unittest discover -s test -p test_windows_encoder_probe.py -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m unittest discover -s test -p test_windows_android_tools.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Among Us VRChat world learning regression tests
+        shell: pwsh
+        run: |
+          python -m compileall -q nekosuneai/vrchat_world_learning.py tools/windows_gaming_node_gui.py
+          python -m unittest discover -s test -p test_vrchat_world_learning.py -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build standalone GUI EXE
