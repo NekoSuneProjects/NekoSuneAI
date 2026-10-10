@@ -1,4 +1,5 @@
-# Opt-in BlueStacks fallback; not required for standard Windows Gaming Node.\nopencv-python>=4.10
+# Opt-in BlueStacks fallback; not required for standard Windows Gaming Node.
+opencv-python>=4.10
 numpy>=1.26
 Pillow>=10.4
 requests>=2.32
