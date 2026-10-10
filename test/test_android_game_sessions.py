@@ -52,6 +52,22 @@ class AndroidSessionsTest(unittest.TestCase):
         self.registry.nodes[0]["state"] = {"last_command_result": {
             "command_id": started["command"]["id"], "ok": False}}
         self.assertEqual(self.api.status("android-1")["phase"], "start-rejected")
+    def test_session_survives_backend_restart(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "android-sessions.json"
+            first = AndroidGameSessions(self.registry, state_file=path)
+            started = first.command("start", {"node_id": "android-1",
+                                              "game_id": "com.example.game"})
+            recovered = AndroidGameSessions(self.registry, state_file=path)
+            self.assertEqual(recovered.status("android-1")["session_id"],
+                             started["session"]["session_id"])
+            self.assertEqual(recovered.status("android-1")["phase"], "awaiting-device")
+            recovered.command("emergency-stop", {"node_id": "android-1"})
+            fresh = AndroidGameSessions(self.registry, state_file=path)
+            self.assertIsNone(fresh.status("android-1"))
+
     def test_autoplay_requires_goal(self):
         sid = self.start()["session"]["session_id"]
         with self.assertRaises(ValueError):
