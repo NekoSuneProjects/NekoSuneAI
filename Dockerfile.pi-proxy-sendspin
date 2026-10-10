@@ -31,7 +31,7 @@ if '    SWITCH = "switch"' not in content:
 for entry in ('SEEK', 'SEEK_RELATIVE'):
     line = f'    {entry} = "{entry.lower()}"'
     if line not in content:
-        content = content.replace('    SWITCH = "switch"', '    SWITCH = "switch"\\n' + line)
+        content = content.replace('    SWITCH = "switch"', '    SWITCH = "switch"\n' + line)
 path.write_text(content)
 PY
 
