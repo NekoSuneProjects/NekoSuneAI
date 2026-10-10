@@ -10,7 +10,7 @@ services:
     volumes:
       - ./sendspin-data:/data/sendspin
       - ${PULSE_RUNTIME_DIR:-/run/user/1000/pulse}:/run/pulse:ro
-      - ${PULSE_COOKIE_FILE:-/home/pi/.config/pulse/cookie}:/run/pulse-cookie:ro
+      - ${PULSE_COOKIE_FILE:-/home/nekosunevr/.config/pulse/cookie}:/run/pulse-cookie:ro
     command:
       - --settings-dir
       - /data/sendspin
