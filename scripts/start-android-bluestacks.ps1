@@ -1,6 +1,8 @@
 param(
   [Parameter(Mandatory=$true)][string]$MainUrl,
   [string]$NodeId = "android-bluestacks",
+  [string]$PairingId = "",
+  [string]$PairingCode = "",
   [string]$DeviceSerial = "127.0.0.1:5555",
   [string]$LanHost = "0.0.0.0",
   [int]$LanPort = 8765
@@ -25,5 +27,17 @@ if (!(Test-Path $secretFile)) {
 Write-Host "PiProxy LAN secret: $(Get-Content $secretFile)"
 Write-Host "Configure your Raspberry Pi allowlist using the PC's private LAN IP, port $LanPort, and that secret."
 Write-Host "Do not forward the LAN status port to the internet."
-Write-Host "For initial pairing, supply -PairingId and -PairingCode to the worker directly."
-& $python -m nekosuneai.android_gameplay.main_bridge --server $MainUrl --node-id $NodeId --device-serial $DeviceSerial --allow-package com.superplaystudios.disneysolitairedreams --lan-status-host $LanHost --lan-status-port $LanPort --lan-status-token-file $secretFile
+$workerArgs = @(
+  "-m", "nekosuneai.android_gameplay.main_bridge",
+  "--server", $MainUrl,
+  "--node-id", $NodeId,
+  "--device-serial", $DeviceSerial,
+  "--allow-package", "com.superplaystudios.disneysolitairedreams",
+  "--lan-status-host", $LanHost,
+  "--lan-status-port", "$LanPort",
+  "--lan-status-token-file", $secretFile
+)
+if ($PairingId -and $PairingCode) {
+  $workerArgs += @("--pairing-id", $PairingId, "--pairing-code", $PairingCode)
+}
+& $python @workerArgs
