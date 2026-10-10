@@ -217,7 +217,8 @@ def serve(host: str, port: int, token: str | None = None) -> None:
     # written first, so nothing is lost if the push fails or the device is
     # offline -- this only removes the wait.
     from .android_game_sessions import AndroidGameSessions
-    android_game_sessions = AndroidGameSessions(peripheral_nodes)
+    android_game_sessions = AndroidGameSessions(peripheral_nodes,
+        state_file=os.environ.get("NEKOSUNE_ANDROID_SESSIONS_FILE", "data/android_game_sessions.json"))
 
     original_enqueue = peripheral_nodes.enqueue
 
