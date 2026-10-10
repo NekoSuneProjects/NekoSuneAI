@@ -59,6 +59,11 @@ copy /y config\windows-gaming-agent.example.json "%RELEASE_DIR%\windows-gaming-a
 copy /y docs\GAME_SKILLS_AND_REMOTE_PLAY.md "%RELEASE_DIR%\GAME_SKILLS_AND_REMOTE_PLAY.md" >nul
 if exist docs\WINDOWS_MEDIA_AND_VRCHAT.md copy /y docs\WINDOWS_MEDIA_AND_VRCHAT.md "%RELEASE_DIR%\WINDOWS_MEDIA_AND_VRCHAT.md" >nul
 xcopy /e /i /y game-skills "%RELEASE_DIR%\game-skills" >nul
+xcopy /e /i /y nekosuneai\android_gameplay "%RELEASE_DIR%\nekosuneai\android_gameplay" >nul
+copy /y nekosuneai\__init__.py "%RELEASE_DIR%\nekosuneai\" >nul
+if not exist "%RELEASE_DIR%\tools" mkdir "%RELEASE_DIR%\tools"
+copy /y tools\start_windows_android_fallback.ps1 "%RELEASE_DIR%\tools\" >nul
+copy /y requirements-windows-android-fallback.txt "%RELEASE_DIR%\" >nul
 
 (
   echo NekoSuneAI Windows Gaming Node
