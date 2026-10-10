@@ -47,6 +47,13 @@ class GameDetectionTests(unittest.TestCase):
                 self.assertTrue(game["known_game"])
                 self.assertTrue(game["playing"])
 
+    def test_raid_shadow_legends_package(self):
+        package = "com.plarium.raidlegends"
+        game = identify_game(package, [package])
+        self.assertEqual(game["game_name"], "RAID: Shadow Legends")
+        self.assertEqual(game["game_id"], package)
+        self.assertTrue(game["known_game"])
+
     def test_board_adventure(self):
         game = identify_game("com.moonactive.cmboard", ["com.moonactive.cmboard"])
         self.assertEqual(game["game_name"], "Coin Master – Board Adventure")
