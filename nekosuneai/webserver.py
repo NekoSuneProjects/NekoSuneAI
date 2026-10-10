@@ -926,6 +926,11 @@ def serve(host: str, port: int, token: str | None = None) -> None:
                 return
             if parsed.path == "/api/pairing/status":
                 return self._json(200, pairing.status(query.get("request_id", [""])[0], query.get("device_id", [""])[0]))
+            if parsed.path == "/api/game/android/session":
+                if not self._dashboard_authorized():
+                    return self._json(401, {"error": "unauthorized"})
+                return self._json(200, {"session": android_game_sessions.status(
+                    query.get("node_id", [""])[0])})
             if parsed.path == "/api/game/android/devices":
                 if not self._dashboard_authorized():
                     return self._json(401, {"error": "unauthorized"})
