@@ -24,19 +24,26 @@ class GuardedAndroidDevice:
         if self._device.foreground_package() != self._package:
             raise PermissionError("Foreground application is no longer the approved game")
 
+    # No delegation of private/raw ADB methods (_run, shell, force_stop).
+    # Input may only use these explicitly guarded entry points.
+    _INPUT = frozenset({"tap", "long_press", "swipe", "back", "keyevent"})
+    _READ = frozenset({"screenshot", "foreground_package", "screen_size",
+                       "package_version", "device_environment", "environment_name",
+                       "list_devices", "getprop", "list_packages", "input_help"})
+
     def __getattr__(self, name):
+        if name not in self._INPUT | self._READ:
+            raise AttributeError(f"Paired autoplay does not expose device operation: {name}")
         target = getattr(self._device, name)
-        if name not in {"tap", "long_press", "swipe", "back", "home",
-                        "keyevent", "type_text", "launch_package"}:
-            return target
+        if not callable(target):
+            raise AttributeError(f"Unsupported device operation: {name}")
         def guarded(*args, **kwargs):
             self._check()
-            if name == "launch_package" and (not args or args[0] != self._package):
-                raise PermissionError("Cannot launch another package")
-            if name in {"home", "type_text"}:
-                raise PermissionError("Home navigation and freeform text are disabled in paired autoplay")
+            if name == "keyevent":
+                # No Home, settings, purchases or unrestricted key injection.
+                raise PermissionError("Unrestricted key events are disabled in paired autoplay")
             result = target(*args, **kwargs)
-            if self._on_action and name != "launch_package":
+            if name in self._INPUT and self._on_action:
                 self._on_action()
             return result
         return guarded
