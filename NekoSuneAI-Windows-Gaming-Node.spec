@@ -11,10 +11,6 @@ for package in ('pyaudiowpatch', 'soundfile', 'soxr', 'pythonosc'):
     datas += package_data
     binaries += package_binaries
     hiddenimports += package_imports
-from importlib.util import find_spec
-if find_spec('vgamepad') is not None:
-    tmp_ret = collect_all('vgamepad')
-    datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 tmp_ret = collect_all('obsws_python')
 datas += tmp_ret[0]; binaries += tmp_ret[1]; hiddenimports += tmp_ret[2]
 
