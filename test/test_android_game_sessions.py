@@ -32,6 +32,26 @@ class AndroidSessionsTest(unittest.TestCase):
                                          "game_id": "com.example.game",
                                          "duration_seconds": 300})
 
+    def test_session_reports_queued_before_device_ack(self):
+        started = self.start()
+        status = self.api.status("android-1")
+        self.assertEqual(status["phase"], "awaiting-device")
+        self.assertFalse(status["device_confirmed"])
+        self.assertEqual(status["start_command_id"], started["command"]["id"])
+
+    def test_session_reports_device_confirmation(self):
+        started = self.start()
+        sid = started["session"]["session_id"]
+        self.registry.nodes[0]["state"] = {"session_id": sid, "input_disabled": False}
+        status = self.api.status("android-1")
+        self.assertEqual(status["phase"], "active")
+        self.assertTrue(status["device_confirmed"])
+
+    def test_session_reports_rejected_start(self):
+        started = self.start()
+        self.registry.nodes[0]["state"] = {"last_command_result": {
+            "command_id": started["command"]["id"], "ok": False}}
+        self.assertEqual(self.api.status("android-1")["phase"], "start-rejected")
     def test_autoplay_requires_goal(self):
         sid = self.start()["session"]["session_id"]
         with self.assertRaises(ValueError):
