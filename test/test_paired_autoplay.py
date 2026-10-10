@@ -53,11 +53,22 @@ class GuardedAutoplayTests(unittest.TestCase):
 
     def test_restricts_text_and_home(self):
         for method in ("type_text", "home"):
-            with self.assertRaises(PermissionError):
+            with self.assertRaises(AttributeError):
                 getattr(self.guarded, method)("secret") if method == "type_text" else self.guarded.home()
 
-    def test_guards_launch_package(self):
+    def test_raw_adb_and_force_stop_not_exposed(self):
+        for operation in ("_run", "shell", "force_stop", "run", "execute"):
+            with self.subTest(operation=operation):
+                with self.assertRaises(AttributeError):
+                    getattr(self.guarded, operation)
+
+    def test_only_safe_query_methods_available(self):
+        self.assertIsNotNone(self.guarded.screenshot())
         with self.assertRaises(PermissionError):
+            self.guarded.keyevent("KEYCODE_HOME")
+
+    def test_guards_launch_package(self):
+        with self.assertRaises(AttributeError):
             self.guarded.launch_package("com.other.app")
 
 
