@@ -18,10 +18,12 @@ from pathlib import Path
 import requests
 
 from .device import AndroidDevice
+from .game_detection import detect_foreground
 
 PACKAGE_RE = re.compile(r"^[A-Za-z0-9_]+(?:\.[A-Za-z0-9_]+)+$")
 CAPABILITIES = {
     "game.devices": {"kind": "read"},
+    "game.detect": {"kind": "read"},
     "game.observe": {"kind": "read"},
     "game.action": {"kind": "write"},
     "game.session.start": {"kind": "write"},
@@ -159,6 +161,8 @@ class AndroidGameWorker:
             if not isinstance(expiry, (int, float)) or not time.time() < expiry <= time.time() + 30:
                 raise PermissionError("Autoplay start is expired or missing deadline")
             return self.autoplay.start(args.get("goal", ""))
+        if capability == "game.detect":
+            return detect_foreground(self.device, self.allowed)
         if capability == "game.devices":
             return {"packages": sorted(set(self.device.list_packages()) & self.allowed)}
         if capability == "game.session.start":
@@ -266,6 +270,7 @@ class AndroidGameWorker:
             "max_actions": self.max_actions,
             "last_command_result": self.last_result,
             "autoplay": self.autoplay.status() if self.autoplay else {"status": "disabled"},
+            "detected_game": detect_foreground(self.device, self.allowed),
         }
         self._post("/api/nodes/heartbeat", {
             "node_id": self.node_id, "state": state,
