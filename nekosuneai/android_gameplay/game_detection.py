@@ -18,6 +18,7 @@ KNOWN_GAMES = {
     "com.lilithgame.roc.gp": "Rise of Kingdoms: Lost Crusade",
     "com.supersolid.cookandmerge": "Cook & Merge Kate\'s Adventure",
     "com.pocketchamps.game": "Pocket Champs: 3D Racing Games",
+    "com.plarium.raidlegends": "RAID: Shadow Legends",
 }
 
 
