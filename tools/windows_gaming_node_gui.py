@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import re
+import subprocess
 import socket
 import sys
 import threading
@@ -20,6 +22,22 @@ from nekosuneai.game_skills import GameSkillLibrary
 from nekosuneai.windows_gaming_agent import GameProfile, WindowsGamingAgent
 from tools.node_media_gui import MediaControls
 from tools.world_map_gui import WorldMapControls
+
+ANDROID_GAMES = {
+    "Disney Solitaire": "com.superplaystudios.disneysolitairedreams",
+    "Coin Master": "com.moonactive.coinmaster",
+    "Coin Master Board Adventure": "com.moonactive.cmboard",
+    "Dice Dreams": "com.superplaystudios.dicedreams",
+    "Puzzles & Chaos": "com.global.pnck",
+    "MU: Dark Epoch": "com.global.mus",
+    "The Grand Mafia": "com.yottagames.gameofmafia",
+    "Bingo Blitz": "air.com.buffalo_studios.newflashbingo",
+    "Animals & Coins": "com.innplaylabs.animalkingdomraid",
+    "Rise of Kingdoms": "com.lilithgame.roc.gp",
+    "Cook & Merge": "com.supersolid.cookandmerge",
+    "Pocket Champs": "com.pocketchamps.game",
+    "RAID Shadow Legends": "com.plarium.raidlegends",
+}
 
 APP_TITLE = "NekoSuneAI Windows Gaming Node"
 BASE_DIR = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[1]
@@ -275,6 +293,13 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         self.server_var = tk.StringVar(value=self.config_data.get("server_url", ""))
         self.name_var = tk.StringVar(value=self.config_data.get("name", "Windows Gaming Node"))
         self.node_var = tk.StringVar(value=self.config_data.get("node_id", socket.gethostname()))
+        self.platform_var = tk.StringVar(value=self.config_data.get("selected_platform", "Windows"))
+        self.android_serial_var = tk.StringVar(value=self.config_data.get("android_serial", "127.0.0.1:5555"))
+        self.android_status_var = tk.StringVar(value="Android worker stopped")
+        self.android_process = None
+        self.local_vision_var = tk.BooleanVar(value=bool(self.config_data.get("local_vision_enabled", False)))
+        self.vision_provider_var = tk.StringVar(value=self.config_data.get("local_vision_provider", "auto"))
+        self.vision_model_var = tk.StringVar(value=self.config_data.get("local_vision_model", ""))
         self.game_var = tk.StringVar()
         self.game_var.set(self.config_data.get("selected_game", ""))
         self._init_media_controls()
@@ -355,7 +380,7 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         tk.Label(brand, text="WINDOWS GAMING NODE", bg="#0d131a", fg=ACCENT, font=("Segoe UI", 8, "bold")).pack(anchor="w", pady=(2, 0))
 
         self.nav_buttons: dict[str, tk.Button] = {}
-        for key, label, glyph in (("media", "Audio & Vision", "AV"), ("vrchat", "VRChat OSC", "OSC"), ("worldmap", "World Map", "WM"), ("setup", "Setup & Pair", "●"), ("gaming", "Gaming Node", "▶"), ("about", "Status", "◆")):
+        for key, label, glyph in (("setup", "Setup & Pair", "●"), ("gaming", "Gaming Node", "▶"), ("media", "Audio & Vision", "AV"), ("vrchat", "VRChat / OSC", "OSC"), ("worldmap", "VRChat / World Map", "WM"), ("about", "Status", "◆")):
             button = tk.Button(sidebar, text=f"  {glyph}   {label}", anchor="w", relief="flat", bd=0, bg="#0d131a", fg=MUTED, activebackground="#161f29", activeforeground=TEXT, font=("Segoe UI", 10, "bold"), padx=14, pady=12, cursor="hand2", command=lambda page=key: self._show_page(page))
             button.pack(fill="x", padx=12, pady=3)
             self.nav_buttons[key] = button
@@ -464,14 +489,36 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         self.pages["gaming"] = page
         profile = self._card(page, "Game & Remote Play", "Choose a reviewed game profile, Xbox Remote Play or PlayStation Remote Play.")
         profile.columnconfigure(1, weight=1)
-        ttk.Label(profile, text="Profile", style="Body.TLabel").grid(row=0, column=0, sticky="w", padx=(22, 18), pady=10)
+        ttk.Label(profile, text="Platform", style="Body.TLabel").grid(row=0, column=0, sticky="w", padx=(22, 18), pady=10)
+        self.platform_combo = ttk.Combobox(profile, textvariable=self.platform_var, values=("Windows", "Android"), state="readonly", style="Modern.TCombobox")
+        self.platform_combo.grid(row=0, column=1, sticky="ew", padx=(0, 22), pady=10)
+        self.platform_combo.bind("<<ComboboxSelected>>", lambda _event: self._load_games())
+        ttk.Label(profile, text="Profile", style="Body.TLabel").grid(row=1, column=0, sticky="w", padx=(22, 18), pady=10)
         self.game_combo = ttk.Combobox(profile, textvariable=self.game_var, state="readonly", style="Modern.TCombobox")
-        self.game_combo.grid(row=0, column=1, sticky="ew", padx=(0, 22), pady=10)
+        self.game_combo.grid(row=1, column=1, sticky="ew", padx=(0, 22), pady=10)
         actions = ttk.Frame(profile, style="Card.TFrame")
-        actions.grid(row=1, column=0, columnspan=2, sticky="ew", padx=22, pady=(10, 14))
+        actions.grid(row=2, column=0, columnspan=2, sticky="ew", padx=22, pady=(10, 14))
         ttk.Button(actions, text="Refresh profiles", command=self._load_games, style="Secondary.TButton").pack(side="left")
         ttk.Button(actions, text="Stop node", command=self.stop_node, style="Danger.TButton").pack(side="right")
         ttk.Button(actions, text="Start node", command=self.start_node, style="Primary.TButton").pack(side="right", padx=(0, 10))
+
+        android = self._card(page, "Android / BlueStacks", "Runs a separately paired ADB worker, not Windows mouse automation. Only allowed game packages are accepted.")
+        android.columnconfigure(1, weight=1)
+        self._field(android, "ADB serial", self.android_serial_var, 0)
+        controls = ttk.Frame(android, style="Card.TFrame")
+        controls.grid(row=1, column=0, columnspan=2, sticky="ew", padx=22, pady=(4, 14))
+        ttk.Button(controls, text="Start Android worker", command=self.start_android_worker, style="Primary.TButton").pack(side="left")
+        ttk.Button(controls, text="Stop Android worker", command=self.stop_android_worker, style="Danger.TButton").pack(side="left", padx=9)
+        ttk.Label(android, textvariable=self.android_status_var, style="Muted.TLabel").grid(row=2, column=0, columnspan=2, sticky="w", padx=22, pady=(0, 12))
+
+        local = self._card(page, "Local vision fallback", "Use window-limited OCR / optional ONNX on Windows when Main vision is unavailable. No automatic game input is enabled by this setting.")
+        ttk.Checkbutton(local, text="Enable local vision fallback", variable=self.local_vision_var, style="Modern.TCheckbutton").pack(anchor="w", padx=22, pady=5)
+        row = ttk.Frame(local, style="Card.TFrame")
+        row.pack(fill="x", padx=22, pady=5)
+        ttk.Label(row, text="Compute", style="Body.TLabel").pack(side="left")
+        ttk.Combobox(row, textvariable=self.vision_provider_var, state="readonly", values=("auto", "cpu", "directml", "cuda"), width=16).pack(side="left", padx=12)
+        self._field(local, "YOLOv8 ONNX file", self.vision_model_var, 1)
+        ttk.Button(local, text="Save vision settings", command=self.save, style="Secondary.TButton").pack(anchor="e", padx=22, pady=12)
 
         live = self._card(page, "Live status", "The node only executes approved gaming capabilities.")
         self.live_dot = tk.Canvas(live, width=12, height=12, bg=PANEL_2, highlightthickness=0)
@@ -530,14 +577,55 @@ class App(MediaControls, WorldMapControls, tk.Tk):
             self.pairing_status_var.set("This Windows Gaming Node is already paired. Request pairing again only if you need to replace its saved token.")
 
     def _load_games(self) -> None:
-        try:
-            rows = GameSkillLibrary(SKILLS_ROOT).discover()
-            values = [row["game_id"] for row in rows]
-        except Exception:
-            values = []
+        if self.platform_var.get() == "Android":
+            values = sorted(ANDROID_GAMES)
+        else:
+            try:
+                values = [row["game_id"] for row in GameSkillLibrary(SKILLS_ROOT).discover()]
+            except Exception:
+                values = []
         self.game_combo["values"] = values
-        if values and self.game_var.get() not in values:
-            self.game_var.set(values[0])
+        if self.game_var.get() not in values:
+            self.game_var.set(values[0] if values else "")
+
+    def start_android_worker(self) -> None:
+        if self.platform_var.get() != "Android":
+            messagebox.showerror(APP_TITLE, "Choose Android as the platform first.")
+            return
+        if self.android_process and self.android_process.poll() is None:
+            self.android_status_var.set("Android worker is already running")
+            return
+        if not self.save():
+            return
+        if not self.pairing_id_var.get().strip() or not self.pairing_code_var.get().strip():
+            messagebox.showerror(APP_TITLE, "Enter the Android worker pairing ID and one-use code in Setup & Pair.")
+            return
+        package = ANDROID_GAMES.get(self.game_var.get())
+        if not package:
+            return
+        try:
+            serial = self.android_serial_var.get().strip()
+            if not re.fullmatch(r"[A-Za-z0-9._:-]{1,100}", serial):
+                raise ValueError("Invalid ADB serial")
+            command = [sys.executable if not getattr(sys, "frozen", False) else "python",
+                       "-m", "nekosuneai.android_gameplay.main_bridge",
+                       "--server", self.server_var.get().strip(), "--node-id",
+                       self.node_var.get().strip() + "-android", "--device-serial", serial,
+                       "--allow-package", package, "--pairing-id", self.pairing_id_var.get().strip(),
+                       "--pairing-code", self.pairing_code_var.get().strip(),
+                       "--token-file", str(BASE_DIR / ".windows-android-node-token"),
+                       "--state-file", str(BASE_DIR / ".windows-android-node-state.json")]
+            self.android_process = subprocess.Popen(command, cwd=str(BASE_DIR))
+            self.android_status_var.set("Android worker running. ADB and Python dependencies must be installed.")
+        except Exception as exc:
+            messagebox.showerror(APP_TITLE, str(exc))
+
+    def stop_android_worker(self) -> None:
+        if self.android_process and self.android_process.poll() is None:
+            self.android_process.terminate()
+            self.android_status_var.set("Android worker stopped")
+        else:
+            self.android_status_var.set("Android worker is not running")
 
     def current_config(self) -> dict:
         cfg = dict(self.config_data)
@@ -547,6 +635,11 @@ class App(MediaControls, WorldMapControls, tk.Tk):
             "node_id": self.node_var.get().strip() or socket.gethostname(),
             "name": self.name_var.get().strip() or "Windows Gaming Node",
             "selected_game": self.game_var.get(),
+            "selected_platform": self.platform_var.get(),
+            "android_serial": self.android_serial_var.get().strip(),
+            "local_vision_enabled": self.local_vision_var.get(),
+            "local_vision_provider": self.vision_provider_var.get(),
+            "local_vision_model": self.vision_model_var.get().strip(),
             "web_status_enabled": self.web_status_enabled_var.get(),
             "web_status_port": self.web_status_port_var.get(),
             **self._media_values(),
@@ -583,6 +676,8 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         self.status_var.set(f"No NekoSuneAI service found • Windows IP: {local}")
 
     def _profile(self) -> GameProfile:
+        if self.platform_var.get() != "Windows":
+            raise RuntimeError("Android uses the separate ADB worker; choose Windows to start the desktop node.")
         game = self.game_var.get().strip()
         if not game:
             raise RuntimeError("Select a game profile first.")
@@ -704,6 +799,9 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         messagebox.showerror(APP_TITLE, f"Pairing failed:\n{error}")
 
     def start_node(self) -> None:
+        if self.platform_var.get() == "Android":
+            self.start_android_worker()
+            return
         if self.agent_thread and self.agent_thread.is_alive():
             self.status_var.set("Gaming Node is already running")
             return
@@ -743,6 +841,9 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         self.live_dot.create_oval(2, 2, 10, 10, fill=DANGER, outline="")
 
     def stop_node(self) -> None:
+        if self.platform_var.get() == "Android":
+            self.stop_android_worker()
+            return
         if self.agent is None:
             self.status_var.set("Gaming Node is not running")
             return
