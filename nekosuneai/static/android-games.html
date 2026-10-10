@@ -64,9 +64,10 @@ async function refresh(){
 async function send(op,payload={}){
   const node_id=$("node").value;
   if(!node_id)throw new Error("Select an online paired Android agent");
+  if(sessionId && selectedNode !== node_id)throw new Error("Finish the active session on its original device before switching");
   if(!["start"].includes(op) && !sessionId)throw new Error("Start an Android game session first");
   if(op==="start" && !$("confirmed").checked)throw new Error("Check the approval box before starting");
-  const body={node_id,confirmed:$("confirmed").checked,...payload};
+  const body={node_id,confirmed:op==="stop" || $("confirmed").checked,...payload};
   if(op!=="start")body.session_id=sessionId;
   const response=await api("/api/game/android/"+op,body);
   if(op==="start"){sessionId=response.session.session_id;selectedNode=node_id;}
