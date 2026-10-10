@@ -19,7 +19,6 @@ if %errorlevel%==0 (
 
 echo.
 echo [1/4] Installing build dependencies (this can take a while on first run)...
-set "VGAMEPAD_SKIP_VIGEMBUS_INSTALL=true"
 %PY% -m pip install --disable-pip-version-check -r requirements-windows-gaming-node.txt
 if errorlevel 1 (
     echo [ERROR] Dependency install failed.
@@ -28,7 +27,7 @@ if errorlevel 1 (
 
 echo.
 echo [2/4] Verifying package imports...
-%PY% -c "import nekosuneai; import nekosuneai.windows_gaming_agent; import vgamepad; print('Windows Gaming Node imports OK')"
+%PY% -c "import nekosuneai; import nekosuneai.windows_gaming_agent; print('Windows Gaming Node imports OK')"
 if errorlevel 1 (
     echo [ERROR] Import check failed.
     exit /b 1
@@ -80,7 +79,7 @@ copy /y requirements-windows-android-fallback.txt "%RELEASE_DIR%\" >nul
   echo.
   echo No CLI arguments are required for normal setup.
   echo.
-  echo Virtual Xbox 360 / DualShock 4 controller support uses vgamepad and
+  echo Virtual Xbox 360 / DualShock 4 controller support uses HIDMaestro and
   echo requires ViGEmBus to be installed on this PC ^(https://github.com/ViGEm/ViGEmBus/releases^).
 ) > "%RELEASE_DIR%\README-WINDOWS-GAMING-NODE.txt"
 
