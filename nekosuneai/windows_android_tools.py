@@ -6,12 +6,13 @@ import shutil
 import subprocess
 import tempfile
 import urllib.request
+from urllib.parse import urlsplit
 import zipfile
 from pathlib import Path
 
 PLATFORM_TOOLS_URL = "https://dl.google.com/android/repository/platform-tools-latest-windows.zip"
-YOLO_URL = "https://huggingface.co/webml/yolov8n/resolve/main/onnx/yolov8n.onnx"
-YOLO_SHA256 = "190ba5f1e61411a001683e349d6b2cdb0804c0dc67a5e34cd8ff6fd00ee54b4d"
+YOLO_URL = "https://huggingface.co/SpotLab/YOLOv8Detection/resolve/3005c6751fb19cdeb6b10c066185908faf66a097/yolov8n.onnx"
+YOLO_SHA256 = "dd48a79dd7fec8ca25fde4eca742ff7bca23b27e2e903eb23bc1d9f83a459bd2"
 MAX_ZIP_BYTES = 40 * 1024 * 1024
 MAX_MODEL_BYTES = 25 * 1024 * 1024
 
@@ -27,10 +28,24 @@ def find_adb(root: str | Path, configured: str = "") -> str:
 def _download(url: str, output: Path, limit: int) -> str:
     digest = hashlib.sha256()
     with urllib.request.urlopen(url, timeout=30) as response, output.open("wb") as stream:
-        if response.geturl().split("/", 3)[2].lower() not in (
-            "dl.google.com", "huggingface.co", "cas-bridge.xethub.hf.co",
-            "cdn-lfs.hf.co", "cas-server.xethub.hf.co"):
-            raise ValueError("Download redirected outside trusted hosts")
+        # Hugging Face uses temporary presigned HTTPS links on CDN/cloud storage.
+        # The pinned SHA-256 below verifies exact model bytes after redirects.
+        # Google's SDK zip is not content-addressed, so constrain its redirect
+        # destinations to known Google delivery infrastructure.
+        source = urlsplit(url)
+        final = urlsplit(response.geturl())
+        if final.scheme != "https" or final.username or final.password:
+            raise ValueError("Insecure download redirect")
+        if source.hostname == "dl.google.com":
+            host = (final.hostname or "").lower()
+            if not (host == "dl.google.com" or host == "storage.googleapis.com"
+                    or host.endswith(".googleusercontent.com") or host.endswith(".google.com")):
+                raise ValueError("Android tools download redirected outside Google hosts")
+        elif source.hostname == "huggingface.co":
+            if not (final.hostname or ""):
+                raise ValueError("Invalid model download destination")
+        else:
+            raise ValueError("Untrusted download source")
         size = 0
         while chunk := response.read(256 * 1024):
             size += len(chunk)
