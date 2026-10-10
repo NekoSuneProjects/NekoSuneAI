@@ -526,6 +526,9 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         model_row.pack(fill="x", padx=22, pady=5)
         ttk.Label(model_row, text="YOLOv8 ONNX file", style="Body.TLabel").pack(side="left")
         ttk.Entry(model_row, textvariable=self.vision_model_var, style="Modern.TEntry").pack(side="left", fill="x", expand=True, padx=12)
+        from nekosuneai.windows_encoder_probe import probe_encoders
+        encoder = probe_encoders()
+        ttk.Label(local, text="FFmpeg GPU encoders: " + (", ".join(encoder["available"]) if encoder["available"] else "none detected") + " (capability only)", style="Muted.TLabel").pack(anchor="w", padx=22, pady=5)
         ttk.Button(local, text="Save vision settings", command=self.save, style="Secondary.TButton").pack(anchor="e", padx=22, pady=12)
 
         live = self._card(page, "Live status", "The node only executes approved gaming capabilities.")
