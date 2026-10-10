@@ -478,6 +478,17 @@ class WindowVision:
                 text = pytesseract.image_to_string(image, timeout=2).strip()[:1600]
             except Exception as exc:
                 ocr_error = str(exc)[:200]
+            if not text and self.config.get("local_vision_enabled"):
+                try:
+                    from rapidocr_onnxruntime import RapidOCR
+                    import numpy as np
+                    ocr_result, _elapsed = RapidOCR()(np.asarray(image.convert("RGB")))
+                    text = " ".join(str(item[1]) for item in (ocr_result or [])
+                                    if len(item) >= 3 and float(item[2]) >= 0.55)[:1600]
+                    if text:
+                        ocr_error = ""
+                except Exception as exc:
+                    ocr_error = ("Tesseract and RapidOCR unavailable: " + str(exc))[:200]
             transition = next((word for word in TRANSITION_WORDS if word in text.lower()), "")
             result: dict[str, Any] = {
                 "ok": True, "window_title": title[:120], "width": image.width, "height": image.height,
