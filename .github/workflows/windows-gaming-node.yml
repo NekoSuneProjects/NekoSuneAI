@@ -18,6 +18,8 @@ on:
       - 'requirements-windows-local-vision.txt'
       - 'nekosuneai/windows_encoder_probe.py'
       - 'test/test_windows_encoder_probe.py'
+      - 'nekosuneai/windows_android_tools.py'
+      - 'test/test_windows_android_tools.py'
       - 'tools/hidmaestro-bridge/**'
       - 'test/test_hidmaestro_client.py'
       - '.github/workflows/windows-gaming-node.yml'
@@ -64,6 +66,8 @@ jobs:
           python -m unittest discover -s test -p test_local_vision_fallback.py -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python -m unittest discover -s test -p test_windows_encoder_probe.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m unittest discover -s test -p test_windows_android_tools.py -v
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build standalone GUI EXE
