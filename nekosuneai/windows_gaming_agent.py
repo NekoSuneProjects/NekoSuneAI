@@ -160,69 +160,21 @@ class WindowsWindow:
 
 
 class VirtualGamepad:
-    """Optional ViGEm-backed controller used by PC and Remote Play profiles."""
+    """Optional HIDMaestro sidecar. No implicit driver installs or ViGEmBus."""
 
     def __init__(self, backend: str) -> None:
-        try:
-            import vgamepad as vg
-        except ImportError as exc:
-            raise RuntimeError("install requirements-windows-agent.txt for virtual controller support") from exc
-        self.vg = vg
-        self.backend = backend
-        self.pad = vg.VDS4Gamepad() if backend == "dualshock4" else vg.VX360Gamepad()
+        from .hidmaestro_client import HIDMaestroController
+        self.pad = HIDMaestroController(backend)
 
     def button(self, name: str, down: bool) -> None:
-        vg = self.vg
-        if self.backend == "dualshock4":
-            names = {
-                "a": "DS4_BUTTON_CROSS", "b": "DS4_BUTTON_CIRCLE", "x": "DS4_BUTTON_SQUARE",
-                "y": "DS4_BUTTON_TRIANGLE", "left_shoulder": "DS4_BUTTON_SHOULDER_LEFT",
-                "right_shoulder": "DS4_BUTTON_SHOULDER_RIGHT", "back": "DS4_BUTTON_SHARE",
-                "start": "DS4_BUTTON_OPTIONS", "left_thumb": "DS4_BUTTON_THUMB_LEFT",
-                "right_thumb": "DS4_BUTTON_THUMB_RIGHT",
-            }
-            if name.startswith("dpad_"):
-                directions = {
-                    "dpad_up": "DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NORTH",
-                    "dpad_down": "DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_SOUTH",
-                    "dpad_left": "DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_WEST",
-                    "dpad_right": "DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_EAST",
-                }
-                enum_name, member = directions[name].split(".")
-                direction = (
-                    getattr(getattr(vg, enum_name), member) if down
-                    else vg.DS4_DPAD_DIRECTIONS.DS4_BUTTON_DPAD_NONE
-                )
-                self.pad.directional_pad(direction=direction)
-            else:
-                value = getattr(vg.DS4_BUTTONS, names[name])
-                (self.pad.press_button if down else self.pad.release_button)(button=value)
-        else:
-            names = {
-                "a": "XUSB_GAMEPAD_A", "b": "XUSB_GAMEPAD_B", "x": "XUSB_GAMEPAD_X", "y": "XUSB_GAMEPAD_Y",
-                "left_shoulder": "XUSB_GAMEPAD_LEFT_SHOULDER", "right_shoulder": "XUSB_GAMEPAD_RIGHT_SHOULDER",
-                "back": "XUSB_GAMEPAD_BACK", "start": "XUSB_GAMEPAD_START",
-                "left_thumb": "XUSB_GAMEPAD_LEFT_THUMB", "right_thumb": "XUSB_GAMEPAD_RIGHT_THUMB",
-                "dpad_up": "XUSB_GAMEPAD_DPAD_UP", "dpad_down": "XUSB_GAMEPAD_DPAD_DOWN",
-                "dpad_left": "XUSB_GAMEPAD_DPAD_LEFT", "dpad_right": "XUSB_GAMEPAD_DPAD_RIGHT",
-            }
-            value = getattr(vg.XUSB_BUTTON, names[name])
-            (self.pad.press_button if down else self.pad.release_button)(button=value)
-        self.pad.update()
+        self.pad.button(name, down)
 
     def axis(self, name: str, value: float) -> None:
-        value = max(-1.0, min(float(value), 1.0))
-        if name == "left_x": self.pad.left_joystick_float(x_value_float=value, y_value_float=0.0)
-        elif name == "left_y": self.pad.left_joystick_float(x_value_float=0.0, y_value_float=value)
-        elif name == "right_x": self.pad.right_joystick_float(x_value_float=value, y_value_float=0.0)
-        elif name == "right_y": self.pad.right_joystick_float(x_value_float=0.0, y_value_float=value)
-        elif name == "left_trigger": self.pad.left_trigger_float(value_float=max(0.0, value))
-        elif name == "right_trigger": self.pad.right_trigger_float(value_float=max(0.0, value))
-        self.pad.update()
+        self.pad.axis(name, value)
 
     def reset(self) -> None:
         self.pad.reset()
-        self.pad.update()
+
 
 
 class InputSafetyController:
