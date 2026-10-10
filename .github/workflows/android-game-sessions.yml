@@ -1,0 +1,28 @@
+name: Android gaming Main API
+
+on:
+  push:
+    branches: [feat/android-gameplay-session-api]
+  pull_request:
+    paths:
+      - 'nekosuneai/android_game_sessions.py'
+      - 'test/test_android_game_sessions.py'
+      - '.github/workflows/android-game-sessions.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sessions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile
+        run: python -m compileall -q nekosuneai/android_game_sessions.py test/test_android_game_sessions.py
+      - name: Session controller tests
+        run: python -m unittest discover -s test -p test_android_game_sessions.py -v
