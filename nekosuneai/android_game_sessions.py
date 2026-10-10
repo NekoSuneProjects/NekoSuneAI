@@ -1,0 +1,103 @@
+"""Owner-authenticated Android game session API using existing paired nodes.
+
+No arbitrary ADB/shell commands or input to unpaired targets. Commands are
+queued through the existing capability registry so per-node policy applies.
+"""
+from __future__ import annotations
+import re
+import secrets
+import threading
+import time
+
+_PACKAGE = re.compile(r"^[A-Za-z0-9_]+(?:[.][A-Za-z0-9_]+)+$")
+_ACTIONS = frozenset(("tap", "swipe", "back"))
+_OPERATIONS = frozenset(("start", "observe", "action", "stop", "pause", "resume"))
+
+
+class AndroidGameSessions:
+    def __init__(self, registry):
+        self.registry = registry
+        self.lock = threading.RLock()
+        self.sessions = {}
+
+    def devices(self):
+        return [node for node in self.registry.list_nodes()
+                if node.get("node_type") == "android-gaming"]
+
+    def _get_node(self, node_id):
+        node = next((item for item in self.devices()
+                     if item.get("node_id") == node_id), None)
+        if not node or not node.get("online"):
+            raise ValueError("The selected paired Android game node is offline")
+        return node
+
+    def command(self, operation, payload):
+        if operation not in _OPERATIONS:
+            raise ValueError("Unsupported game operation")
+        node_id = str(payload.get("node_id") or "")
+        with self.lock:
+            self._get_node(node_id)
+            now = time.time()
+            session = self.sessions.get(node_id)
+            if operation == "start":
+                if session and session["expires_epoch"] > now:
+                    raise ValueError("This Android node already has a session")
+                game_id = str(payload.get("game_id") or "")
+                if not _PACKAGE.fullmatch(game_id):
+                    raise ValueError("Invalid Android package")
+                duration = int(payload.get("duration_seconds", 300))
+                max_actions = int(payload.get("max_actions", 100))
+                if not 1 <= duration <= 3600 or not 1 <= max_actions <= 500:
+                    raise ValueError("Invalid session limits")
+                session_id = secrets.token_urlsafe(24)
+                args = {"session_id": session_id, "game_id": game_id,
+                        "duration_seconds": duration, "max_actions": max_actions}
+                capability = "game.session.start"
+                next_session = {"session_id": session_id, "game_id": game_id,
+                                "expires_epoch": now + duration,
+                                "max_actions": max_actions, "actions_queued": 0}
+            else:
+                if not session or session["expires_epoch"] <= now:
+                    self.sessions.pop(node_id, None)
+                    raise ValueError("No active game session in Main")
+                if payload.get("session_id") != session["session_id"]:
+                    raise PermissionError("Session mismatch")
+                args = {"session_id": session["session_id"]}
+                next_session = None
+                capability = {"observe": "game.observe", "action": "game.action",
+                              "stop": "game.session.stop", "pause": "game.session.pause",
+                              "resume": "game.session.resume"}[operation]
+                if operation == "observe":
+                    args["analyze"] = payload.get("analyze") is True
+                if operation == "action":
+                    if session["actions_queued"] >= session["max_actions"]:
+                        raise PermissionError("Action budget exhausted")
+                    action = payload.get("action")
+                    if not isinstance(action, dict) or action.get("type") not in _ACTIONS:
+                        raise ValueError("Only bounded tap/swipe/back actions are supported")
+                    kind = action["type"]
+                    if kind in ("tap", "swipe"):
+                        fields = ("x", "y") if kind == "tap" else ("x1", "y1", "x2", "y2")
+                        if any(type(action.get(field)) is not int or not 0 <= action[field] <= 16384
+                               for field in fields):
+                            raise ValueError("Invalid coordinates")
+                    if kind == "swipe":
+                        duration = action.get("duration_ms", 350)
+                        if type(duration) is not int or not 50 <= duration <= 1500:
+                            raise ValueError("Invalid swipe duration")
+                    args.update({"game_id": session["game_id"],
+                                 "action": {k: v for k, v in action.items()
+                                            if k in {"type","x","y","x1","y1","x2","y2","duration_ms"}},
+                                 "expires_epoch": now + 10})
+            # Existing registry owner confirmation policy is always checked.
+            queued = self.registry.enqueue(node_id, capability, args,
+                                           confirmed=payload.get("confirmed") is True,
+                                           requested_by="android-game-dashboard")
+            if operation == "start":
+                self.sessions[node_id] = next_session
+            elif operation == "stop":
+                self.sessions.pop(node_id, None)
+            elif operation == "action":
+                session["actions_queued"] += 1
+            return {"ok": True, "operation": operation, "command": queued,
+                    "session": self.sessions.get(node_id)}
