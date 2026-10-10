@@ -304,6 +304,9 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         self.local_vision_var = tk.BooleanVar(value=bool(self.config_data.get("local_vision_enabled", False)))
         self.vision_provider_var = tk.StringVar(value=self.config_data.get("local_vision_provider", "auto"))
         self.vision_model_var = tk.StringVar(value=self.config_data.get("local_vision_model", ""))
+        default_model = BASE_DIR / "models" / "yolov8n.onnx"
+        if not self.vision_model_var.get() and default_model.is_file():
+            self.vision_model_var.set(str(default_model))
         self.game_var = tk.StringVar()
         self.game_var.set(self.config_data.get("selected_game", ""))
         self._init_media_controls()
@@ -665,6 +668,15 @@ class App(MediaControls, WorldMapControls, tk.Tk):
             return
         if self.android_process and self.android_process.poll() is None:
             self.android_status_var.set("Android worker is already running")
+            return
+        from nekosuneai.windows_android_tools import find_adb
+        if not find_adb(BASE_DIR / "tools" / "android", self.adb_path_var.get()):
+            if messagebox.askyesno(APP_TITLE, "ADB not detected. Download official Google Android platform-tools before starting?"):
+                from nekosuneai.windows_android_tools import install_platform_tools
+                self.android_status_var.set("Installing ADB before Android worker startup...")
+                self._background_android(
+                    lambda: install_platform_tools(BASE_DIR / "tools" / "android"),
+                    lambda path: (self.adb_path_var.set(path), self.start_android_worker()))
             return
         if not self.save():
             return
