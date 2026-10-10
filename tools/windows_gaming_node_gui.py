@@ -543,7 +543,7 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         from nekosuneai.windows_encoder_probe import probe_encoders
         encoder = probe_encoders()
         ttk.Label(local, text="FFmpeg GPU encoders: " + (", ".join(encoder["available"]) if encoder["available"] else "none detected") + " (capability only)", style="Muted.TLabel").pack(anchor="w", padx=22, pady=5)
-        ttk.Button(local, text="Save vision settings", command=self.save, style="Secondary.TButton").pack(anchor="e", padx=22, pady=12)
+        ttk.Button(local, text="Save vision settings", command=self.save_vision_settings, style="Secondary.TButton").pack(anchor="e", padx=22, pady=12)
 
         live = self._card(page, "Live status", "The node only executes approved gaming capabilities.")
         self.live_dot = tk.Canvas(live, width=12, height=12, bg=PANEL_2, highlightthickness=0)
@@ -634,6 +634,14 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         self.adb_path_var.set(path)
         self.android_status_var.set("ADB ready: " + path)
         self.discover_android_devices()
+
+    def save_vision_settings(self):
+        if not self.save():
+            return
+        from pathlib import Path
+        if self.local_vision_var.get() and not Path(self.vision_model_var.get()).is_file():
+            if messagebox.askyesno(APP_TITLE, "Local vision is enabled but the ONNX model was not found. Download YOLOv8n now?"):
+                self.install_yolo_model()
 
     def install_yolo_model(self):
         if not messagebox.askyesno(APP_TITLE, "Download verified YOLOv8n ONNX model (approximately 13 MB) from Hugging Face?"):
