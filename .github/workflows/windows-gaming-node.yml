@@ -12,6 +12,9 @@ on:
       - 'NekoSuneAI-Windows-Gaming-Node.spec'
       - 'nekosuneai/hidmaestro_client.py'
       - 'nekosuneai/windows_gaming_agent.py'
+      - 'nekosuneai/local_vision_fallback.py'
+      - 'tools/windows_gaming_node_gui.py'
+      - 'test/test_local_vision_fallback.py'
       - 'tools/hidmaestro-bridge/**'
       - 'test/test_hidmaestro_client.py'
       - '.github/workflows/windows-gaming-node.yml'
@@ -50,6 +53,13 @@ jobs:
 
       - name: HIDMaestro optional backend unit tests
         run: python -m unittest discover -s test -p test_hidmaestro_client.py -v
+
+      - name: Validate platform and vision features
+        shell: pwsh
+        run: |
+          python -m compileall -q tools/windows_gaming_node_gui.py nekosuneai/local_vision_fallback.py
+          python -m unittest discover -s test -p test_local_vision_fallback.py -v
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Build standalone GUI EXE
         shell: pwsh
