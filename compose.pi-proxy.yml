@@ -14,7 +14,9 @@ services:
         required: false
     environment:
       PULSE_SERVER: unix:/run/pulse/native
+      PULSE_SINK: ${PULSE_SINK:-bluez_output.7C_61_66_3E_5E_9C.1}
       PULSE_COOKIE: /run/pulse-cookie
+      SDL_AUDIODRIVER: pulseaudio
       DBUS_SYSTEM_BUS_ADDRESS: unix:path=/run/dbus/system_bus_socket
     devices:
       - /dev/snd:/dev/snd
@@ -29,4 +31,4 @@ services:
       - ./pi-proxy-agent.json:/data/pi-proxy-agent.json
       - /run/dbus:/run/dbus:ro
       - ${PULSE_RUNTIME_DIR:-/run/user/1000/pulse}:/run/pulse:ro
-      - ${PULSE_COOKIE_FILE:-/home/pi/.config/pulse/cookie}:/run/pulse-cookie:ro
+      - ${PULSE_COOKIE_FILE:-/home/nekosunevr/.config/pulse/cookie}:/run/pulse-cookie:ro
