@@ -24,7 +24,7 @@ button.danger{background:#6c222d;border-color:#ad4853}
 <div><label for="budget">Action budget (1–500)</label><input id="budget" type="number" min="1" max="500" value="50"></div>
 </div>
 <label><input id="confirmed" type="checkbox" style="width:auto"> I approve the selected game's control commands</label>
-<div><button id="start">Start selected game</button><button id="observe">Request observation</button><button id="pause">Pause</button><button id="resume">Resume</button><button id="stop" class="danger">Stop</button></div>
+<div><button id="start">Start selected game</button><button id="recover">Recover session</button><button id="observe">Request observation</button><button id="pause">Pause</button><button id="resume">Resume</button><button id="stop" class="danger">Stop</button><button id="emergency" class="danger">Emergency stop</button></div>
 </section>
 <section class="panel">
 <h2>Manual game input</h2>
@@ -76,6 +76,28 @@ async function send(op,payload={}){
 }
 $("node").addEventListener("change",()=>{if(selectedNode && $("node").value!==selectedNode)report("Stop the existing session before changing devices.");});
 $("refresh").onclick=()=>refresh().catch(e=>report(e.message));
+$("recover").onclick=async()=>{
+  try {
+    const node_id=$("node").value;
+    if(!node_id)throw new Error("Choose an Android node");
+    const headers={};if(token)headers["X-Neko-Token"]=token;
+    const response=await fetch("/api/game/android/session?node_id="+encodeURIComponent(node_id),
+      {headers,credentials:"same-origin"});
+    const result=await response.json();
+    if(!response.ok)throw new Error(result.error || "Could not recover session");
+    sessionId=result.session?.session_id || "";
+    selectedNode=sessionId?node_id:"";
+    report(result);
+  } catch(e){report(e.message);}
+};
+$("emergency").onclick=async()=>{
+  try{
+    if(!$("node").value)throw new Error("Choose an Android node");
+    const result=await api("/api/game/android/emergency-stop",
+      {node_id:$("node").value,confirmed:true});
+    sessionId="";selectedNode="";report(result);
+  } catch(e){report(e.message);}
+};
 $("start").onclick=()=>send("start",{game_id:$("game").value.trim(),duration_seconds:Number($("duration").value),max_actions:Number($("budget").value)}).catch(e=>report(e.message));
 for(const op of ["observe","pause","resume","stop"])$(op).onclick=()=>send(op,op==="observe"?{analyze:false}:{}).catch(e=>report(e.message));
 $("tap").onclick=()=>send("action",{action:{type:"tap",x:Number($("x").value),y:Number($("y").value)}}).catch(e=>report(e.message));
