@@ -490,9 +490,12 @@ class WindowVision:
                     from .local_vision_fallback import model_status
                     # Report the actual configured backend; do not invent model
                     # detections or silently enable automated game actions.
-                    result["local_vision"] = model_status(
-                        str(self.config.get("local_vision_model") or ""),
-                        str(self.config.get("local_vision_provider") or "auto"))
+                    model_path = str(self.config.get("local_vision_model") or "")
+                    provider = str(self.config.get("local_vision_provider") or "auto")
+                    result["local_vision"] = model_status(model_path, provider)
+                    if detailed and result["local_vision"]["enabled"]:
+                        from .local_vision_fallback import detect
+                        result["local_vision"] = detect(image, model_path, provider)
                 except Exception as exc:
                     result["local_vision"] = {"enabled": False, "reason": str(exc)[:160]}
             if detailed:
