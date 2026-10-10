@@ -42,14 +42,19 @@ jobs:
         shell: pwsh
         timeout-minutes: 10
         run: |
-          $env:VGAMEPAD_SKIP_VIGEMBUS_INSTALL = 'true'
-          python -m pip install --disable-pip-version-check -r requirements-windows-gaming-node.txt
+          # vgamepad 0.1.0 invokes an interactive ViGEmBus MSI during wheel
+          # metadata generation on hosted runners. It must be installed locally
+          # on a PC that needs physical/virtual controller input.
+          Get-Content requirements-windows-gaming-node.txt |
+            Where-Object { $_ -notmatch '^\s*vgamepad\b' } |
+            Set-Content $env:RUNNER_TEMP\requirements-windows-ci.txt
+          python -m pip install --disable-pip-version-check -r $env:RUNNER_TEMP\requirements-windows-ci.txt
 
       - name: Verify package imports
         shell: pwsh
         run: |
           $env:VGAMEPAD_SKIP_VIGEMBUS_INSTALL = 'true'
-          python -c "import nekosuneai; import nekosuneai.windows_gaming_agent; import vgamepad; print('Windows Gaming Node imports OK')"
+          python -c "import nekosuneai; import nekosuneai.windows_gaming_agent; print('Windows Gaming Node imports OK (virtual controller optional)')"
 
       - name: Build standalone GUI EXE
         shell: pwsh
