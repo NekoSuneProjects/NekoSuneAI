@@ -37,14 +37,17 @@ class AndroidLanTests(unittest.TestCase):
         self.assertEqual(all_devices, [first])
         connect.assert_called_once()
     def test_known_device_reachability(self):
-        discovery = AndroidLanDiscovery({"game_lan_enabled": True,
-            "game_lan_devices": [{"id": "android-1", "ip": "127.0.0.1", "port": 8765, "token": "a" * 40}]})
+        discovery = AndroidLanDiscovery({'game_lan_enabled': True,
+            'game_lan_devices': [{'id': 'android-1', 'ip': '127.0.0.1',
+                                  'port': 8765, 'token': 'a' * 40}]})
         self.assertEqual(len(discovery.inventory()), 1)
-        with patch("nekosuneai.android_lan_discovery.socket.create_connection") as connect:
-            self.assertTrue(discovery.status("android-1")["reachable"])
+        with patch('nekosuneai.android_lan_discovery.urllib.request.urlopen') as connect:
+            connect.return_value.__enter__.return_value.status = 200
+            connect.return_value.__enter__.return_value.read.return_value = b'{"online": true}'
+            self.assertTrue(discovery.status('android-1')['reachable'])
             connect.assert_called_once()
         with self.assertRaises(PermissionError):
-            discovery.status("unknown")
+            discovery.status('unknown')
 
 
 if __name__ == "__main__":
