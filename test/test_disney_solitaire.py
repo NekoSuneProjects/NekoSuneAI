@@ -1,7 +1,7 @@
 import unittest
 
 from nekosuneai.android_gameplay.disney_solitaire import (
-    PACKAGE, adjacent, classify_scene, legal_moves, parse_rank, propose_action, profile,
+    PACKAGE, adjacent, classify_scene, legal_moves, parse_rank, propose_action, profile, payment_close_action,
 )
 
 
@@ -35,6 +35,27 @@ class DisneySolitaireTests(unittest.TestCase):
         self.assertEqual(classify_scene("TALE AS OLD AS TIME SCENE PROGRESS 3/6"), "scene_progress")
         self.assertEqual(classify_scene("LEVEL 2 PLAY"), "level_start")
         self.assertEqual(classify_scene("Tap a card one rank higher or lower"), "tutorial")
+
+    def test_payment_dialog_is_detected_before_other_scenes(self):
+        self.assertEqual(classify_scene("SPECIAL OFFER $4.99 STREAK BONUS"), "payment_popup")
+        self.assertEqual(classify_scene("BUY NOW £3.99"), "payment_popup")
+
+    def test_payment_dialog_rejects_unknown_or_ambiguous_close_buttons(self):
+        self.assertEqual(propose_action("payment_popup", screen_width=1536,
+                                        screen_height=691)["action"], "wait")
+        safe = {"label": "X", "x": 1100, "y": 124, "confidence": 0.99}
+        self.assertEqual(payment_close_action([safe, safe], 1536, 691)["action"], "wait")
+        self.assertEqual(payment_close_action([
+            {"label": "X", "x": 1100, "y": 124, "confidence": 0.5}], 1536, 691)["action"], "wait")
+
+    def test_payment_dialog_uses_only_verified_x(self):
+        button = {"label": "X", "x": 1100, "y": 124, "confidence": 0.98}
+        action = propose_action("payment_popup", screen_width=1536,
+                                screen_height=691, close_buttons=[button])
+        self.assertEqual(action["action"], "tap")
+        self.assertEqual((action["x"], action["y"]), (1100, 124))
+        self.assertTrue(action["requires_fresh_observation"])
+        self.assertNotIn("purchase", action)
 
     def test_no_blind_moves(self):
         self.assertEqual(propose_action("unknown")["action"], "wait")
