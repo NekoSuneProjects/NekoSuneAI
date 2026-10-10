@@ -39,6 +39,7 @@ class AndroidGameSessions:
             result["device_session_id"] = state.get("session_id") or None
             result["device_input_disabled"] = state.get("input_disabled", True)
             result["device_autoplay"] = state.get("autoplay") or {"status": "unknown"}
+            result["detected_game"] = state.get("detected_game") or {}
             result["device_command_result"] = state.get("last_command_result") or {}
             result["device_confirmed"] = state.get("session_id") == session["session_id"]
             result["phase"] = "active" if result["device_confirmed"] else "awaiting-device"
