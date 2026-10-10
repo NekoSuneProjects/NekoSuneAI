@@ -1,0 +1,47 @@
+name: Windows Android fallback validation
+on:
+  push:
+    branches: [build/windows-gaming-node-release]
+    paths:
+      - 'nekosuneai/android_gameplay/**'
+      - 'requirements-windows-android-fallback.txt'
+      - 'tools/start_windows_android_fallback.ps1'
+      - 'test/test_android_game_detection.py'
+      - 'test/test_disney_solitaire.py'
+      - 'test/test_android_lan_status.py'
+      - 'test/test_main_bridge.py'
+      - 'test/test_paired_autoplay.py'
+      - '.github/workflows/windows-android-fallback.yml'
+  pull_request:
+    paths:
+      - 'nekosuneai/android_gameplay/**'
+      - 'requirements-windows-android-fallback.txt'
+      - 'tools/start_windows_android_fallback.ps1'
+      - 'test/test_android_game_detection.py'
+      - 'test/test_disney_solitaire.py'
+      - 'test/test_android_lan_status.py'
+      - 'test/test_main_bridge.py'
+      - 'test/test_paired_autoplay.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  android-fallback:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install optional Android packages
+        run: python -m pip install -r requirements-windows-android-fallback.txt
+      - name: Compile Android fallback
+        run: python -m compileall -q nekosuneai/android_gameplay test/test_main_bridge.py test/test_disney_solitaire.py
+      - name: Verify worker and gameplay tests
+        shell: pwsh
+        run: |
+          foreach ($test in @('test_android_game_detection.py', 'test_disney_solitaire.py', 'test_android_lan_status.py', 'test_main_bridge.py', 'test_paired_autoplay.py')) {
+            python -m unittest discover -s test -p $test -v
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
