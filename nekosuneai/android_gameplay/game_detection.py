@@ -7,6 +7,9 @@ from __future__ import annotations
 
 KNOWN_GAMES = {
     "com.moonactive.cmboard": "Coin Master – Board Adventure",
+    "com.moonactive.coinmaster": "Coin Master",
+    "com.superplaystudios.disneysolitairedreams": "Disney Solitaire",
+    "com.superplaystudios.dicedreams": "Dice Dreams",
 }
 
 
