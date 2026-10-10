@@ -13,7 +13,7 @@ from threading import Thread
 def serve_status(worker, *, host="127.0.0.1", port=8765, token=""):
     if len(token) < 32:
         raise ValueError("A random LAN status token of at least 32 characters is required")
-    if not 1 <= int(port) <= 65535:
+    if not 0 <= int(port) <= 65535 or (int(port) == 0 and host not in ("127.0.0.1", "::1")):
         raise ValueError("Invalid status port")
 
     class Handler(BaseHTTPRequestHandler):
