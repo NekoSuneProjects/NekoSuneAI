@@ -194,7 +194,9 @@ class AndroidGameWorker:
                 exposed_cards=exposed, screen_width=width,
                 screen_height=height, close_buttons=buttons,
                 extra_cards_button=args.get("extra_cards_button"),
-                wild_button=args.get("wild_button")),
+                wild_button=args.get("wild_button"),
+                collect_button=args.get("collect_button"),
+                scene_tile_button=args.get("scene_tile_button")),
                 "execution": "proposal_only", "fresh_vision_required": True}
         if capability == "game.disney.moves":
             self._active()
