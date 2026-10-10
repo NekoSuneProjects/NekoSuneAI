@@ -1,0 +1,10 @@
+# Opt-in Windows local vision inference. Not required for standard GUI or Android ADB.
+# Choose ONE runtime. DirectML works with many AMD/Intel/NVIDIA adapters.
+# DirectML: pip install onnxruntime-directml
+# NVIDIA CUDA: pip install onnxruntime-gpu (requires matching CUDA/cuDNN)
+# CPU: pip install onnxruntime
+# OCR fallback if you don't have a local Tesseract binary:
+rapidocr-onnxruntime>=1.3
+mss>=9.0
+pygetwindow>=0.0.9
+opencv-python>=4.10,<4.12
