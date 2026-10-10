@@ -5,13 +5,10 @@
   "node_id": "pi-proxy-living-room",
   "name": "Living Room Pi Proxy",
   "device_token": "",
-
   "bluetooth_reconnect_enabled": true,
   "bluetooth_speaker_address": "",
   "bluetooth_reconnect_interval_seconds": 10,
-
   "audio_listen_seconds": 5,
-
   "wake_word_enabled": false,
   "wake_word_model": "hey_jarvis",
   "wake_word_framework": "onnx",
@@ -22,17 +19,22 @@
   "mic_device_index": null,
   "mic_alsa_device": "",
   "prefer_kinect_microphone": true,
-
   "web_status_enabled": true,
   "web_status_port": 8799,
   "web_control_enabled": true,
   "web_control_pin": "",
-
   "alert_sounds_dir": "sounds",
-
   "kinect_vision_enabled": false,
   "kinect_device_index": 0,
   "kinect_vision_interval_seconds": 4,
   "kinect_face_emotion": true,
-  "kinect_vision_describe": true
+  "kinect_vision_describe": true,
+  "game_lan_enabled": false,
+  "game_lan_devices": [
+    {
+      "id": "android-gameplay-1",
+      "ip": "192.168.1.100",
+      "port": 8765
+    }
+  ]
 }
