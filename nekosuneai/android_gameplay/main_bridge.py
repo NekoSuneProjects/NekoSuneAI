@@ -25,6 +25,8 @@ CAPABILITIES = {
     "game.devices": {"kind": "read"},
     "game.detect": {"kind": "read"},
     "game.profile": {"kind": "read"},
+    "game.disney.profile": {"kind": "read"},
+    "game.disney.moves": {"kind": "read"},
     "game.navigation.plan": {"kind": "read"},
     "game.observe": {"kind": "read"},
     "game.action": {"kind": "write"},
@@ -163,6 +165,21 @@ class AndroidGameWorker:
             if not isinstance(expiry, (int, float)) or not time.time() < expiry <= time.time() + 30:
                 raise PermissionError("Autoplay start is expired or missing deadline")
             return self.autoplay.start(args.get("goal", ""))
+        if capability == "game.disney.profile":
+            if self.device.foreground_package() != "com.superplaystudios.disneysolitairedreams":
+                raise PermissionError("Disney Solitaire must be foreground")
+            from .disney_solitaire import profile
+            return profile()
+        if capability == "game.disney.moves":
+            self._active()
+            if self.package != "com.superplaystudios.disneysolitairedreams":
+                raise PermissionError("Disney Solitaire session required")
+            from .disney_solitaire import legal_moves
+            cards = args.get("exposed_cards", [])
+            if not isinstance(cards, list) or len(cards) > 60:
+                raise ValueError("Expected at most 60 observed cards")
+            return {"moves": legal_moves(args.get("foundation_rank"), cards),
+                    "warning": "Proposals only; cards must be confirmed against fresh vision"}
         if capability == "game.profile":
             if self.device.foreground_package() != "com.moonactive.coinmaster":
                 raise PermissionError("Original Coin Master must be foreground")
