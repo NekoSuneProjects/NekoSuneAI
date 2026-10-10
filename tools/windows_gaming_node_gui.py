@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -297,6 +298,8 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         self.platform_var = tk.StringVar(value=self.config_data.get("selected_platform", "Windows"))
         self.android_serial_var = tk.StringVar(value=self.config_data.get("android_serial", "127.0.0.1:5555"))
         self.android_status_var = tk.StringVar(value="Android worker stopped")
+        self.adb_path_var = tk.StringVar(value=self.config_data.get("adb_path", ""))
+        self.android_devices_var = tk.StringVar(value="Devices not scanned")
         self.android_process = None
         self.local_vision_var = tk.BooleanVar(value=bool(self.config_data.get("local_vision_enabled", False)))
         self.vision_provider_var = tk.StringVar(value=self.config_data.get("local_vision_provider", "auto"))
@@ -510,6 +513,14 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         android = self._card(page, "Android / BlueStacks", "Runs a separately paired ADB worker, not Windows mouse automation. Only allowed game packages are accepted.")
         android.columnconfigure(1, weight=1)
         self._field(android, "ADB serial", self.android_serial_var, 0)
+        tools_panel = ttk.Frame(android, style="Card.TFrame")
+        tools_panel.grid(row=3, column=0, columnspan=2, sticky="ew", padx=22, pady=(4, 12))
+        ttk.Label(tools_panel, text="ADB tools & device discovery", style="Heading.TLabel").pack(anchor="w")
+        ttk.Label(tools_panel, textvariable=self.android_devices_var, style="Muted.TLabel", wraplength=660).pack(anchor="w", pady=5)
+        ttk.Button(tools_panel, text="Detect ADB + BlueStacks", command=self.discover_android_devices, style="Secondary.TButton").pack(side="left", padx=(0, 8))
+        ttk.Button(tools_panel, text="Install official Google ADB tools", command=self.install_adb_tools, style="Secondary.TButton").pack(side="left")
+        ttk.Button(tools_panel, text="Install verified YOLOv8n ONNX", command=self.install_yolo_model, style="Secondary.TButton").pack(side="left", padx=8)
+
         controls = ttk.Frame(android, style="Card.TFrame")
         controls.grid(row=1, column=0, columnspan=2, sticky="ew", padx=22, pady=(4, 14))
         ttk.Button(controls, text="Start Android worker", command=self.start_android_worker, style="Primary.TButton").pack(side="left")
@@ -599,6 +610,55 @@ class App(MediaControls, WorldMapControls, tk.Tk):
         if self.game_var.get() not in values:
             self.game_var.set(values[0] if values else "")
 
+    def _background_android(self, action, success):
+        def task():
+            try:
+                value = action()
+                self.after(0, lambda result=value: success(result))
+            except Exception as exc:
+                self.after(0, lambda error=str(exc): self.android_status_var.set("Android tools: " + error))
+        threading.Thread(target=task, daemon=True).start()
+
+    def install_adb_tools(self):
+        if not messagebox.askyesno(APP_TITLE, "Download official Android SDK Platform-Tools from Google to this application's tools folder?"):
+            return
+        from nekosuneai.windows_android_tools import install_platform_tools
+        self.android_status_var.set("Downloading official ADB tools...")
+        self._background_android(lambda: install_platform_tools(BASE_DIR / "tools" / "android"),
+                                 self._adb_installed)
+
+    def _adb_installed(self, path):
+        self.adb_path_var.set(path)
+        self.android_status_var.set("ADB ready: " + path)
+        self.discover_android_devices()
+
+    def install_yolo_model(self):
+        if not messagebox.askyesno(APP_TITLE, "Download verified YOLOv8n ONNX model (approximately 13 MB) from Hugging Face?"):
+            return
+        from nekosuneai.windows_android_tools import install_yolo_model
+        self.android_status_var.set("Downloading YOLOv8n ONNX model...")
+        self._background_android(lambda: install_yolo_model(BASE_DIR / "models"),
+                                 self._yolo_installed)
+
+    def _yolo_installed(self, path):
+        self.vision_model_var.set(path)
+        self.local_vision_var.set(True)
+        self.android_status_var.set("YOLO model verified: " + path)
+
+    def discover_android_devices(self):
+        from nekosuneai.windows_android_tools import find_adb, discover_bluestacks
+        adb = find_adb(BASE_DIR / "tools" / "android", self.adb_path_var.get())
+        if not adb:
+            self.android_devices_var.set("ADB not installed. Choose Install official Google ADB tools.")
+            return
+        self.adb_path_var.set(adb)
+        self.android_devices_var.set("Scanning local BlueStacks ADB ports...")
+        def found(devices):
+            self.android_devices_var.set("Discovered: " + (", ".join(devices) if devices else "no active Android instances"))
+            if devices:
+                self.android_serial_var.set(devices[0])
+        self._background_android(lambda: discover_bluestacks(adb), found)
+
     def start_android_worker(self) -> None:
         if self.platform_var.get() != "Android":
             messagebox.showerror(APP_TITLE, "Choose Android as the platform first.")
@@ -621,8 +681,10 @@ class App(MediaControls, WorldMapControls, tk.Tk):
             python_exe = shutil.which("python") or shutil.which("py")
             if not python_exe:
                 raise RuntimeError("Install Python 3.11 and Android gameplay dependencies to run BlueStacks worker.")
-            if not shutil.which("adb"):
-                raise RuntimeError("Install Android platform-tools and enable ADB in BlueStacks.")
+            from nekosuneai.windows_android_tools import find_adb
+            adb = find_adb(BASE_DIR / "tools" / "android", self.adb_path_var.get())
+            if not adb:
+                raise RuntimeError("ADB missing. Select Install official Google ADB tools.")
             command = [python_exe,
                        "-m", "nekosuneai.android_gameplay.main_bridge",
                        "--server", self.server_var.get().strip(), "--node-id",
@@ -631,7 +693,9 @@ class App(MediaControls, WorldMapControls, tk.Tk):
                        "--pairing-code", self.pairing_code_var.get().strip(),
                        "--token-file", str(BASE_DIR / ".windows-android-node-token"),
                        "--state-file", str(BASE_DIR / ".windows-android-node-state.json")]
-            self.android_process = subprocess.Popen(command, cwd=str(BASE_DIR))
+            env = dict(os.environ)
+            env["PATH"] = str(Path(adb).parent) + os.pathsep + env.get("PATH", "")
+            self.android_process = subprocess.Popen(command, cwd=str(BASE_DIR), env=env)
             self.android_status_var.set("Android worker running. ADB and Python dependencies must be installed.")
         except Exception as exc:
             messagebox.showerror(APP_TITLE, str(exc))
@@ -653,6 +717,7 @@ class App(MediaControls, WorldMapControls, tk.Tk):
             "selected_game": self.game_var.get(),
             "selected_platform": self.platform_var.get(),
             "android_serial": self.android_serial_var.get().strip(),
+            "adb_path": self.adb_path_var.get().strip(),
             "local_vision_enabled": self.local_vision_var.get(),
             "local_vision_provider": self.vision_provider_var.get(),
             "local_vision_model": self.vision_model_var.get().strip(),
