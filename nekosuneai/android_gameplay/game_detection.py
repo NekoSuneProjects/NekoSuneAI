@@ -10,6 +10,14 @@ KNOWN_GAMES = {
     "com.moonactive.coinmaster": "Coin Master",
     "com.superplaystudios.disneysolitairedreams": "Disney Solitaire",
     "com.superplaystudios.dicedreams": "Dice Dreams",
+    "com.global.pnck": "Puzzles & Chaos: Frozen Castle",
+    "com.global.mus": "MU: Dark Epoch",
+    "com.yottagames.gameofmafia": "The Grand Mafia",
+    "air.com.buffalo_studios.newflashbingo": "Bingo Blitz",
+    "com.innplaylabs.animalkingdomraid": "Animals & Coins Adventure Game",
+    "com.lilithgame.roc.gp": "Rise of Kingdoms: Lost Crusade",
+    "com.supersolid.cookandmerge": "Cook & Merge Kate\'s Adventure",
+    "com.pocketchamps.game": "Pocket Champs: 3D Racing Games",
 }
 
 
