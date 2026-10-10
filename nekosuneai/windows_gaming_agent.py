@@ -485,6 +485,16 @@ class WindowVision:
                 "ocr_error": ocr_error,
                 "transition": transition, "input_safe": not bool(transition), "epoch": time.time(),
             }
+            if self.config.get("local_vision_enabled"):
+                try:
+                    from .local_vision_fallback import model_status
+                    # Report the actual configured backend; do not invent model
+                    # detections or silently enable automated game actions.
+                    result["local_vision"] = model_status(
+                        str(self.config.get("local_vision_model") or ""),
+                        str(self.config.get("local_vision_provider") or "auto"))
+                except Exception as exc:
+                    result["local_vision"] = {"enabled": False, "reason": str(exc)[:160]}
             if detailed:
                 for _ in range(6):
                     buf = io.BytesIO()
