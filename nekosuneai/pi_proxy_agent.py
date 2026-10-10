@@ -48,7 +48,7 @@ from .bluetooth_watchdog import BluetoothSpeakerWatchdog
 from .config import Config
 from .console_control import console_capabilities, console_command, console_status
 from .kinect_vision_patch import KinectVisionService
-from .music import MusicController
+from .music_router import RoutedMusicController
 from .wakeword import WakeWordListener
 from .ws_client import WebSocketClient
 
@@ -244,7 +244,7 @@ class PiProxyAgent:
         # Music is a queue with pause/skip/volume, not a single stream, so it
         # gets a real controller rather than the bare subprocess player the
         # chimes and TTS use.
-        self.music = MusicController(notify=self._on_music_event)
+        self.music = RoutedMusicController(notify=self._on_music_event)
         # Chimes get their own player: LocalAudioPlayer.play_wav_bytes stops
         # whatever that player is already doing, so sharing one with TTS made
         # the wake chime and the spoken reply cut each other off depending on
