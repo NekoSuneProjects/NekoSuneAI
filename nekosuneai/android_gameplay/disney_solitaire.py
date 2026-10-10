@@ -13,6 +13,12 @@ def classify_scene(texts):
     text = (" ".join(str(t) for t in texts) if not isinstance(texts, str) else texts).lower()
     if any(phrase in text for phrase in ("special offer", "limited offer", "purchase", "buy now", "no ads", "remove ads", "£", "$", "€", "usd", "gbp", "eur")):
         return "payment_popup"
+    if "fortune sweepstakes has ended" in text:
+        return "dismissible_notice"
+    if "your coins bonus" in text and "ready" in text:
+        return "coins_bonus_ready"
+    if "scene complete" in text and "tap to collect" in text:
+        return "scene_complete_collect"
     if "wild card matches any card" in text and "complete your streak" in text:
         return "wild_card_hint"
     if "extra cards" in text and "run out" in text:
@@ -27,6 +33,8 @@ def classify_scene(texts):
         return "level_start"
     if "one rank higher or lower" in text:
         return "tutorial"
+    if "next bonus" in text and "scene" in text:
+        return "lobby"
     if "streak bonus" in text or "stock" in text or "cards" in text:
         return "board"
     return "unknown"
@@ -130,8 +138,59 @@ def tutorial_button_action(button, width, height, kind):
             "reason": "Use confirmed free tutorial " + kind}
 
 
+def verified_button_action(button, width, height, *, kind, region, reason):
+    """Fail closed without a fresh, unambiguous labelled visual detection."""
+    if type(width) is not int or type(height) is not int or width < 400 or height < 250:
+        return {"action": "wait", "reason": "Invalid screen dimensions"}
+    if not isinstance(button, dict) or button.get("kind") != kind:
+        return {"action": "wait", "reason": "Required button not detected"}
+    x, y, score = button.get("x"), button.get("y"), button.get("confidence")
+    x0, y0, x1, y1 = region
+    if (type(x) is not int or type(y) is not int or
+            type(score) not in (int, float) or not 0.9 <= score <= 1 or
+            button.get("highlighted") is not True or
+            not (x0 * width <= x < x1 * width and y0 * height <= y < y1 * height)):
+        return {"action": "wait", "reason": "Unverified or misplaced button"}
+    return {"action": "tap", "x": x, "y": y, "reason": reason,
+            "requires_fresh_observation": True}
+
+
+def dismiss_notice_action(close_buttons, width, height):
+    candidates = []
+    for button in close_buttons:
+        candidate = verified_button_action(
+            {**button, "kind": "notice_close", "highlighted": True}
+            if isinstance(button, dict) and str(button.get("label", "")).lower() in ("x", "×", "close") else None,
+            width, height, kind="notice_close", region=(0.75, 0.02, 0.99, 0.24),
+            reason="Close ended event notice")
+        if candidate["action"] == "tap":
+            candidates.append(candidate)
+    return candidates[0] if len(candidates) == 1 else {
+        "action": "wait", "reason": "No unique verified notice X"}
+
+
 def propose_action(scene, *, foundation_rank=None, exposed_cards=(), screen_width=0, screen_height=0,
-                   close_buttons=(), extra_cards_button=None, wild_button=None):
+                   close_buttons=(), extra_cards_button=None, wild_button=None,
+                   collect_button=None, scene_tile_button=None):
+    if scene == "dismissible_notice":
+        return dismiss_notice_action(close_buttons, screen_width, screen_height)
+    if scene == "coins_bonus_ready":
+        return verified_button_action(
+            collect_button, screen_width, screen_height, kind="coins_bonus_collect",
+            region=(0.32, 0.70, 0.68, 0.97), reason="Collect earned free coins bonus")
+    if scene == "scene_complete_collect":
+        return verified_button_action(
+            collect_button, screen_width, screen_height, kind="scene_complete_collect",
+            region=(0.25, 0.75, 0.75, 0.99), reason="Collect scene completion reward")
+    if scene == "lobby":
+        candidate = verified_button_action(
+            scene_tile_button, screen_width, screen_height, kind="scene_tile",
+            region=(0.01, 0.70, 0.29, 0.99), reason="Open scene claim/upgrade panel")
+        if (candidate["action"] != "tap" or
+                type(scene_tile_button.get("badge_count")) is not int or
+                scene_tile_button["badge_count"] <= 0):
+            return {"action": "wait", "reason": "No verified pending scene claim"}
+        return candidate
     if scene == "extra_cards_hint":
         return tutorial_button_action(extra_cards_button, screen_width, screen_height, "extra_cards")
     if scene == "wild_card_hint":
@@ -154,5 +213,6 @@ def profile():
             "orientation": "landscape", "gameplay": "tripeaks",
             "supported_scenes": ["board", "tutorial", "reward", "level_start",
                                  "scene_progress", "stars_help", "payment_popup",
-                                 "extra_cards_hint", "wild_card_hint", "unknown"],
+                                 "extra_cards_hint", "wild_card_hint", "coins_bonus_ready",
+                                 "dismissible_notice", "scene_complete_collect", "lobby", "unknown"],
             "purchases_enabled": False, "blind_auto_play": False}
