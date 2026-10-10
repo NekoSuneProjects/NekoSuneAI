@@ -11,6 +11,8 @@ PACKAGE = "com.superplaystudios.disneysolitairedreams"
 
 def classify_scene(texts):
     text = (" ".join(str(t) for t in texts) if not isinstance(texts, str) else texts).lower()
+    if any(phrase in text for phrase in ("special offer", "limited offer", "purchase", "buy now", "no ads", "remove ads", "£", "$", "€", "usd", "gbp", "eur")):
+        return "payment_popup"
     if "tap anywhere to collect" in text and "you did it" in text:
         return "reward"
     if "need stars?" in text:
@@ -67,7 +69,34 @@ def legal_moves(foundation_rank, exposed_cards):
                       "requires_fresh_observation": True})
     return moves
 
-def propose_action(scene, *, foundation_rank=None, exposed_cards=(), screen_width=0, screen_height=0):
+def payment_close_action(close_buttons, width, height):
+    """Only close a payment dialog using an independently detected X.
+
+    The supplied button must come from fresh vision/OCR and fall in the upper
+    portion of the screen; missing/ambiguous detections must never be guessed.
+    """
+    if type(width) is not int or type(height) is not int or width < 400 or height < 250:
+        return {"action": "wait", "reason": "No verified screen dimensions"}
+    valid = []
+    for button in close_buttons:
+        if not isinstance(button, dict) or str(button.get("label", "")).strip().lower() not in ("x", "×", "close"):
+            continue
+        x, y, confidence = button.get("x"), button.get("y"), button.get("confidence")
+        if (type(x) is int and type(y) is int and
+                type(confidence) in (float, int) and confidence >= 0.9 and
+                width * 0.45 <= x < width * 0.98 and
+                height * 0.03 <= y <= height * 0.45):
+            valid.append((x, y))
+    if len(valid) != 1:
+        return {"action": "wait", "reason": "Cannot confidently identify a unique payment-popup X"}
+    return {"action": "tap", "x": valid[0][0], "y": valid[0][1],
+            "reason": "Dismiss payment offer via X; never accept purchases",
+            "requires_fresh_observation": True}
+
+
+def propose_action(scene, *, foundation_rank=None, exposed_cards=(), screen_width=0, screen_height=0, close_buttons=()):
+    if scene == "payment_popup":
+        return payment_close_action(close_buttons, screen_width, screen_height)
     if scene == "board":
         moves = legal_moves(foundation_rank, exposed_cards)
         return moves[0] if len(moves) == 1 else {
@@ -83,5 +112,5 @@ def profile():
     return {"package_id": PACKAGE, "game_name": "Disney Solitaire",
             "orientation": "landscape", "gameplay": "tripeaks",
             "supported_scenes": ["board", "tutorial", "reward", "level_start",
-                                 "scene_progress", "stars_help", "unknown"],
+                                 "scene_progress", "stars_help", "payment_popup", "unknown"],
             "purchases_enabled": False, "blind_auto_play": False}
