@@ -11,7 +11,7 @@ import time
 
 _PACKAGE = re.compile(r"^[A-Za-z0-9_]+(?:[.][A-Za-z0-9_]+)+$")
 _ACTIONS = frozenset(("tap", "swipe", "back"))
-_OPERATIONS = frozenset(("start", "observe", "action", "stop", "pause", "resume", "emergency-stop"))
+_OPERATIONS = frozenset(("start", "observe", "action", "stop", "pause", "resume", "emergency-stop", "autoplay", "autoplay-status"))
 
 
 class AndroidGameSessions:
@@ -82,8 +82,15 @@ class AndroidGameSessions:
                 args = {"session_id": session["session_id"]}
                 next_session = None
                 capability = {"observe": "game.observe", "action": "game.action",
+                              "autoplay": "game.autoplay.start", "autoplay-status": "game.autoplay.status",
                               "stop": "game.session.stop", "pause": "game.session.pause",
                               "resume": "game.session.resume"}[operation]
+                if operation == "autoplay":
+                    goal = payload.get("goal")
+                    if not isinstance(goal, str) or not 1 <= len(goal.strip()) <= 500:
+                        raise ValueError("Autoplay requires a 1–500 character owner goal")
+                    args["goal"] = goal.strip()
+                    args["expires_epoch"] = now + 10
                 if operation == "observe":
                     args["analyze"] = payload.get("analyze") is True
                 if operation == "action":
