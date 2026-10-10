@@ -1,11 +1,6 @@
 name: Windows Gaming Node
 
-# Automatic push-triggered builds are disabled: vgamepad's ViGEmBus installer
-# pops an interactive UI prompt during pip install / PyInstaller collection on
-# windows-latest runners, which GitHub Actions cannot answer, so every
-# push-triggered run hangs/fails. Run this manually via workflow_dispatch
-# instead until vgamepad is replaced or its driver install can be made fully
-# silent/skippable in a hosted runner.
+# HIDMaestro's driver is never installed in GitHub Actions.
 on:
   workflow_dispatch:
   push:
@@ -15,6 +10,9 @@ on:
       - 'tools/start_windows_android_fallback.ps1'
       - 'requirements-windows-android-fallback.txt'
       - 'NekoSuneAI-Windows-Gaming-Node.spec'
+      - 'nekosuneai/hidmaestro_client.py'
+      - 'nekosuneai/windows_gaming_agent.py'
+      - 'tools/hidmaestro-bridge/**'
       - '.github/workflows/windows-gaming-node.yml'
 
 permissions:
@@ -42,19 +40,12 @@ jobs:
         shell: pwsh
         timeout-minutes: 10
         run: |
-          # vgamepad 0.1.0 invokes an interactive ViGEmBus MSI during wheel
-          # metadata generation on hosted runners. It must be installed locally
-          # on a PC that needs physical/virtual controller input.
-          Get-Content requirements-windows-gaming-node.txt |
-            Where-Object { $_ -notmatch '^\s*vgamepad\b' } |
-            Set-Content $env:RUNNER_TEMP\requirements-windows-ci.txt
-          python -m pip install --disable-pip-version-check -r $env:RUNNER_TEMP\requirements-windows-ci.txt
+          python -m pip install --disable-pip-version-check -r requirements-windows-gaming-node.txt
 
       - name: Verify package imports
         shell: pwsh
         run: |
-          $env:VGAMEPAD_SKIP_VIGEMBUS_INSTALL = 'true'
-          python -c "import nekosuneai; import nekosuneai.windows_gaming_agent; print('Windows Gaming Node imports OK (virtual controller optional)')"
+          python -c "import nekosuneai; import nekosuneai.windows_gaming_agent; print('Windows Gaming Node imports OK (HIDMaestro sidecar optional)')"
 
       - name: Build standalone GUI EXE
         shell: pwsh
@@ -102,7 +93,7 @@ jobs:
 
           No CLI arguments are required for normal setup.
 
-          Virtual Xbox 360 / DualShock 4 controller support uses vgamepad and requires ViGEmBus on the actual Windows gaming PC. The CI runner does not install device drivers.
+          Virtual Xbox 360 / DualShock 4 support uses optional HIDMaestro .NET 10 sidecar. The driver must be installed on the user's own Windows PC. CI never installs drivers.
           '@ | Set-Content "$root/README-WINDOWS-GAMING-NODE.txt"
 
           Compress-Archive -Path "$root/*" -DestinationPath "release/NekoSuneAI-Windows-Gaming-Node-$version-build-${{ github.run_number }}.zip" -Force
@@ -128,5 +119,5 @@ jobs:
 
             Includes graphical server setup, pairing, device-token storage, profile selection and start/stop controls. Includes optional BlueStacks Android companion launcher and source modules (run with Python/ADB).
 
-            Virtual controller support is bundled, but ViGEmBus must be installed on the target Windows gaming PC.
+            Virtual gamepad support uses the optional HIDMaestro .NET sidecar and a user-installed HIDMaestro driver; no driver is installed in CI.
           files: release/*.zip
